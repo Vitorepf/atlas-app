@@ -1,30 +1,112 @@
 {
   "expo": {
-    "name": "atlas-app",
+    "name": "Atlas",
     "slug": "atlas-app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "atlas",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.vitor.atlas",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Atlas usa seus dados de saúde para gerar insights pessoais sobre sono, atividade e estado físico.",
+        "NSHealthUpdateUsageDescription": "Atlas pode registrar dados de wellness baseados nas suas capturas.",
+        "NSMicrophoneUsageDescription": "Atlas grava áudios curtos para você capturar pensamentos rapidamente.",
+        "NSLocationWhenInUseUsageDescription": "Atlas usa sua localização no momento da captura para preservar contexto.",
+        "NSLocalNetworkUsageDescription": "Atlas se conecta ao servidor privado na sua rede/Tailscale para sincronizar capturas.",
+        "NSCameraUsageDescription": "Atlas captura fotos com anotações para registro visual de momentos.",
+        "NSPhotoLibraryUsageDescription": "Atlas acessa fotos quando você quiser anexar uma imagem a uma captura.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "UIBackgroundModes": [
+          "audio",
+          "fetch",
+          "processing"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.security.application-groups": [
+          "group.com.vitor.atlas.shared"
+        ]
+      }
     },
     "android": {
+      "package": "com.vitor.atlas",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Atlas grava áudios curtos para você capturar pensamentos rapidamente."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Atlas acessa fotos para anexar imagens a capturas.",
+          "cameraPermission": "Atlas usa câmera para capturas com foto."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Atlas usa sua localização no momento da captura para preservar contexto."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Atlas usa seus dados de saúde para gerar insights pessoais.",
+          "NSHealthUpdateUsageDescription": "Atlas pode registrar dados baseados em capturas.",
+          "background": true
+        }
+      ],
+      "expo-asset",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "atlas": {
+        "apiHost": "vitors-macbook-pro-1",
+        "apiPort": 3737,
+        "apiToken": "local-development-atlas-token-change-me"
+      },
+      "router": {},
+      "eas": {
+        "projectId": "bad806c2-ae08-4b1c-8e3e-14597f5bbce7"
+      }
+    },
+    "owner": "vitoref"
   }
 }

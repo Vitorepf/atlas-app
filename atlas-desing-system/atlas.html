@@ -1,0 +1,3127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas — Captura cognitiva</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  /* ===== TOKENS ===== */
+  :root {
+    /* Light — Cores de dia */
+    --bg:           #F4EFE6;
+    --surface:      #EAE3D6;
+    --premium:      #E0D8C9;
+    --ink:          #1A1612;
+    --ink-2:        #6B6358;
+    --ink-3:        #A89F90;
+    --border:       #D4CCBC;
+    /* Accents */
+    --prussian:     #1B3A57;
+    --bronze:       #9B7A3F;
+    --rec-red:      #8B2635;
+    --moss:         #4A5D3A;
+    /* Domains */
+    --d-blackink:   #1B3A57;
+    --d-saude:     #4A5D3A;
+    --d-financas:  #9B7A3F;
+    --d-outro:     #6B6358;
+  }
+  .dark {
+    --bg:           #1C1916;
+    --surface:      #252119;
+    --premium:      #2D2820;
+    --ink:          #F4EFE6;
+    --ink-2:        #A89F90;
+    --ink-3:        #6B6358;
+    --border:       #3A3328;
+    --prussian:     #6892B5;
+    --bronze:       #C9A663;
+    --rec-red:      #C9505F;
+    --moss:         #7A9A65;
+    --d-blackink:   #6892B5;
+    --d-saude:     #7A9A65;
+    --d-financas:  #C9A663;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #15110d;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F4EFE6;
+    min-height: 100vh;
+  }
+
+  /* ===== STAGE — surrounding presentation ===== */
+  .stage {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 0;
+  }
+  .sidebar {
+    border-right: 1px solid rgba(244,239,230,0.06);
+    padding: 32px 28px;
+    background: #1a1612;
+    position: sticky; top: 0; height: 100vh;
+    overflow-y: auto;
+  }
+  .sb-brand {
+    font-family: 'Fraunces', serif;
+    font-size: 32px;
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    color: #F4EFE6;
+    margin-bottom: 4px;
+  }
+  .sb-sub {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 13px;
+    color: rgba(244,239,230,0.5);
+    letter-spacing: 0;
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+  .sb-section {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(244,239,230,0.4);
+    margin: 24px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(244,239,230,0.08);
+  }
+  .sb-link {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: rgba(244,239,230,0.7);
+    transition: color 180ms ease;
+    user-select: none;
+  }
+  .sb-link:hover { color: #F4EFE6; }
+  .sb-link.active { color: #F4EFE6; font-weight: 500; }
+  .sb-link .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(244,239,230,0.2);
+    flex-shrink: 0;
+  }
+  .sb-link.active .dot { background: #C9A663; }
+  .sb-link .kind {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(244,239,230,0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .sb-toggle {
+    display: flex;
+    background: rgba(244,239,230,0.04);
+    border: 1px solid rgba(244,239,230,0.08);
+    border-radius: 8px;
+    padding: 3px;
+    margin-top: 10px;
+  }
+  .sb-toggle button {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    padding: 8px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(244,239,230,0.5);
+    cursor: pointer;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .sb-toggle button.on {
+    background: rgba(244,239,230,0.08);
+    color: #F4EFE6;
+  }
+
+  .stage-main {
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Subtle cartographic grid behind phone, 3% opacity */
+  .stage-main::before {
+    content: ''; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(244,239,230,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(244,239,230,0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: -1px -1px;
+    pointer-events: none;
+  }
+  .stage-main::after {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    width: 800px; height: 800px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle at center, rgba(155,122,63,0.07), transparent 60%);
+    pointer-events: none;
+  }
+
+  /* phone meta caption beneath the device */
+  .device-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+    position: relative;
+    z-index: 2;
+  }
+  .device-caption {
+    text-align: center;
+    max-width: 380px;
+  }
+  .device-caption h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+    color: #F4EFE6;
+  }
+  .device-caption p {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: rgba(244,239,230,0.55);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* ===== PHONE BODY ===== */
+  /* Phone is a stage where multiple screens layer — only one is visible at a time */
+  .phone {
+    width: 393px; height: 852px;
+    border-radius: 54px;
+    background: #0a0806;
+    padding: 11px;
+    position: relative;
+    box-shadow:
+      0 0 0 1.5px #2a241d,
+      0 50px 90px rgba(0,0,0,0.5),
+      0 20px 40px rgba(0,0,0,0.35);
+  }
+  .screen {
+    position: absolute;
+    inset: 11px;
+    border-radius: 44px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .dynamic-island {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 122px; height: 36px;
+    border-radius: 24px;
+    background: #000;
+    z-index: 50;
+  }
+  .home-indicator {
+    position: absolute;
+    bottom: 22px; left: 50%;
+    transform: translateX(-50%);
+    width: 134px; height: 5px;
+    border-radius: 100px;
+    background: var(--ink);
+    opacity: 0.85;
+    z-index: 60;
+  }
+  .dark .home-indicator { background: var(--ink); opacity: 0.6; }
+
+  .status-bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 54px;
+    display: flex; align-items: flex-start;
+    padding: 22px 32px 0;
+    justify-content: space-between;
+    z-index: 40;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--ink);
+    pointer-events: none;
+  }
+  .status-bar .icons {
+    display: flex; gap: 6px; align-items: center;
+  }
+
+  /* layered screens with cross-fade */
+  .view {
+    position: absolute; inset: 0;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 360ms cubic-bezier(.2,.7,.2,1);
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  .view::-webkit-scrollbar { width: 0; }
+  .view.active {
+    opacity: 1;
+    visibility: visible;
+  }
+  .view.slide-from-bottom {
+    transform: translateY(40px);
+    transition: opacity 380ms cubic-bezier(.2,.7,.2,1), transform 380ms cubic-bezier(.2,.7,.2,1);
+  }
+  .view.slide-from-bottom.active {
+    transform: translateY(0);
+  }
+
+  /* Header with cartography sparkle glyph (3% opacity) */
+  .cartog {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--ink) 1px, transparent 1px),
+      linear-gradient(90deg, var(--ink) 1px, transparent 1px);
+    background-size: 36px 36px;
+    background-position: 18px 18px;
+    opacity: 0.025;
+    z-index: 0;
+  }
+
+  .view-pad {
+    padding: 76px 28px 110px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ===== TYPE TREATMENTS ===== */
+  .display-xl { font-family: 'Fraunces', serif; font-weight: 400; font-size: 56px; letter-spacing: -0.03em; line-height: 1.0; color: var(--ink); }
+  .display-lg { font-family: 'Fraunces', serif; font-weight: 400; font-size: 42px; letter-spacing: -0.025em; line-height: 1.05; color: var(--ink); }
+  .display-md { font-family: 'Fraunces', serif; font-weight: 400; font-size: 32px; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+  .frau-italic { font-family: 'Fraunces', serif; font-style: italic; font-weight: 400; }
+  .title-fn   { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 22px; letter-spacing: -0.01em; color: var(--ink); }
+  .body-lg    { font-family: 'Inter', sans-serif; font-weight: 400; font-size: 16px; line-height: 1.55; color: var(--ink); }
+  .body-md    { font-family: 'Inter', sans-serif; font-weight: 400; font-size: 14px; line-height: 1.5; color: var(--ink); }
+  .label      { font-family: 'Inter', sans-serif; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); }
+  .mono       { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  /* ===== HEADERS reused ===== */
+  .view-title-block {
+    margin-bottom: 28px;
+  }
+  .view-title-block .display { display: block; }
+  .view-title-block .label { margin-top: 10px; display: block; }
+
+  /* ===== HOME ===== */
+  .home-greet {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 38px;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    line-height: 1.05;
+  }
+  .home-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.04em;
+    margin-top: 6px;
+    text-transform: uppercase;
+  }
+  .home-divider {
+    width: 28px; height: 1px;
+    background: var(--ink-2); opacity: 0.5;
+    margin: 22px 0 22px;
+  }
+  .home-prompt {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.45;
+    color: var(--ink-2);
+    margin-bottom: 32px;
+    border-left: 2px solid var(--bronze);
+    padding-left: 14px;
+  }
+  .quick-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 16px;
+    cursor: pointer;
+    transition: transform 200ms ease, background 200ms ease, border-color 200ms ease;
+  }
+  .tile:hover { transform: translateY(-1px); border-color: var(--ink-2); }
+  .tile:active { transform: scale(0.985); }
+  .tile .lbl {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .tile .val {
+    font-family: 'Fraunces', serif;
+    font-size: 19px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .tile-tall { padding: 22px 18px; }
+  .tile.premium { background: var(--premium); }
+  .tile-row { display: flex; align-items: center; gap: 10px; }
+
+  .home-mission {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--bronze);
+    border-radius: 12px;
+    padding: 16px 16px 16px 18px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: background 200ms ease;
+  }
+  .home-mission:hover { background: var(--premium); }
+  .home-mission .ttl {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .home-mission .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+
+  .home-section-h {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-2);
+    margin: 24px 0 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .home-section-h::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* dock */
+  .dock {
+    position: absolute;
+    bottom: 36px; left: 16px; right: 16px;
+    height: 64px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 32px;
+    display: flex; align-items: center;
+    justify-content: space-around;
+    padding: 0 6px;
+    z-index: 30;
+    box-shadow: 0 12px 36px rgba(28,25,22,0.18);
+  }
+  .dark .dock { box-shadow: 0 12px 36px rgba(0,0,0,0.5); }
+  .dock-btn {
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--ink-2);
+    transition: color 160ms ease, background 160ms ease, transform 200ms ease;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .dock-btn:hover { color: var(--ink); }
+  .dock-btn.active { color: var(--ink); }
+  .dock-btn.active .dock-icon { color: var(--bronze); }
+  .dock-btn:active { transform: scale(0.92); }
+  .dock-record {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform 200ms ease, background 200ms ease;
+    box-shadow: 0 4px 16px rgba(28,25,22,0.25);
+  }
+  .dark .dock-record { background: var(--bronze); color: var(--bg); }
+  .dock-record:hover { transform: scale(1.04); }
+  .dock-record:active { transform: scale(0.92); }
+  .dock-icon { width: 22px; height: 22px; }
+
+  /* ===== INBOX ===== */
+  .inbox-list { display: flex; flex-direction: column; gap: 10px; }
+  .inbox-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+  .inbox-card:hover { transform: translateX(2px); border-color: var(--ink-2); }
+  .inbox-meta {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 6px;
+  }
+  .inbox-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+  .inbox-domain {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .dom-blackink { color: var(--d-blackink); }
+  .dom-saude { color: var(--d-saude); }
+  .dom-financas { color: var(--d-financas); }
+  .dom-outro { color: var(--d-outro); }
+  .inbox-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 14.5px;
+    line-height: 1.45;
+    color: var(--ink);
+    text-wrap: pretty;
+  }
+
+  /* ===== CAPTURE ===== */
+  .capture-screen {
+    background: var(--bg);
+    height: 100%;
+    display: flex; flex-direction: column;
+    padding: 90px 28px 40px;
+    position: relative;
+  }
+  .capture-pulse {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--rec-red);
+    margin-bottom: 24px;
+    box-shadow: 0 0 0 0 rgba(139,38,53,0.45);
+    animation: pulse 1600ms ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(139,38,53,0.45); }
+    70%  { box-shadow: 0 0 0 18px rgba(139,38,53,0); }
+    100% { box-shadow: 0 0 0 0 rgba(139,38,53,0); }
+  }
+  .capture-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-size: 56px;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: 18px;
+    font-variant-numeric: tabular-nums;
+  }
+  .capture-prompt {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink-2);
+    line-height: 1.45;
+    max-width: 280px;
+  }
+  .wave-row {
+    display: flex; align-items: center; gap: 3px;
+    margin-top: 36px;
+    height: 56px;
+  }
+  .wave-bar {
+    width: 3px;
+    background: var(--ink-2);
+    opacity: 0.55;
+    border-radius: 2px;
+    animation: wave 900ms ease-in-out infinite;
+  }
+  @keyframes wave {
+    0%, 100% { height: 8%; }
+    50% { height: 100%; }
+  }
+  .capture-stop {
+    margin-top: auto;
+    align-self: center;
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: transform 200ms ease;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 13px;
+  }
+  .capture-stop:hover { transform: scale(1.05); }
+  .capture-stop:active { transform: scale(0.92); }
+  .capture-stop-inner {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .capture-domain-row {
+    display: flex; gap: 8px; margin-top: 28px;
+    flex-wrap: wrap;
+  }
+  .domain-chip {
+    padding: 7px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+  }
+  .domain-chip:hover { color: var(--ink); }
+  .domain-chip.active.dom-blackink { background: var(--d-blackink); color: var(--bg); border-color: var(--d-blackink); }
+  .dark .domain-chip.active.dom-blackink { color: var(--bg); }
+  .domain-chip.active.dom-saude { background: var(--d-saude); color: var(--bg); border-color: var(--d-saude); }
+  .domain-chip.active.dom-financas { background: var(--d-financas); color: var(--bg); border-color: var(--d-financas); }
+
+  /* ===== BRIEFING ===== */
+  .brief-mission {
+    background: var(--premium);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--bronze);
+    border-radius: 12px;
+    padding: 18px 18px;
+    margin-bottom: 26px;
+    cursor: pointer;
+  }
+  .brief-mission .lbl-star {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--bronze);
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .brief-mission .star-glyph {
+    color: var(--bronze); font-size: 13px; line-height: 1;
+  }
+  .brief-mission .name {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600; font-size: 17px;
+    color: var(--ink); margin-bottom: 4px;
+  }
+  .brief-mission .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px; color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+  .brief-question {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 17px;
+    color: var(--ink);
+    line-height: 1.5;
+    padding: 0 14px;
+    border-left: 2px solid var(--bronze);
+  }
+  .brief-physical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-top: 8px;
+  }
+  .brief-physical .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px; color: var(--ink);
+  }
+  .brief-physical .row:last-child { border-bottom: 0; }
+  .brief-physical .row .v {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--ink);
+    font-size: 14px;
+  }
+  .brief-physical .row .v.up { color: var(--moss); }
+  .brief-physical .row .v.dn { color: var(--rec-red); }
+
+  /* ===== DECISÃO ===== */
+  .seg {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .seg-btn {
+    padding: 9px 16px;
+    border-radius: 24px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 13px;
+    cursor: pointer;
+    transition: background 200ms ease, color 200ms ease, border-color 200ms ease;
+  }
+  .seg-btn:hover { color: var(--ink); }
+  .seg-btn.on {
+    background: var(--prussian);
+    color: #F4EFE6;
+    border-color: var(--prussian);
+  }
+
+  .field-block { margin-top: 22px; }
+  .field-block .label { margin-bottom: 8px; }
+  .field {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14.5px; color: var(--ink);
+    width: 100%;
+    line-height: 1.5;
+    min-height: 56px;
+    cursor: text;
+    transition: border-color 200ms ease, background 200ms ease;
+  }
+  .field:hover { border-color: var(--ink-2); }
+  .field.placeholder {
+    color: var(--ink-3);
+    font-style: italic;
+  }
+  .field-tall { min-height: 110px; }
+
+  .decide-cta {
+    margin-top: 28px;
+    width: 100%;
+    background: var(--ink);
+    color: var(--bg);
+    border: 0; border-radius: 14px;
+    padding: 16px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600; font-size: 15px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: transform 200ms ease, opacity 200ms ease;
+  }
+  .decide-cta:hover { opacity: 0.93; }
+  .decide-cta:active { transform: scale(0.985); }
+
+  /* ===== WEEKLY REVIEW ===== */
+  .wr-week-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--ink-2);
+    letter-spacing: 0.02em;
+    margin-top: 4px;
+  }
+  .wr-divider-row {
+    display: flex; align-items: center;
+    gap: 14px;
+    margin: 26px 0;
+  }
+  .wr-divider-row .line {
+    flex: 1; height: 1px; background: var(--border);
+  }
+  .wr-divider-row .glyph {
+    color: var(--bronze); font-size: 14px;
+  }
+  .wr-quote {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--ink);
+    text-wrap: pretty;
+  }
+  .wr-list {
+    margin-top: 22px;
+    border-top: 1px solid var(--border);
+  }
+  .wr-list .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    color: var(--ink);
+  }
+  .wr-list .v {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    letter-spacing: 0.02em;
+  }
+  .wr-list .v.up { color: var(--moss); }
+  .wr-list .v.dn { color: var(--rec-red); }
+  .wr-list .v.flat { color: var(--ink-2); }
+
+  /* ===== Modal-like detail view (capture detail) ===== */
+  .detail-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 18px;
+  }
+  .detail-back {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--ink-2);
+    flex-shrink: 0;
+  }
+  .detail-back:hover { color: var(--ink); }
+  .detail-title {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-2);
+  }
+  .detail-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--ink-2);
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+  }
+  .detail-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink);
+    margin-bottom: 24px;
+  }
+  .detail-coords {
+    margin-top: 28px;
+    padding: 18px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+  }
+  .detail-coords .glyph {
+    color: var(--bronze); font-size: 18px;
+    margin-bottom: 8px; line-height: 1;
+  }
+  .detail-coords .coords {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-2);
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .detail-coords .place {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 15px;
+    color: var(--ink-2);
+  }
+
+  /* ===== TWEAKS panel ===== */
+  .ts-section { margin-top: 18px; }
+  .ts-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: rgba(244,239,230,0.85);
+  }
+
+  /* small icons */
+  .ic { width: 22px; height: 22px; stroke-width: 1.6; }
+
+  /* ===========================================================
+     LOADING STATES — sussurro, não anúncio
+     =========================================================== */
+
+  /* Shimmer base — warm-light gradient, não branco genérico */
+  @keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position:  200% 0; }
+  }
+  .skel {
+    background: linear-gradient(
+      90deg,
+      var(--surface) 0%,
+      var(--premium) 35%,
+      var(--surface) 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2400ms ease-in-out infinite;
+    border-radius: 4px;
+  }
+  .dark .skel {
+    background: linear-gradient(
+      90deg,
+      var(--surface) 0%,
+      #322c22 45%,
+      var(--surface) 80%
+    );
+    background-size: 200% 100%;
+  }
+
+  /* (1) CAPTURA SENDO ENVIADA — skeleton card no topo da inbox */
+  .processing-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    position: relative;
+    overflow: hidden;
+    animation: card-fade-in 320ms cubic-bezier(.2,.7,.2,1);
+  }
+  @keyframes card-fade-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .processing-meta {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px;
+  }
+  .processing-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+  .processing-label {
+    font-family: 'Inter', sans-serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 13px;
+    color: var(--ink-2);
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .processing-label .pdot {
+    display: inline-block;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--bronze);
+    animation: pdot-breathe 1400ms ease-in-out infinite;
+  }
+  @keyframes pdot-breathe {
+    0%, 100% { opacity: 0.35; }
+    50%      { opacity: 1;    }
+  }
+  .skel-line {
+    height: 12px; border-radius: 3px; margin-top: 8px;
+  }
+  .skel-line.w90 { width: 90%; }
+  .skel-line.w75 { width: 75%; }
+  .skel-line.w60 { width: 60%; }
+  .skel-line.w45 { width: 45%; }
+  .skel-line.w30 { width: 30%; }
+
+  /* (2) TRANSCRIÇÃO EM ANDAMENTO */
+  .transcribing-block {
+    margin-top: 8px;
+  }
+  .transcribing-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-2);
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 14px;
+  }
+  .transcribing-label .pdot {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--bronze);
+    animation: pdot-breathe 1400ms ease-in-out infinite;
+  }
+  .transcribing-lines .skel-line { height: 14px; margin-top: 10px; }
+
+  /* (3) SYNC COM BACKEND — linha 1pt em bronze, abaixo da status bar */
+  .sync-bar {
+    position: absolute;
+    top: 54px; left: 0; right: 0;
+    height: 1px;
+    background: rgba(155, 122, 63, 0.08);
+    overflow: hidden;
+    z-index: 35;
+    opacity: 0;
+    transition: opacity 480ms ease;
+    pointer-events: none;
+  }
+  .sync-bar.on { opacity: 1; }
+  .dark .sync-bar { background: rgba(201, 166, 99, 0.08); }
+  .sync-bar::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -30%;
+    width: 30%; height: 100%;
+    background: var(--bronze);
+    animation: sync-slide 1800ms cubic-bezier(.4,.1,.5,1) infinite;
+  }
+  @keyframes sync-slide {
+    0%   { left: -30%; }
+    100% { left: 100%; }
+  }
+
+  /* (4) INBOX SKELETON — estrutura real preservada */
+  .inbox-skel-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    opacity: 0;
+    animation: skel-stagger 320ms cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .inbox-skel-card:nth-child(1) { animation-delay: 0ms; }
+  .inbox-skel-card:nth-child(2) { animation-delay: 40ms; }
+  .inbox-skel-card:nth-child(3) { animation-delay: 80ms; }
+  .inbox-skel-card:nth-child(4) { animation-delay: 120ms; }
+  .inbox-skel-card:nth-child(5) { animation-delay: 160ms; }
+  @keyframes skel-stagger {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .inbox-skel-meta {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  .skel-time { width: 36px; height: 12px; border-radius: 3px; }
+  .skel-domain { width: 64px; height: 11px; border-radius: 3px; }
+  .skel-content-line { height: 13px; border-radius: 3px; margin-top: 8px; }
+
+  .ts-fade-in {
+    animation: ts-fade 280ms cubic-bezier(.2,.7,.2,1);
+  }
+  @keyframes ts-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* ===========================================================
+     EMPTY STATES — momentos, não bugs
+     =========================================================== */
+
+  /* (1) Inbox vazia */
+  .empty-inbox {
+    padding: 80px 16px 40px;
+    text-align: center;
+    display: flex; flex-direction: column;
+    align-items: center;
+    animation: ts-fade 380ms cubic-bezier(.2,.7,.2,1);
+  }
+  .empty-inbox .glyph-lg {
+    color: var(--bronze);
+    font-size: 48px;
+    line-height: 1;
+    margin-bottom: 26px;
+  }
+  .empty-inbox .head {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 22px;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    margin-bottom: 10px;
+  }
+  .empty-inbox .sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    max-width: 240px;
+  }
+
+  /* (2) Sem missão hoje */
+  .empty-mission {
+    border: 1px dashed var(--ink-3);
+    background: transparent;
+    border-radius: 12px;
+    padding: 28px 20px;
+    text-align: center;
+    margin-bottom: 26px;
+  }
+  .empty-mission .quote {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--ink);
+    line-height: 1.45;
+    margin-bottom: 18px;
+  }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--prussian);
+    color: var(--prussian);
+    border-radius: 22px;
+    padding: 9px 18px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 200ms ease, color 200ms ease;
+  }
+  .btn-secondary:hover {
+    background: var(--prussian);
+    color: var(--bg);
+  }
+
+  /* (3) Primeira semana */
+  .empty-weekly {
+    padding: 60px 16px 40px;
+    text-align: center;
+    animation: ts-fade 380ms cubic-bezier(.2,.7,.2,1);
+  }
+  .empty-weekly .glyph-sm {
+    color: var(--bronze);
+    font-size: 18px;
+    line-height: 1;
+    margin-bottom: 22px;
+  }
+  .empty-weekly .head {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--ink);
+    line-height: 1.45;
+    max-width: 280px;
+    margin: 0 auto 14px;
+  }
+  .empty-weekly .sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    max-width: 260px;
+    margin: 0 auto;
+  }
+
+  /* ===========================================================
+     SHEETS & MODALS — bottom, side, center
+     =========================================================== */
+
+  /* Shared scrim */
+  .sheet-scrim {
+    position: absolute; inset: 0;
+    background: rgba(28, 25, 22, 0.40);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 55;
+    transition: opacity 320ms cubic-bezier(.2,.7,.2,1);
+  }
+  .sheet-scrim.strong { background: rgba(28, 25, 22, 0.50); }
+  .sheet-scrim.on { opacity: 1; pointer-events: auto; }
+
+  /* Bottom sheet container */
+  .sheet {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: var(--bg);
+    border-top-left-radius: 22px;
+    border-top-right-radius: 22px;
+    box-shadow: 0 -8px 24px rgba(28,25,22,0.10);
+    transform: translateY(100%);
+    transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 56;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sheet.on { transform: translateY(0); }
+  .sheet.h-85 { height: 85%; }
+  .sheet.h-40 { height: 40%; }
+
+  .sheet-handle {
+    width: 32px; height: 4px;
+    background: var(--border);
+    border-radius: 999px;
+    margin: 10px auto 6px;
+    flex-shrink: 0;
+  }
+  .sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 22px 16px;
+  }
+  .sheet-footer {
+    border-top: 1px solid var(--border);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0));
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+
+  /* Domain chip (within detail sheet) */
+  .dom-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--ink-2);
+  }
+  .dom-chip .dchip-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+  }
+  .dom-chip.blackink { color: var(--prussian); }
+  .dom-chip.pessoal  { color: var(--bronze); }
+  .dom-chip.trabalho { color: var(--ink-2); }
+  .dom-chip.saude    { color: var(--moss); }
+
+  /* Detail sheet specific */
+  .ds-meta {
+    display: flex; align-items: center; gap: 10px;
+    margin: 10px 0 14px;
+  }
+  .ds-meta .ts {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--ink-2);
+    letter-spacing: 0.02em;
+  }
+  .ds-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 28px;
+    line-height: 1.18;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin-bottom: 18px;
+  }
+  .ds-transcript {
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink);
+    margin-bottom: 22px;
+  }
+  .ds-player {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+  }
+  .ds-play {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--prussian);
+    color: var(--bg);
+    border: none;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+  .ds-play:hover { transform: scale(1.04); }
+  .ds-play:active { transform: scale(0.94); }
+  .ds-wave {
+    flex: 1;
+    height: 32px;
+    display: flex; align-items: center; gap: 2px;
+  }
+  .ds-wave .ds-bar {
+    width: 2px;
+    background: var(--prussian);
+    border-radius: 1px;
+    opacity: 0.35;
+  }
+  .ds-wave .ds-bar.played { opacity: 1; }
+  .ds-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-2);
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .ds-tags {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 4px;
+  }
+  .ds-tag {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 5px 11px;
+  }
+
+  /* Detail sheet footer buttons */
+  .ds-actions {
+    display: flex; gap: 8px;
+  }
+  .ds-actions .btn-act {
+    flex: 1;
+    padding: 11px 10px;
+    border-radius: 22px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--ink);
+    transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+  .ds-actions .btn-act:hover {
+    background: var(--surface);
+    border-color: var(--ink-3);
+  }
+  .ds-actions .btn-act.danger {
+    border-color: var(--rec-red);
+    color: var(--rec-red);
+  }
+  .ds-actions .btn-act.danger:hover {
+    background: rgba(139, 38, 53, 0.06);
+  }
+  .dark .ds-actions .btn-act.danger:hover {
+    background: rgba(201, 80, 95, 0.10);
+  }
+
+  /* Domain selection sheet */
+  .dom-header {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 24px;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    margin: 6px 0 18px;
+  }
+  .dom-list {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .dom-btn {
+    display: flex; align-items: center; gap: 14px;
+    width: 100%;
+    height: 64px;
+    padding: 0 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: transform 180ms ease, background 180ms ease;
+    font-family: inherit;
+  }
+  .dom-btn:hover { transform: translateX(2px); }
+  .dom-btn:active { transform: scale(0.99); }
+  .dom-btn.blackink { border-left-color: var(--prussian); }
+  .dom-btn.pessoal  { border-left-color: var(--bronze); }
+  .dom-btn.trabalho { border-left-color: var(--ink-2); }
+  .dom-btn.saude    { border-left-color: var(--moss); }
+  .dom-btn .dom-ico {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+    color: var(--ink-2);
+  }
+  .dom-btn.blackink .dom-ico { color: var(--prussian); }
+  .dom-btn.pessoal  .dom-ico { color: var(--bronze); }
+  .dom-btn.saude    .dom-ico { color: var(--moss); }
+  .dom-btn .dom-name {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .dom-skip {
+    background: transparent;
+    border: none;
+    margin-top: 16px;
+    width: 100%;
+    padding: 10px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: color 180ms ease;
+  }
+  .dom-skip:hover { color: var(--ink); }
+
+  /* Center confirmation modal (delete) */
+  .confirm-card {
+    background: var(--premium);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px 28px 22px;
+    width: 80%;
+    max-width: 320px;
+    text-align: center;
+    transform: translateY(8px) scale(0.985);
+    transition: transform 280ms cubic-bezier(.2,.7,.2,1);
+    box-shadow: 0 20px 60px rgba(28,25,22,0.18);
+  }
+  .modal-scrim.on .confirm-card { transform: translateY(0) scale(1); }
+  .confirm-card .c-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+    margin-bottom: 10px;
+  }
+  .confirm-card .c-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.5;
+    margin-bottom: 22px;
+  }
+  .confirm-card .c-actions {
+    display: flex; gap: 8px;
+  }
+  .confirm-card .btn-cancel {
+    flex: 1;
+    padding: 11px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 22px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 180ms ease;
+  }
+  .confirm-card .btn-cancel:hover { background: var(--surface); }
+  .confirm-card .btn-danger {
+    flex: 1;
+    padding: 11px 14px;
+    background: var(--rec-red);
+    border: 1px solid var(--rec-red);
+    color: var(--bg);
+    border-radius: 22px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity 180ms ease;
+  }
+  .confirm-card .btn-danger:hover { opacity: 0.9; }
+
+  /* Side sheets (full-screen, slide from right) */
+  .side-sheet {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    transform: translateX(100%);
+    transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 58;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .side-sheet.on { transform: translateX(0); }
+  .side-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 14px 16px 12px;
+    padding-top: calc(14px + env(safe-area-inset-top, 0));
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .side-header .sh-back,
+  .side-header .sh-save {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    padding: 6px 0;
+    transition: opacity 180ms ease;
+  }
+  .side-header .sh-back {
+    color: var(--ink);
+    justify-self: start;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .side-header .sh-back:hover { opacity: 0.7; }
+  .side-header .sh-save {
+    color: var(--prussian);
+    justify-self: end;
+  }
+  .side-header .sh-save:hover { opacity: 0.7; }
+  .side-header .sh-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 24px;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    text-align: center;
+  }
+  .side-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+
+  /* Edit sheet */
+  .edit-textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    outline: none;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 22px 22px 16px;
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    resize: none;
+  }
+  .edit-textarea::placeholder { color: var(--ink-3); }
+  .edit-footer {
+    border-top: 1px solid var(--border);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0));
+    background: var(--bg);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .edit-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 6px 11px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: border-color 180ms ease;
+  }
+  .edit-tag:hover { border-color: var(--ink-3); }
+  .edit-tag.active {
+    color: var(--prussian);
+    border-color: var(--prussian);
+  }
+  .edit-tag .et-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor;
+  }
+  .edit-add-tag {
+    background: transparent;
+    border: 1px dashed var(--ink-3);
+    color: var(--ink-2);
+    padding: 6px 11px;
+    border-radius: 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 180ms ease, border-color 180ms ease;
+    letter-spacing: 0.02em;
+  }
+  .edit-add-tag:hover { color: var(--ink); border-color: var(--ink-2); }
+
+  /* Settings sheet */
+  .settings-list {
+    padding: 6px 0 24px;
+  }
+  .settings-section {
+    padding: 18px 22px 6px;
+  }
+  .settings-section .label {
+    margin-bottom: 6px;
+  }
+  .settings-row {
+    padding: 14px 22px;
+    display: flex; align-items: center; gap: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .settings-row:first-of-type { border-top: none; }
+  .settings-row .sr-main { flex: 1; min-width: 0; }
+  .settings-row .sr-name {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 17px;
+    color: var(--ink);
+    margin-bottom: 2px;
+    letter-spacing: -0.005em;
+  }
+  .settings-row .sr-desc {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.4;
+  }
+  .settings-row .sr-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-2);
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  /* iOS-style toggle */
+  .ios-toggle {
+    width: 46px; height: 28px;
+    background: var(--border);
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+    transition: background 200ms ease;
+    flex-shrink: 0;
+  }
+  .ios-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 24px; height: 24px;
+    background: var(--bg);
+    border-radius: 50%;
+    transition: transform 220ms cubic-bezier(.4,1,.5,1);
+    box-shadow: 0 1px 3px rgba(28,25,22,0.18);
+  }
+  .ios-toggle.on { background: var(--prussian); }
+  .ios-toggle.on::after { transform: translateX(18px); }
+
+  /* Segmented (Day/Night/Auto) */
+  .seg-3 {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2px;
+    flex-shrink: 0;
+  }
+  .seg-3 button {
+    background: transparent;
+    border: none;
+    padding: 6px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 180ms ease, color 180ms ease;
+  }
+  .seg-3 button.on {
+    background: var(--bg);
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(28,25,22,0.06);
+  }
+
+  /* Settings home gear */
+  .home-gear {
+    position: absolute;
+    top: calc(54px + 14px); right: 16px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ink-2);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: color 180ms ease, background 180ms ease, border-color 180ms ease;
+  }
+  .home-gear:hover {
+    color: var(--ink);
+    background: var(--surface);
+    border-color: var(--border);
+  }
+
+  /* ===========================================================
+     FEEDBACK PATTERNS — informativo, nunca dramático
+     =========================================================== */
+
+  /* (1+2) Toast no topo */
+  .toast {
+    position: absolute;
+    top: 64px; left: 50%;
+    transform: translate(-50%, -8px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 11px 16px 11px 14px;
+    display: flex; align-items: center; gap: 10px;
+    box-shadow: 0 6px 18px rgba(28,25,22,0.07);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 50;
+    transition: opacity 200ms ease, transform 280ms cubic-bezier(.2,.7,.2,1);
+    max-width: 280px;
+  }
+  .toast.on {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    transition: opacity 200ms ease, transform 200ms cubic-bezier(.2,.7,.2,1);
+  }
+  .toast.fading {
+    opacity: 0;
+    transition: opacity 280ms ease, transform 280ms ease;
+  }
+  .toast .toast-icon {
+    width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .toast .toast-icon.check {
+    color: var(--moss);
+    font-weight: 600;
+  }
+  .toast .toast-icon.glyph {
+    color: var(--bronze);
+    font-size: 14px;
+  }
+  .toast .toast-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+  }
+  .toast .toast-text.italic {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+
+  /* (3) Modal — permissão de microfone */
+  .modal-scrim {
+    position: absolute; inset: 0;
+    background: rgba(28,25,22,0.42);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 28px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 60;
+    transition: opacity 240ms ease;
+  }
+  .dark .modal-scrim { background: rgba(0,0,0,0.55); }
+  .modal-scrim.on { opacity: 1; pointer-events: auto; }
+  .modal-card {
+    background: var(--premium);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 26px 24px 22px;
+    width: 100%;
+    max-width: 320px;
+    transform: translateY(8px) scale(0.985);
+    transition: transform 280ms cubic-bezier(.2,.7,.2,1);
+    box-shadow: 0 20px 60px rgba(28,25,22,0.18);
+  }
+  .modal-scrim.on .modal-card { transform: translateY(0) scale(1); }
+  .modal-card .m-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-size: 22px;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin-bottom: 10px;
+  }
+  .modal-card .m-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.55;
+    margin-bottom: 22px;
+  }
+  .modal-card .m-actions {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .btn-primary {
+    background: var(--prussian);
+    color: var(--bg);
+    border: 1px solid var(--prussian);
+    border-radius: 22px;
+    padding: 11px 18px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: opacity 180ms ease;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-ghost {
+    background: transparent;
+    border: none;
+    color: var(--ink-2);
+    border-radius: 22px;
+    padding: 11px 18px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    cursor: pointer;
+    transition: color 180ms ease;
+  }
+  .btn-ghost:hover { color: var(--ink); }
+
+  /* (4) Erro de transcrição inline */
+  .transcribe-error {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: flex-start; gap: 10px;
+    flex-wrap: wrap;
+  }
+  .transcribe-error .err-icon {
+    color: var(--ink-2);
+    font-size: 12px;
+    line-height: 1.4;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .transcribe-error .err-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--ink-2);
+    line-height: 1.45;
+    flex: 1;
+    min-width: 0;
+  }
+  .transcribe-error .err-retry {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--prussian);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    cursor: pointer;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .transcribe-error .err-retry:hover { opacity: 0.75; }
+
+  /* (4) Offline state */
+  .offline-banner {
+    position: absolute;
+    top: 54px; left: 0; right: 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 28px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+    z-index: 35;
+    display: flex; align-items: center; gap: 8px;
+    transform: translateY(-100%);
+    transition: transform 320ms cubic-bezier(.2,.7,.2,1);
+  }
+  .offline-banner.on { transform: translateY(0); }
+  .offline-banner .odot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--bronze);
+  }
+  .offline-banner .meta {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--bronze);
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+  .offline .view-pad,
+  .offline .capture-screen {
+    transition: opacity 320ms ease;
+  }
+  .offline .inbox-card,
+  .offline .home-mission,
+  .offline .tile,
+  .offline .brief-mission,
+  .offline .brief-physical,
+  .offline .wr-list,
+  .offline .field {
+    opacity: 0.85;
+  }
+  .offline-queue {
+    position: absolute;
+    bottom: 110px; left: 16px; right: 16px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--bronze);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    z-index: 28;
+    opacity: 0;
+    transition: opacity 320ms ease;
+    pointer-events: none;
+  }
+  .offline .offline-queue { opacity: 1; }
+
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ═══ SIDEBAR — chrome around the prototype ═══ -->
+  <aside class="sidebar">
+    <div class="sb-brand">Atlas</div>
+    <div class="sb-sub">Captura cognitiva.<br/>Cartografia de uma vida.</div>
+
+    <div class="sb-section">Tema</div>
+    <div class="sb-toggle" id="theme-toggle">
+      <button data-theme="light" class="on">Dia</button>
+      <button data-theme="dark">Noite</button>
+    </div>
+
+    <div class="sb-section">Telas</div>
+    <div id="screens-nav"></div>
+
+    <div class="sb-section">Loading states</div>
+    <div class="sb-link" data-demo="inbox-skel"><span class="dot"></span><span>Inbox skeleton</span><span class="kind">320ms</span></div>
+    <div class="sb-link" data-demo="processing"><span class="dot"></span><span>Captura processando</span><span class="kind">2.6s</span></div>
+    <div class="sb-link" data-demo="transcribe"><span class="dot"></span><span>Transcrição Whisper</span><span class="kind">2.4s</span></div>
+    <div class="sb-link" data-demo="sync"><span class="dot"></span><span>Sync com backend</span><span class="kind">2.2s</span></div>
+
+    <div class="sb-section">Empty states</div>
+    <div class="sb-link" data-empty="inbox"><span class="dot"></span><span>Inbox vazia</span><span class="kind">empty</span></div>
+    <div class="sb-link" data-empty="mission"><span class="dot"></span><span>Sem missão hoje</span><span class="kind">empty</span></div>
+    <div class="sb-link" data-empty="weekly"><span class="dot"></span><span>Primeira semana</span><span class="kind">empty</span></div>
+    <div class="sb-link" data-empty="offline"><span class="dot"></span><span>Modo offline</span><span class="kind">offline</span></div>
+
+    <div class="sb-section">Feedback</div>
+    <div class="sb-link" data-fb="success"><span class="dot"></span><span>Captura salva</span><span class="kind">toast</span></div>
+    <div class="sb-link" data-fb="checkin"><span class="dot"></span><span>Estado registrado</span><span class="kind">toast</span></div>
+    <div class="sb-link" data-fb="mic"><span class="dot"></span><span>Microfone bloqueado</span><span class="kind">modal</span></div>
+    <div class="sb-link" data-fb="trans-err"><span class="dot"></span><span>Erro de transcrição</span><span class="kind">inline</span></div>
+
+    <div class="sb-section">Sheets &amp; modais</div>
+    <div class="sb-link" data-sheet="detail"><span class="dot"></span><span>Detalhe da captura</span><span class="kind">bottom 85%</span></div>
+    <div class="sb-link" data-sheet="domain"><span class="dot"></span><span>Selecionar domínio</span><span class="kind">bottom 40%</span></div>
+    <div class="sb-link" data-sheet="confirm"><span class="dot"></span><span>Confirmar exclusão</span><span class="kind">center</span></div>
+    <div class="sb-link" data-sheet="edit"><span class="dot"></span><span>Editar captura</span><span class="kind">side full</span></div>
+    <div class="sb-link" data-sheet="settings"><span class="dot"></span><span>Configurações</span><span class="kind">side full</span></div>
+
+    <div class="sb-section">Sobre</div>
+    <p class="sb-sub" style="margin: 8px 0 0">
+      Identidade dual: <span style="font-family:'Fraunces',serif;font-style:italic">Fraunces</span> em
+      momentos contemplativos, <strong style="font-weight:500;color:rgba(244,239,230,0.7)">Inter</strong>
+      em momentos funcionais. Bronze fosco aparece pontual — raro como joia.
+    </p>
+  </aside>
+
+  <!-- ═══ STAGE — phone center ═══ -->
+  <main class="stage-main">
+    <div class="device-wrap">
+
+      <div class="phone" id="phone">
+        <div class="screen" id="screen">
+          <div class="cartog"></div>
+
+          <!-- Offline banner -->
+          <div class="offline-banner" id="offline-banner">
+            <span class="odot"></span>
+            <span>Sem conexão</span>
+            <span class="meta" id="offline-meta">fila local: 3</span>
+          </div>
+
+          <!-- Sync bar — bronze, fade-in/out, sub status bar -->
+          <div class="sync-bar" id="sync-bar"></div>
+
+          <!-- Toast (success / check-in) -->
+          <div class="toast" id="toast">
+            <div class="toast-icon" id="toast-icon">✓</div>
+            <div class="toast-text" id="toast-text">Capturado · BlackInk</div>
+          </div>
+
+          <!-- Modal: microphone permission -->
+          <div class="modal-scrim" id="mic-modal">
+            <div class="modal-card">
+              <div class="m-title">Microfone bloqueado</div>
+              <div class="m-body">Atlas precisa de permissão para capturar áudio.</div>
+              <div class="m-actions">
+                <button class="btn-primary" data-mic-action="settings">Abrir Ajustes</button>
+                <button class="btn-ghost" data-mic-action="dismiss">Voltar</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================ -->
+          <!-- BOTTOM SHEET: Detalhe da captura            -->
+          <!-- ============================================ -->
+          <div class="sheet-scrim" id="detail-scrim"></div>
+          <div class="sheet h-85" id="detail-sheet" role="dialog" aria-label="Detalhe da captura">
+            <div class="sheet-handle"></div>
+            <div class="sheet-body">
+              <div class="ds-meta">
+                <span class="ts" id="ds-ts">21:23 · ontem</span>
+                <span class="dom-chip blackink" id="ds-chip">
+                  <span class="dchip-dot"></span>
+                  <span id="ds-chip-name">BlackInk</span>
+                </span>
+              </div>
+              <div class="ds-title">Captura</div>
+              <p class="ds-transcript" id="ds-transcript">
+                "Eu acho que faz mais sentido empacotar isso como produto. O João já mostrou
+                disposição. Se eu cobrar por hora vai dar mil e duzentos uma vez. Se eu fizer
+                módulo, dá duzentos e quarenta por mês recorrente. Em quatro meses paga por si só."
+              </p>
+
+              <div class="ds-player">
+                <button class="ds-play" id="ds-play" aria-label="Reproduzir">
+                  <svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor"><path d="M0 0 L12 7 L0 14 Z"/></svg>
+                </button>
+                <div class="ds-wave" id="ds-wave"></div>
+                <span class="ds-time" id="ds-time">0:00 / 1:42</span>
+              </div>
+
+              <div class="ds-tags">
+                <span class="ds-tag">precificação</span>
+                <span class="ds-tag">recorrência</span>
+                <span class="ds-tag">joão</span>
+              </div>
+            </div>
+            <div class="sheet-footer">
+              <div class="ds-actions">
+                <button class="btn-act" data-detail-act="edit">Editar</button>
+                <button class="btn-act" data-detail-act="move">Mover de domínio</button>
+                <button class="btn-act danger" data-detail-act="delete">Excluir</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================ -->
+          <!-- BOTTOM SHEET: Seleção de domínio            -->
+          <!-- ============================================ -->
+          <div class="sheet-scrim" id="domain-scrim"></div>
+          <div class="sheet h-40" id="domain-sheet" role="dialog" aria-label="Selecionar domínio">
+            <div class="sheet-handle"></div>
+            <div class="sheet-body">
+              <div class="dom-header">Sobre o quê é?</div>
+              <div class="dom-list">
+                <button class="dom-btn blackink" data-domain="BlackInk">
+                  <span class="dom-ico">✦</span>
+                  <span class="dom-name">BlackInk</span>
+                </button>
+                <button class="dom-btn pessoal" data-domain="Pessoal">
+                  <span class="dom-ico">◆</span>
+                  <span class="dom-name">Pessoal</span>
+                </button>
+                <button class="dom-btn trabalho" data-domain="Trabalho">
+                  <span class="dom-ico">▲</span>
+                  <span class="dom-name">Trabalho</span>
+                </button>
+                <button class="dom-btn saude" data-domain="Saúde">
+                  <span class="dom-ico">●</span>
+                  <span class="dom-name">Saúde</span>
+                </button>
+              </div>
+              <button class="dom-skip" data-domain="Outro">Pular</button>
+            </div>
+          </div>
+
+          <!-- ============================================ -->
+          <!-- MODAL: Confirmação de exclusão              -->
+          <!-- ============================================ -->
+          <div class="modal-scrim" id="confirm-modal">
+            <div class="confirm-card">
+              <div class="c-title">Excluir esta captura?</div>
+              <div class="c-body">Esta ação não pode ser desfeita.</div>
+              <div class="c-actions">
+                <button class="btn-cancel" data-confirm="cancel">Cancelar</button>
+                <button class="btn-danger" data-confirm="delete">Excluir</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================ -->
+          <!-- SIDE SHEET: Edição de captura               -->
+          <!-- ============================================ -->
+          <div class="side-sheet" id="edit-sheet" role="dialog" aria-label="Editar captura">
+            <div class="side-header">
+              <button class="sh-back" data-edit-act="back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                Voltar
+              </button>
+              <div class="sh-title">Editar captura</div>
+              <button class="sh-save" data-edit-act="save">Salvar</button>
+            </div>
+            <div class="side-body">
+              <textarea class="edit-textarea" id="edit-text" placeholder="Texto da captura...">"Eu acho que faz mais sentido empacotar isso como produto. O João já mostrou disposição. Se eu cobrar por hora vai dar mil e duzentos uma vez. Se eu fizer módulo, dá duzentos e quarenta por mês recorrente. Em quatro meses paga por si só."</textarea>
+              <div class="edit-footer">
+                <span class="edit-tag active"><span class="et-dot"></span>BlackInk</span>
+                <span class="edit-tag">precificação</span>
+                <span class="edit-tag">recorrência</span>
+                <button class="edit-add-tag">+ Adicionar tag</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============================================ -->
+          <!-- SIDE SHEET: Configurações                   -->
+          <!-- ============================================ -->
+          <div class="side-sheet" id="settings-sheet" role="dialog" aria-label="Configurações">
+            <div class="side-header">
+              <button class="sh-back" data-settings-act="back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                Voltar
+              </button>
+              <div class="sh-title">Configurações</div>
+              <span></span>
+            </div>
+            <div class="side-body">
+              <div class="settings-list">
+
+                <div class="settings-section">
+                  <div class="label">Aparência</div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Tema</div>
+                    <div class="sr-desc">Atlas troca automaticamente ao anoitecer.</div>
+                  </div>
+                  <div class="seg-3" id="theme-seg">
+                    <button data-theme="day">Dia</button>
+                    <button data-theme="night">Noite</button>
+                    <button class="on" data-theme="auto">Auto</button>
+                  </div>
+                </div>
+
+                <div class="settings-section">
+                  <div class="label">Captura</div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Transcrição automática</div>
+                    <div class="sr-desc">Gera texto via Whisper após cada captura.</div>
+                  </div>
+                  <div class="ios-toggle on" data-toggle="transcribe"></div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Haptic feedback</div>
+                    <div class="sr-desc">Vibração sutil ao iniciar e parar gravação.</div>
+                  </div>
+                  <div class="ios-toggle on" data-toggle="haptic"></div>
+                </div>
+
+                <div class="settings-section">
+                  <div class="label">Sync</div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Backend</div>
+                    <div class="sr-desc">Conectado · sincronização contínua</div>
+                  </div>
+                  <span class="sr-mono">há 12s</span>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Último sync completo</div>
+                    <div class="sr-desc">Todas as capturas estão atualizadas.</div>
+                  </div>
+                  <span class="sr-mono">07:42 · HOJE</span>
+                </div>
+
+                <div class="settings-section">
+                  <div class="label">Sobre</div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Versão</div>
+                    <div class="sr-desc">Atlas 1.0 · build 247</div>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <div class="sr-main">
+                    <div class="sr-name">Documentação interna</div>
+                    <div class="sr-desc">Princípios, decisões e changelog.</div>
+                  </div>
+                  <span class="sr-mono" style="color:var(--prussian)">↗</span>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Status bar — shared across views -->
+          <div class="status-bar">
+            <span class="mono" id="status-time">9:43</span>
+            <div class="icons">
+              <svg width="18" height="11" viewBox="0 0 18 11"><circle cx="2" cy="9" r="1.5" fill="currentColor"/><circle cx="6" cy="7" r="1.5" fill="currentColor"/><circle cx="10" cy="5" r="1.5" fill="currentColor"/><circle cx="14" cy="3" r="1.5" fill="currentColor"/></svg>
+              <svg width="18" height="11" viewBox="0 0 18 11"><rect x="0" y="3" width="2" height="7" rx="0.5" fill="currentColor"/><rect x="4" y="2" width="2" height="8" rx="0.5" fill="currentColor"/><rect x="8" y="1" width="2" height="9" rx="0.5" fill="currentColor"/><rect x="12" y="0" width="2" height="10" rx="0.5" fill="currentColor"/></svg>
+              <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+            </div>
+          </div>
+
+          <!-- ───────── HOME ───────── -->
+          <section class="view active" data-view="home">
+            <button class="home-gear" data-open-settings aria-label="Configurações">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <div class="view-pad">
+              <div class="home-greet" id="greet-text">Bom dia,<br/>Vitor</div>
+              <div class="home-meta" id="greet-meta">SEG · 27.IV.2026 · GOIÂNIA</div>
+              <div class="home-divider"></div>
+              <div class="home-prompt">"O que você fará hoje que ainda importará daqui a três meses?"</div>
+
+              <div class="home-section-h">Missão de hoje</div>
+              <div class="home-mission" data-go="briefing">
+                <div class="ttl">Refatorar onboarding BlackInk</div>
+                <div class="meta">DIA 3 DE 7 · PRAZO SEXTA</div>
+              </div>
+
+              <div class="home-section-h">Estado físico</div>
+              <div class="quick-row">
+                <div class="tile">
+                  <div class="lbl">Sono</div>
+                  <div class="val">7h12 <span class="mono" style="font-size:13px;color:var(--moss);margin-left:4px">+12%</span></div>
+                </div>
+                <div class="tile">
+                  <div class="lbl">HRV</div>
+                  <div class="val">62ms <span class="mono" style="font-size:13px;color:var(--moss);margin-left:4px">+4%</span></div>
+                </div>
+              </div>
+              <div class="quick-row">
+                <div class="tile">
+                  <div class="lbl">Energia</div>
+                  <div class="val">4 <span class="mono" style="font-size:14px;color:var(--ink-2)">/ 5</span></div>
+                </div>
+                <div class="tile premium">
+                  <div class="lbl">Capturas hoje</div>
+                  <div class="val">7 <span class="mono" style="font-size:13px;color:var(--ink-2);margin-left:4px">desde 06:14</span></div>
+                </div>
+              </div>
+
+              <div class="home-section-h">Ritual</div>
+              <div class="quick-row">
+                <div class="tile" data-go="briefing">
+                  <div class="lbl">Briefing matinal</div>
+                  <div class="val">Começar ritual</div>
+                </div>
+                <div class="tile" data-go="weekly">
+                  <div class="lbl">Weekly review</div>
+                  <div class="val">Semana 17</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ───────── INBOX ───────── -->
+          <section class="view" data-view="inbox">
+            <div class="view-pad">
+              <div class="view-title-block">
+                <span class="display-lg">Inbox</span>
+                <span class="label">Últimas 50 capturas</span>
+              </div>
+
+              <!-- Empty inbox state -->
+              <div class="empty-inbox" id="empty-inbox" style="display:none">
+                <div class="glyph-lg">✦</div>
+                <div class="head">Inbox limpa.</div>
+                <div class="sub">Capture algo quando o pensamento aparecer.</div>
+              </div>
+
+              <!-- (4) Inbox skeleton — 5 cards mantendo estrutura real -->
+              <div class="inbox-list" id="inbox-skel">
+                <div class="inbox-skel-card"><div class="inbox-skel-meta"><div class="skel skel-time"></div><div class="skel skel-domain"></div></div><div class="skel skel-content-line" style="width:92%"></div><div class="skel skel-content-line" style="width:64%"></div></div>
+                <div class="inbox-skel-card"><div class="inbox-skel-meta"><div class="skel skel-time"></div><div class="skel skel-domain" style="width:48px"></div></div><div class="skel skel-content-line" style="width:88%"></div><div class="skel skel-content-line" style="width:55%"></div></div>
+                <div class="inbox-skel-card"><div class="inbox-skel-meta"><div class="skel skel-time"></div><div class="skel skel-domain" style="width:72px"></div></div><div class="skel skel-content-line" style="width:78%"></div><div class="skel skel-content-line" style="width:42%"></div></div>
+                <div class="inbox-skel-card"><div class="inbox-skel-meta"><div class="skel skel-time"></div><div class="skel skel-domain" style="width:54px"></div></div><div class="skel skel-content-line" style="width:90%"></div><div class="skel skel-content-line" style="width:70%"></div></div>
+                <div class="inbox-skel-card"><div class="inbox-skel-meta"><div class="skel skel-time"></div><div class="skel skel-domain" style="width:60px"></div></div><div class="skel skel-content-line" style="width:82%"></div><div class="skel skel-content-line" style="width:50%"></div></div>
+              </div>
+              <div class="inbox-list" id="inbox-list" style="display:none">
+                <!-- populated by JS -->
+              </div>
+            </div>
+          </section>
+
+          <!-- ───────── BRIEFING MATINAL ───────── -->
+          <section class="view slide-from-bottom" data-view="briefing">
+            <div class="view-pad">
+              <div class="view-title-block">
+                <span class="label">Briefing matinal</span>
+                <span class="display-lg" style="margin-top:6px;display:block">Bom dia,<br/>Vitor</span>
+                <span class="mono" style="font-size:12px;color:var(--ink-2);margin-top:10px;display:block;letter-spacing:0.04em">SEG · 27.IV.2026 · GOIÂNIA</span>
+              </div>
+
+              <div class="brief-mission" data-go="decision" id="brief-mission-card">
+                <div class="lbl-star"><span class="star-glyph">✦</span> Missão de hoje</div>
+                <div class="name">Refatorar onboarding BlackInk</div>
+                <div class="meta">DIA 3 DE 7 · PRAZO SEXTA</div>
+              </div>
+
+              <div class="empty-mission" id="empty-mission" style="display:none">
+                <div class="quote">“Hoje é dia sem missão definida.”</div>
+                <button class="btn-secondary">Definir agora</button>
+              </div>
+
+              <div class="label" style="margin-bottom:10px">A pergunta do dia</div>
+              <div class="brief-question">"O que você fará hoje que ainda importará daqui a três meses?"</div>
+
+              <div class="label" style="margin-top:26px;margin-bottom:10px">Estado físico</div>
+              <div class="brief-physical">
+                <div class="row"><span>Sono</span><span class="v">7h12</span></div>
+                <div class="row"><span>HRV</span><span class="v up">+12%</span></div>
+                <div class="row"><span>Energia</span><span class="v">4 / 5</span></div>
+              </div>
+
+              <button class="decide-cta" data-go="capture">Começar o dia</button>
+            </div>
+          </section>
+
+          <!-- ───────── DECISÃO ESTRUTURADA ───────── -->
+          <section class="view slide-from-bottom" data-view="decision">
+            <div class="view-pad">
+              <div class="view-title-block">
+                <span class="label">Decisão estruturada</span>
+                <span class="display-md" style="margin-top:8px;display:block">Aceitar a oferta da agência ou seguir solo?</span>
+              </div>
+
+              <div class="field-block">
+                <div class="label">Reversibilidade</div>
+                <div class="seg" id="rev-seg">
+                  <button class="seg-btn on">Reversível</button>
+                  <button class="seg-btn">Difícil</button>
+                  <button class="seg-btn">Irreversível</button>
+                </div>
+              </div>
+
+              <div class="field-block">
+                <div class="label">Contexto</div>
+                <div class="field">Agência ofereceu R$ 1.800/mês para gerenciar o Instagram BlackInk por três meses iniciais.</div>
+              </div>
+
+              <div class="field-block">
+                <div class="label">Alternativas consideradas</div>
+                <div class="field placeholder field-tall">Liste dois ou três caminhos antes de escolher…</div>
+              </div>
+
+              <div class="field-block">
+                <div class="label">Custo de não decidir</div>
+                <div class="field placeholder">O que acontece se eu adiar mais uma semana?</div>
+              </div>
+
+              <button class="decide-cta">Selar decisão</button>
+            </div>
+          </section>
+
+          <!-- ───────── WEEKLY REVIEW ───────── -->
+          <section class="view slide-from-bottom" data-view="weekly">
+            <div class="view-pad">
+              <div class="view-title-block">
+                <span class="label">Weekly review</span>
+                <span class="display-lg" style="margin-top:8px;display:block">Semana 17</span>
+                <span class="wr-week-meta mono">21.IV — 27.IV.2026</span>
+              </div>
+
+              <div id="weekly-real">
+              <div class="wr-divider-row">
+                <div class="line"></div>
+                <div class="glyph">✦</div>
+                <div class="line"></div>
+              </div>
+
+              <p class="wr-quote">Esta foi a semana em que parei de adiar a decisão sobre a agência. Avancei mais sem ela do que tentando convencer alguém a executar.</p>
+
+              <div class="label" style="margin-top:30px">As 4 dimensões</div>
+              <div class="wr-list">
+                <div class="row"><span>Performance</span>   <span class="v up">↑ 12%</span></div>
+                <div class="row"><span>Saúde</span>         <span class="v up">↑ 4%</span></div>
+                <div class="row"><span>Relacionamentos</span><span class="v dn">↓ 8%</span></div>
+                <div class="row"><span>Integridade</span>   <span class="v flat">— estável</span></div>
+              </div>
+
+              <div class="detail-coords" style="margin-top:36px">
+                <div class="glyph">✦</div>
+                <div class="coords">−16.6869° S · 49.2648° W</div>
+                <div class="place">Goiânia, semana fechada às 21:30</div>
+              </div>
+
+              <button class="decide-cta">Fechar a semana</button>
+              </div>
+
+              <div class="empty-weekly" id="empty-weekly" style="display:none">
+                <div class="glyph-sm">✦</div>
+                <div class="head">“Esta é a sua primeira semana com Atlas.”</div>
+                <div class="sub">Os dados aparecem aqui após sete dias de uso.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ───────── CAPTURE (recording) ───────── -->
+          <section class="view slide-from-bottom" data-view="capture">
+            <div class="capture-screen">
+              <div class="capture-pulse"></div>
+              <div class="capture-counter mono" id="cap-count">0:00</div>
+              <div class="capture-prompt">Fale o que está pensando. Atlas escuta.</div>
+
+              <div class="wave-row" id="wave-row"></div>
+
+              <div class="capture-domain-row">
+                <button class="domain-chip active dom-blackink">BlackInk</button>
+                <button class="domain-chip">Saúde</button>
+                <button class="domain-chip">Finanças</button>
+                <button class="domain-chip">Outro</button>
+              </div>
+
+              <div class="capture-stop" data-go="inbox">
+                <div class="capture-stop-inner"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ───────── DETAIL (after capture) ───────── -->
+          <section class="view slide-from-bottom" data-view="detail">
+            <div class="view-pad">
+              <div class="detail-head">
+                <div class="detail-back" data-go="inbox">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="detail-title">Captura · BlackInk</div>
+              </div>
+
+              <div class="detail-meta mono" id="detail-time">21:23 · 27.IV.2026 · 0:34</div>
+
+              <p class="detail-body">
+                Cliente João pediu integração com Stripe. Possível upsell de R$ 240/mês recorrentes
+                se eu empacotar como módulo, em vez de cobrar dev hour. Fechar amanhã antes
+                do call das 14h.
+              </p>
+
+              <!-- (2) Transcrição em andamento -->
+              <div class="transcribing-block" id="transcribing-block">
+                <div class="transcribing-label">
+                  <span class="pdot"></span>
+                  Transcrevendo via Whisper
+                </div>
+                <div class="transcribing-lines">
+                  <div class="skel skel-line w90"></div>
+                  <div class="skel skel-line w75"></div>
+                  <div class="skel skel-line w60"></div>
+                  <div class="skel skel-line w45"></div>
+                </div>
+              </div>
+
+              <!-- Transcrição final (revelada após delay) -->
+              <div id="transcribing-done" style="display:none">
+                <div class="label">Transcrição automática</div>
+                <p class="body-md" style="margin-top:8px;color:var(--ink-2);font-style:italic;font-family:'Fraunces',serif">
+                  "Eu acho que faz mais sentido empacotar isso como produto. O João já mostrou
+                  disposição. Se eu cobrar por hora vai dar mil e duzentos uma vez. Se eu fizer
+                  módulo, dá duzentos e quarenta por mês recorrente. Em quatro meses paga por si só."
+                </p>
+              </div>
+
+              <!-- Erro de transcrição (estado alternativo) -->
+              <div class="transcribe-error" id="transcribe-error" style="display:none">
+                <span class="err-icon">⚠</span>
+                <span class="err-text">Não foi possível transcrever automaticamente</span>
+                <button class="err-retry" id="err-retry">Tentar novamente</button>
+              </div>
+
+              <div class="detail-coords">
+                <div class="glyph">✦</div>
+                <div class="coords">−16.6869° S · 49.2648° W</div>
+                <div class="place">Goiânia, capturado às 21:23</div>
+              </div>
+
+              <button class="decide-cta" data-go="inbox">Voltar à inbox</button>
+            </div>
+          </section>
+
+          <!-- Dock — visible only on home/inbox, hidden on focused screens -->
+          <div class="dock" id="dock">
+            <div class="dock-btn active" data-go="home">
+              <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+              Home
+            </div>
+            <div class="dock-btn" data-go="inbox">
+              <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v9H3z"/><path d="M3 14l4 5h10l4-5"/></svg>
+              Inbox
+            </div>
+            <div class="dock-record" data-go="capture" title="Capturar">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="13" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+            </div>
+            <div class="dock-btn" data-go="weekly">
+              <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h18v16H3z"/><path d="M3 9h18"/><path d="M8 4v3M16 4v3"/></svg>
+              Review
+            </div>
+            <div class="dock-btn" data-go="briefing">
+              <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>
+              Ritual
+            </div>
+          </div>
+
+          <div class="offline-queue" id="offline-queue">✧ fila local: 3 capturas aguardando sync</div>
+
+          <div class="home-indicator"></div>
+        </div>
+      </div>
+
+      <div class="device-caption">
+        <h2 id="cap-title">Home</h2>
+        <p id="cap-desc">A vida em mapas. Bronze raro, marfim warm. Cartografia sussurrada.</p>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+  // ═════════ DATA ═════════
+  const SCREENS = [
+    { id: 'home',     name: 'Home',                kind: 'fn',     title: 'Home',                desc: 'Saudação contemplativa, missão do dia, estado físico em snapshot.' },
+    { id: 'inbox',    name: 'Inbox',               kind: 'fn',     title: 'Inbox',               desc: 'Cards densos sem peso. Timestamp em mono, domínio com cor própria.' },
+    { id: 'capture',  name: 'Captura',             kind: 'fn',     title: 'Captura ativa',       desc: 'Sub-10 segundos pra capturar. Pulso vermelho-tinta sussurrado, contador em mono.' },
+    { id: 'detail',   name: 'Detalhe da captura',  kind: 'fn',     title: 'Detalhe',             desc: 'Captura individual com transcrição e coordenadas.' },
+    { id: 'briefing', name: 'Briefing matinal',    kind: 'cont',   title: 'Briefing matinal',    desc: 'Fraunces no nome, italic na pergunta, métricas em mono. Editorial premium.' },
+    { id: 'decision', name: 'Decisão estruturada', kind: 'cont',   title: 'Decisão estruturada', desc: 'Modo contemplativo. Articulação forçada antes de decidir.' },
+    { id: 'weekly',   name: 'Weekly review',       kind: 'cont',   title: 'Weekly review',       desc: 'Reflexão do operador em italic, dimensões em mono. Tradeoff visível.' },
+  ];
+
+  const INBOX = [
+    { time: '21:23', dom: 'BlackInk',  cls: 'dom-blackink', text: 'Cliente João pediu integração com Stripe. Possível upsell de R$ 240/mês se empacotar como módulo.' },
+    { time: '19:48', dom: 'Saúde',     cls: 'dom-saude',    text: 'Treino pesado hoje. HRV caiu 18% — talvez recovery amanhã.' },
+    { time: '15:12', dom: 'Finanças',  cls: 'dom-financas', text: 'PRIO3 quebrou suporte de R$ 38. Avaliar entrada na próxima reversão.' },
+    { time: '11:30', dom: 'Outro',     cls: 'dom-outro',    text: 'Lembrete: comprar presente da Carol antes de sexta.' },
+    { time: '08:17', dom: 'BlackInk',  cls: 'dom-blackink', text: 'Refazer onboarding com vídeo de 90 segundos pode reduzir churn nos primeiros 7 dias.' },
+    { time: '07:02', dom: 'Saúde',     cls: 'dom-saude',    text: 'Sono 7h12, melhor da semana. Continuar dormindo antes das 23h.' },
+    { time: '06:14', dom: 'Outro',     cls: 'dom-outro',    text: 'Ideia: escrever ensaio sobre o que aprendi mantendo Atlas há 6 meses.' },
+    { time: '23:14', dom: 'BlackInk',  cls: 'dom-blackink', text: 'Ideia 4h da manhã: rebranding completo do dashboard pra V2.' },
+    { time: '22:48', dom: 'Saúde',     cls: 'dom-saude',    text: 'Sono ruim ontem (5h12). HRV deve cair amanhã — ajustar volume.' },
+    { time: '21:30', dom: 'Finanças',  cls: 'dom-financas', text: 'Avaliar reduzir posição PRIO3 antes do payroll de sexta.' },
+  ];
+
+  // ═════════ RENDER ═════════
+  const navEl = document.getElementById('screens-nav');
+  SCREENS.forEach(s => {
+    const a = document.createElement('div');
+    a.className = 'sb-link' + (s.id === 'home' ? ' active' : '');
+    a.dataset.go = s.id;
+    a.innerHTML = `<span class="dot"></span><span>${s.name}</span><span class="kind">${s.kind === 'cont' ? 'contemp.' : 'funcional'}</span>`;
+    navEl.appendChild(a);
+  });
+
+  const inboxEl = document.getElementById('inbox-list');
+  function renderInbox(extraProcessing) {
+    inboxEl.innerHTML = '';
+    if (extraProcessing) {
+      const p = document.createElement('div');
+      p.className = 'processing-card';
+      p.id = 'processing-card';
+      p.innerHTML = `
+        <div class="processing-meta">
+          <span class="processing-time mono">agora</span>
+          <span class="inbox-domain dom-blackink">BlackInk</span>
+          <span class="processing-label"><span class="pdot"></span>Processando…</span>
+        </div>
+        <div class="skel skel-line w90"></div>
+        <div class="skel skel-line w60"></div>`;
+      inboxEl.appendChild(p);
+    }
+    INBOX.forEach((it, idx) => {
+      const c = document.createElement('div');
+      c.className = 'inbox-card';
+      c.dataset.openDetail = idx;
+      c.innerHTML = `
+        <div class="inbox-meta">
+          <span class="inbox-time">${it.time}</span>
+          <span class="inbox-domain ${it.cls}">${it.dom}</span>
+        </div>
+        <div class="inbox-text">${it.text}</div>`;
+      inboxEl.appendChild(c);
+    });
+  }
+  renderInbox(false);
+
+  // (4) Inbox skeleton — primeira visita ao tab inbox mostra skeleton 320ms
+  let inboxLoadedOnce = false;
+  function showInboxLoading() {
+    if (inboxLoadedOnce) return;
+    inboxLoadedOnce = true;
+    const skel = document.getElementById('inbox-skel');
+    const real = document.getElementById('inbox-list');
+    skel.style.display = '';
+    real.style.display = 'none';
+    setTimeout(() => {
+      skel.style.display = 'none';
+      if (typeof emptyState !== 'undefined' && emptyState.inbox) {
+        real.style.display = 'none';
+      } else {
+        real.style.display = '';
+        real.classList.add('ts-fade-in');
+      }
+    }, 360);
+  }
+
+  // (3) Sync bar — sussurra periodicamente
+  const syncBar = document.getElementById('sync-bar');
+  function pulseSyncBar(durationMs = 2400) {
+    syncBar.classList.add('on');
+    clearTimeout(syncBar._t);
+    syncBar._t = setTimeout(() => syncBar.classList.remove('on'), durationMs);
+  }
+  // sync inicial discreto, depois a cada ~18s
+  setTimeout(() => pulseSyncBar(2200), 800);
+  setInterval(() => pulseSyncBar(2200), 18000);
+
+  // (2) Transcrição: cycle skeleton → texto final ao abrir detail
+  function startTranscribing() {
+    const block = document.getElementById('transcribing-block');
+    const done  = document.getElementById('transcribing-done');
+    block.style.display = '';
+    done.style.display = 'none';
+    clearTimeout(block._t);
+    block._t = setTimeout(() => {
+      block.style.display = 'none';
+      done.style.display = '';
+      done.classList.remove('ts-fade-in');
+      void done.offsetWidth;
+      done.classList.add('ts-fade-in');
+    }, 2400);
+  }
+
+  // wave bars
+  const waveEl = document.getElementById('wave-row');
+  for (let i = 0; i < 64; i++) {
+    const b = document.createElement('div');
+    b.className = 'wave-bar';
+    b.style.animationDelay = (-Math.random() * 900) + 'ms';
+    b.style.animationDuration = (700 + Math.random() * 400) + 'ms';
+    waveEl.appendChild(b);
+  }
+
+  // ═════════ NAV ═════════
+  const screen = document.getElementById('screen');
+  const dock   = document.getElementById('dock');
+
+  function updateStatusFor(viewId) {
+    const t = document.getElementById('status-time');
+    if (viewId === 'briefing') t.textContent = '7:05';
+    else if (viewId === 'decision') t.textContent = '20:15';
+    else if (viewId === 'weekly') t.textContent = '10:30';
+    else if (viewId === 'capture') t.textContent = '21:23';
+    else if (viewId === 'detail') t.textContent = '21:24';
+    else t.textContent = '9:43';
+  }
+
+  function go(viewId) {
+    document.querySelectorAll('.view').forEach(v => {
+      v.classList.toggle('active', v.dataset.view === viewId);
+    });
+    document.querySelectorAll('#screens-nav .sb-link').forEach(l => {
+      l.classList.toggle('active', l.dataset.go === viewId);
+    });
+    document.querySelectorAll('#dock .dock-btn').forEach(d => {
+      d.classList.toggle('active', d.dataset.go === viewId);
+    });
+    // Hide dock on capture & detail (focused modes)
+    if (viewId === 'capture' || viewId === 'detail' || viewId === 'decision') {
+      dock.style.opacity = '0';
+      dock.style.pointerEvents = 'none';
+      dock.style.transform = 'translateY(20px)';
+      dock.style.transition = 'opacity 280ms ease, transform 280ms ease';
+    } else {
+      dock.style.opacity = '1';
+      dock.style.pointerEvents = 'auto';
+      dock.style.transform = 'translateY(0)';
+      dock.style.transition = 'opacity 280ms ease 80ms, transform 280ms ease 80ms';
+    }
+    // caption update
+    const s = SCREENS.find(x => x.id === viewId);
+    if (s) {
+      document.getElementById('cap-title').textContent = s.title;
+      document.getElementById('cap-desc').textContent = s.desc;
+    }
+    updateStatusFor(viewId);
+
+    // capture timer
+    if (viewId === 'capture') startCounter();
+    else stopCounter();
+
+    // Loading hooks
+    if (viewId === 'inbox') showInboxLoading();
+    if (viewId === 'detail') startTranscribing();
+  }
+
+  // (1) Capture send: stop button → processing card aparece na inbox, depois converte
+  function handleCaptureStop() {
+    // pulsa sync bar (envio pro backend)
+    pulseSyncBar(2000);
+    // marca que precisamos mostrar a processing card quando inbox abrir
+    pendingProcessing = true;
+    // abre sheet de seleção de domínio (após captura inicial)
+    setTimeout(() => {
+      const ds = document.getElementById('domain-sheet');
+      const dsc = document.getElementById('domain-scrim');
+      if (ds && dsc) { dsc.classList.add('on'); ds.classList.add('on'); }
+    }, 420);
+  }
+  let pendingProcessing = false;
+
+  document.body.addEventListener('click', e => {
+    const tgt = e.target.closest('[data-go]');
+    if (!tgt) return;
+    e.preventDefault();
+
+    // Stop button → processa antes de ir pro detail
+    if (tgt.classList.contains('capture-stop')) {
+      handleCaptureStop();
+    }
+
+    go(tgt.dataset.go);
+
+    // Se acabamos de chegar na inbox e tem captura pendente → mostra processing card
+    if (tgt.dataset.go === 'inbox' && pendingProcessing) {
+      pendingProcessing = false;
+      renderInbox(true);
+      // após 2.6s o card processing some e a captura entra como real
+      setTimeout(() => {
+        pulseSyncBar(1500);
+        renderInbox(false);
+      }, 2600);
+    }
+  });
+
+  // ═════════ THEME ═════════
+  const themeToggle = document.getElementById('theme-toggle');
+  themeToggle.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const t = btn.dataset.theme;
+    document.body.classList.toggle('dark', t === 'dark');
+    themeToggle.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+  });
+
+  // ═════════ Decisão segmented ═════════
+  document.getElementById('rev-seg').addEventListener('click', e => {
+    const b = e.target.closest('.seg-btn');
+    if (!b) return;
+    document.querySelectorAll('#rev-seg .seg-btn').forEach(x => x.classList.toggle('on', x === b));
+  });
+
+  // ═════════ Capture chips ═════════
+  document.querySelectorAll('.capture-domain-row').forEach(row => {
+    row.addEventListener('click', e => {
+      const b = e.target.closest('.domain-chip');
+      if (!b) return;
+      // remove all 'active' classes that prefix dom-
+      row.querySelectorAll('.domain-chip').forEach(x => {
+        x.classList.remove('active', 'dom-blackink', 'dom-saude', 'dom-financas', 'dom-outro');
+      });
+      const txt = b.textContent.toLowerCase();
+      const cls = txt.includes('blackink') ? 'dom-blackink' :
+                  txt.includes('saúde') ? 'dom-saude' :
+                  txt.includes('finanças') ? 'dom-financas' : 'dom-outro';
+      b.classList.add('active', cls);
+      // restore others' base text (no class)
+    });
+  });
+
+  // ═════════ Capture counter ═════════
+  let counterT;
+  function startCounter() {
+    let s = 0;
+    document.getElementById('cap-count').textContent = '0:00';
+    clearInterval(counterT);
+    counterT = setInterval(() => {
+      s++;
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      document.getElementById('cap-count').textContent = m + ':' + String(r).padStart(2, '0');
+    }, 1000);
+  }
+  function stopCounter() {
+    clearInterval(counterT);
+  }
+
+  // Demo triggers from sidebar
+  document.querySelectorAll('[data-demo]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.demo;
+      if (k === 'sync') pulseSyncBar(2200);
+      if (k === 'inbox-skel') {
+        inboxLoadedOnce = false;
+        go('inbox');
+      }
+      if (k === 'processing') {
+        go('inbox');
+        renderInbox(true);
+        pulseSyncBar(2000);
+        setTimeout(() => renderInbox(false), 2600);
+      }
+      if (k === 'transcribe') {
+        go('detail');
+      }
+    });
+  });
+
+  // Empty state triggers
+  let emptyState = { inbox: false, mission: false, weekly: false, offline: false };
+  function applyEmpty() {
+    // Inbox
+    const eInbox = document.getElementById('empty-inbox');
+    const lInbox = document.getElementById('inbox-list');
+    if (emptyState.inbox) {
+      eInbox.style.display = '';
+      lInbox.style.display = 'none';
+    } else {
+      eInbox.style.display = 'none';
+      if (inboxLoadedOnce) lInbox.style.display = '';
+    }
+    // Mission
+    document.getElementById('brief-mission-card').style.display = emptyState.mission ? 'none' : '';
+    document.getElementById('empty-mission').style.display    = emptyState.mission ? '' : 'none';
+    // Weekly
+    document.getElementById('weekly-real').style.display  = emptyState.weekly ? 'none' : '';
+    document.getElementById('empty-weekly').style.display = emptyState.weekly ? '' : 'none';
+    // Offline
+    document.body.classList.toggle('offline', emptyState.offline);
+    document.getElementById('offline-banner').classList.toggle('on', emptyState.offline);
+  }
+
+  document.querySelectorAll('[data-empty]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.empty;
+      if (k === 'inbox')    { emptyState.inbox = !emptyState.inbox;     go('inbox'); }
+      if (k === 'mission')  { emptyState.mission = !emptyState.mission; go('briefing'); }
+      if (k === 'weekly')   { emptyState.weekly = !emptyState.weekly;   go('weekly'); }
+      if (k === 'offline')  { emptyState.offline = !emptyState.offline; }
+      el.classList.toggle('active', emptyState[k]);
+      applyEmpty();
+    });
+  });
+
+  // Feedback patterns
+  const toastEl    = document.getElementById('toast');
+  const toastIcon  = document.getElementById('toast-icon');
+  const toastText  = document.getElementById('toast-text');
+  let toastT1, toastT2;
+  function showToast({ icon, iconClass, text, italic, after }) {
+    clearTimeout(toastT1); clearTimeout(toastT2);
+    toastIcon.textContent = icon;
+    toastIcon.className = 'toast-icon ' + (iconClass || '');
+    toastText.textContent = text;
+    toastText.className = 'toast-text' + (italic ? ' italic' : '');
+    toastEl.classList.remove('fading');
+    toastEl.classList.add('on');
+    // simulate haptic via subtle CSS pulse — none needed; the entry transition is the cue
+    toastT1 = setTimeout(() => {
+      toastEl.classList.add('fading');
+      toastEl.classList.remove('on');
+      toastT2 = setTimeout(() => {
+        toastEl.classList.remove('fading');
+        if (typeof after === 'function') after();
+      }, 280);
+    }, 1800);
+  }
+  function showCheckinToast() {
+    clearTimeout(toastT1); clearTimeout(toastT2);
+    toastIcon.textContent = '✦';
+    toastIcon.className = 'toast-icon glyph';
+    toastText.textContent = 'Estado registrado';
+    toastText.className = 'toast-text italic';
+    toastEl.classList.remove('fading');
+    toastEl.classList.add('on');
+    toastT1 = setTimeout(() => {
+      toastEl.classList.add('fading');
+      toastEl.classList.remove('on');
+      toastT2 = setTimeout(() => {
+        toastEl.classList.remove('fading');
+        go('home');
+      }, 280);
+    }, 1500);
+  }
+
+  // Mic permission modal
+  const micModal = document.getElementById('mic-modal');
+  function openMicModal() { micModal.classList.add('on'); }
+  function closeMicModal() { micModal.classList.remove('on'); }
+  micModal.querySelectorAll('[data-mic-action]').forEach(b => {
+    b.addEventListener('click', closeMicModal);
+  });
+  micModal.addEventListener('click', (e) => {
+    if (e.target === micModal) closeMicModal();
+  });
+
+  // Transcription error
+  function showTranscribeError() {
+    go('detail');
+    // cancel the auto-transcribe timer set by startTranscribing
+    const block = document.getElementById('transcribing-block');
+    const done  = document.getElementById('transcribing-done');
+    const err   = document.getElementById('transcribe-error');
+    if (block && block._t) clearTimeout(block._t);
+    block.style.display = 'none';
+    done.style.display  = 'none';
+    err.style.display   = '';
+    err.classList.remove('ts-fade-in');
+    void err.offsetWidth;
+    err.classList.add('ts-fade-in');
+  }
+  document.getElementById('err-retry').addEventListener('click', () => {
+    document.getElementById('transcribe-error').style.display = 'none';
+    startTranscribing();
+  });
+
+  document.querySelectorAll('[data-fb]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.fb;
+      if (k === 'success') {
+        showToast({ icon: '✓', iconClass: 'check', text: 'Capturado · BlackInk' });
+      }
+      if (k === 'checkin') {
+        showCheckinToast();
+      }
+      if (k === 'mic') {
+        openMicModal();
+      }
+      if (k === 'trans-err') {
+        showTranscribeError();
+      }
+    });
+  });
+
+  // ===========================================================
+  // SHEETS & MODALS
+  // ===========================================================
+
+  function openOverlay(scrim, sheet) {
+    if (scrim) scrim.classList.add('on');
+    if (sheet) sheet.classList.add('on');
+  }
+  function closeOverlay(scrim, sheet) {
+    if (scrim) scrim.classList.remove('on');
+    if (sheet) sheet.classList.remove('on');
+  }
+
+  // ---- Detail bottom sheet ----
+  const detailSheet = document.getElementById('detail-sheet');
+  const detailScrim = document.getElementById('detail-scrim');
+  const dsWave = document.getElementById('ds-wave');
+  // build waveform bars (40 bars, varied heights)
+  (function buildWave() {
+    const heights = [4,8,14,20,26,22,16,10,6,12,18,24,28,22,16,10,6,4,8,14,20,26,30,24,18,12,8,4,10,16,22,18,12,8,6,10,14,8,4,4];
+    heights.forEach((h, i) => {
+      const b = document.createElement('span');
+      b.className = 'ds-bar' + (i < 14 ? ' played' : '');
+      b.style.height = h + 'px';
+      dsWave.appendChild(b);
+    });
+  })();
+  // Map domain → chip class
+  const DOMAIN_CHIP = {
+    'BlackInk': 'blackink',
+    'Saúde': 'saude',
+    'Trabalho': 'trabalho',
+    'Pessoal': 'pessoal',
+    'Finanças': 'pessoal',
+    'Outro': 'trabalho'
+  };
+  function openDetailSheet(idx) {
+    const it = INBOX[idx];
+    if (!it) return;
+    document.getElementById('ds-ts').textContent = it.time + ' · hoje';
+    document.getElementById('ds-transcript').textContent = '"' + it.text + '"';
+    const chipName = document.getElementById('ds-chip-name');
+    const chip = document.getElementById('ds-chip');
+    chipName.textContent = it.dom;
+    chip.className = 'dom-chip ' + (DOMAIN_CHIP[it.dom] || 'trabalho');
+    openOverlay(detailScrim, detailSheet);
+  }
+  function closeDetailSheet() { closeOverlay(detailScrim, detailSheet); }
+  detailScrim.addEventListener('click', closeDetailSheet);
+  document.body.addEventListener('click', e => {
+    const card = e.target.closest('[data-open-detail]');
+    if (card) {
+      e.preventDefault();
+      openDetailSheet(parseInt(card.dataset.openDetail, 10));
+    }
+  });
+  // Detail action footer
+  document.querySelectorAll('[data-detail-act]').forEach(b => {
+    b.addEventListener('click', () => {
+      const k = b.dataset.detailAct;
+      if (k === 'edit') {
+        closeDetailSheet();
+        setTimeout(openEditSheet, 120);
+      }
+      if (k === 'move') {
+        closeDetailSheet();
+        setTimeout(() => openOverlay(domainScrim, domainSheet), 120);
+      }
+      if (k === 'delete') {
+        openOverlay(confirmModal, null);
+      }
+    });
+  });
+  // Play button toggles bars (visual only)
+  document.getElementById('ds-play').addEventListener('click', function() {
+    const bars = dsWave.querySelectorAll('.ds-bar');
+    let played = 0;
+    bars.forEach(b => { if (b.classList.contains('played')) played++; });
+    // advance played count by 4
+    played = (played + 4) % bars.length;
+    bars.forEach((b, i) => b.classList.toggle('played', i < played));
+  });
+
+  // ---- Domain selection bottom sheet ----
+  const domainSheet = document.getElementById('domain-sheet');
+  const domainScrim = document.getElementById('domain-scrim');
+  domainScrim.addEventListener('click', () => closeOverlay(domainScrim, domainSheet));
+  document.querySelectorAll('[data-domain]').forEach(b => {
+    b.addEventListener('click', () => {
+      const dom = b.dataset.domain;
+      closeOverlay(domainScrim, domainSheet);
+      // confirm via toast
+      setTimeout(() => {
+        showToast({ icon: '✓', iconClass: 'check', text: 'Capturado · ' + dom });
+      }, 240);
+    });
+  });
+
+  // ---- Confirm delete modal ----
+  const confirmModal = document.getElementById('confirm-modal');
+  document.querySelectorAll('[data-confirm]').forEach(b => {
+    b.addEventListener('click', () => {
+      const k = b.dataset.confirm;
+      confirmModal.classList.remove('on');
+      if (k === 'delete') {
+        // close detail too
+        closeDetailSheet();
+        setTimeout(() => {
+          showToast({ icon: '✓', iconClass: 'check', text: 'Captura excluída' });
+        }, 200);
+      }
+    });
+  });
+  confirmModal.addEventListener('click', e => {
+    if (e.target === confirmModal) confirmModal.classList.remove('on');
+  });
+
+  // ---- Edit side sheet ----
+  const editSheet = document.getElementById('edit-sheet');
+  function openEditSheet() { editSheet.classList.add('on'); }
+  function closeEditSheet() { editSheet.classList.remove('on'); }
+  document.querySelectorAll('[data-edit-act]').forEach(b => {
+    b.addEventListener('click', () => {
+      closeEditSheet();
+      if (b.dataset.editAct === 'save') {
+        setTimeout(() => {
+          showToast({ icon: '✓', iconClass: 'check', text: 'Alterações salvas' });
+        }, 240);
+      }
+    });
+  });
+
+  // ---- Settings side sheet ----
+  const settingsSheet = document.getElementById('settings-sheet');
+  function openSettings() { settingsSheet.classList.add('on'); }
+  function closeSettings() { settingsSheet.classList.remove('on'); }
+  document.querySelectorAll('[data-settings-act]').forEach(b => {
+    b.addEventListener('click', closeSettings);
+  });
+  document.querySelectorAll('[data-open-settings]').forEach(b => {
+    b.addEventListener('click', openSettings);
+  });
+  // Theme segmented
+  document.querySelectorAll('#theme-seg [data-theme]').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#theme-seg [data-theme]').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      const v = b.dataset.theme;
+      // also flip the existing global theme for fun
+      if (v === 'day')   document.documentElement.classList.remove('dark');
+      if (v === 'night') document.documentElement.classList.add('dark');
+      // 'auto' leaves it as-is
+    });
+  });
+  // iOS toggles
+  document.querySelectorAll('.ios-toggle').forEach(t => {
+    t.addEventListener('click', () => t.classList.toggle('on'));
+  });
+
+  // Sheets sidebar triggers
+  document.querySelectorAll('[data-sheet]').forEach(el => {
+    el.addEventListener('click', () => {
+      const k = el.dataset.sheet;
+      if (k === 'detail')   openDetailSheet(0);
+      if (k === 'domain')   openOverlay(domainScrim, domainSheet);
+      if (k === 'confirm')  confirmModal.classList.add('on');
+      if (k === 'edit')     openEditSheet();
+      if (k === 'settings') openSettings();
+    });
+  });
+
+  // Esc key closes any open overlay
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    closeDetailSheet();
+    closeOverlay(domainScrim, domainSheet);
+    confirmModal.classList.remove('on');
+    closeEditSheet();
+    closeSettings();
+  });
+
+  // initial
+  updateStatusFor('home');
+  applyEmpty();
+</script>
+
+</body>
+</html>

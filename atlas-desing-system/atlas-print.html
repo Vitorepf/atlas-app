@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Atlas — Print</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  /* TOKENS — light & dark */
+  :root {
+    --bg: #F4EFE6;
+    --surface: #EAE3D6;
+    --premium: #E0D8C9;
+    --ink: #1A1612;
+    --ink-2: #6B6358;
+    --ink-3: #A89F90;
+    --border: #D4CCBC;
+    --prussian: #1B3A57;
+    --bronze: #9B7A3F;
+    --rec-red: #8B2635;
+    --moss: #4A5D3A;
+    --d-blackink: #1B3A57;
+    --d-saude: #4A5D3A;
+    --d-financas: #9B7A3F;
+    --d-outro: #6B6358;
+  }
+  .dark {
+    --bg: #1C1916;
+    --surface: #252119;
+    --premium: #2D2820;
+    --ink: #F4EFE6;
+    --ink-2: #A89F90;
+    --ink-3: #6B6358;
+    --border: #3A3328;
+    --prussian: #6892B5;
+    --bronze: #C9A663;
+    --rec-red: #C9505F;
+    --moss: #7A9A65;
+    --d-blackink: #6892B5;
+    --d-saude: #7A9A65;
+    --d-financas: #C9A663;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #15110d;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #F4EFE6;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ───── PAGE FRAMES ───── */
+  .page {
+    width: 100%;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 30px 50px;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    position: relative;
+    background: #15110d;
+  }
+  .page.cover {
+    background: #1C1916;
+    color: #F4EFE6;
+    text-align: center;
+  }
+  .page.section-divider {
+    background: #1C1916;
+    color: #F4EFE6;
+    text-align: center;
+  }
+
+  .page-grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(244,239,230,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(244,239,230,0.025) 1px, transparent 1px);
+    background-size: 36px 36px;
+    pointer-events: none;
+  }
+  .page-glow {
+    position: absolute; top: 50%; left: 50%;
+    width: 600px; height: 600px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(155,122,63,0.06), transparent 60%);
+    pointer-events: none;
+  }
+
+  .page-stage {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 22px;
+    position: relative; z-index: 2;
+  }
+
+  .page-caption { text-align: center; max-width: 380px; }
+  .page-caption h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400; font-size: 22px;
+    letter-spacing: -0.02em; margin: 0 0 6px;
+    color: #F4EFE6;
+  }
+  .page-caption p {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 14px;
+    color: rgba(244,239,230,0.55);
+    margin: 0; line-height: 1.55;
+  }
+
+  /* ───── COVER ───── */
+  .cover-mark {
+    color: #C9A663; font-size: 22px;
+    margin-bottom: 18px;
+  }
+  .cover-name {
+    font-family: 'Fraunces', serif;
+    font-weight: 400; font-size: 110px;
+    letter-spacing: -0.04em; line-height: 1;
+    margin: 0 0 18px;
+    color: #F4EFE6;
+  }
+  .cover-tag {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 22px;
+    color: rgba(244,239,230,0.6);
+    line-height: 1.5;
+    max-width: 540px;
+    margin: 0 auto 50px;
+  }
+  .cover-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(244,239,230,0.4);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .cover-meta .sep { margin: 0 12px; opacity: 0.5; }
+
+  /* ───── SECTION DIVIDER ───── */
+  .sd-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: #C9A663;
+    margin-bottom: 16px;
+  }
+  .sd-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 400; font-size: 64px;
+    letter-spacing: -0.03em;
+    margin: 0 0 16px;
+    color: #F4EFE6;
+  }
+  .sd-desc {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 18px;
+    color: rgba(244,239,230,0.55);
+    max-width: 540px;
+    margin: 0 auto;
+    line-height: 1.55;
+  }
+
+  /* ───── PHONE ───── */
+  .phone {
+    width: 393px; height: 852px;
+    border-radius: 54px;
+    background: #0a0806;
+    padding: 11px;
+    position: relative;
+    box-shadow:
+      0 0 0 1.5px #2a241d,
+      0 40px 70px rgba(0,0,0,0.45);
+  }
+  .screen {
+    position: absolute; inset: 11px;
+    border-radius: 44px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .di {
+    position: absolute; top: 22px; left: 50%;
+    transform: translateX(-50%);
+    width: 122px; height: 36px;
+    border-radius: 24px; background: #000; z-index: 50;
+  }
+  .hi {
+    position: absolute; bottom: 22px; left: 50%;
+    transform: translateX(-50%);
+    width: 134px; height: 5px;
+    border-radius: 100px;
+    background: var(--ink); opacity: 0.85; z-index: 60;
+  }
+  .dark .hi { opacity: 0.6; }
+
+  .sb {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 54px;
+    display: flex; align-items: flex-start;
+    padding: 22px 32px 0;
+    justify-content: space-between;
+    z-index: 40;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500; font-size: 16px;
+    color: var(--ink);
+  }
+  .sb .icons { display: flex; gap: 6px; align-items: center; }
+
+  .cartog {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(var(--ink) 1px, transparent 1px),
+      linear-gradient(90deg, var(--ink) 1px, transparent 1px);
+    background-size: 36px 36px;
+    background-position: 18px 18px;
+    opacity: 0.025;
+  }
+
+  .view-pad {
+    padding: 76px 28px 110px;
+    position: relative; z-index: 1;
+    height: 100%;
+  }
+
+  /* TYPE */
+  .display-lg { font-family: 'Fraunces', serif; font-weight: 400; font-size: 42px; letter-spacing: -0.025em; line-height: 1.05; color: var(--ink); }
+  .display-md { font-family: 'Fraunces', serif; font-weight: 400; font-size: 32px; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); }
+  .label { font-family: 'Inter', sans-serif; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); }
+  .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  /* HOME */
+  .home-greet {
+    font-family: 'Fraunces', serif;
+    font-weight: 400; font-size: 38px;
+    letter-spacing: -0.025em; color: var(--ink); line-height: 1.05;
+  }
+  .home-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--ink-2);
+    letter-spacing: 0.04em; margin-top: 6px;
+    text-transform: uppercase;
+  }
+  .home-divider { width: 28px; height: 1px; background: var(--ink-2); opacity: 0.5; margin: 22px 0; }
+  .home-prompt {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 18px;
+    line-height: 1.45; color: var(--ink-2);
+    margin-bottom: 32px;
+    border-left: 2px solid var(--bronze);
+    padding-left: 14px;
+  }
+  .quick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 16px;
+  }
+  .tile.premium { background: var(--premium); }
+  .tile .lbl {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 11px;
+    color: var(--ink-2); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .tile .val {
+    font-family: 'Fraunces', serif;
+    font-size: 19px; font-weight: 400;
+    letter-spacing: -0.01em; color: var(--ink); line-height: 1.2;
+  }
+  .home-mission {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--bronze);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .home-mission .ttl {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600; font-size: 16px;
+    color: var(--ink); margin-bottom: 4px;
+  }
+  .home-mission .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--ink-2); letter-spacing: 0.02em;
+  }
+  .home-section-h {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-2); margin: 24px 0 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .home-section-h::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* INBOX */
+  .inbox-list { display: flex; flex-direction: column; gap: 10px; }
+  .inbox-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .inbox-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .inbox-time { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink-2); letter-spacing: 0.02em; }
+  .inbox-domain { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .dom-blackink { color: var(--d-blackink); }
+  .dom-saude { color: var(--d-saude); }
+  .dom-financas { color: var(--d-financas); }
+  .dom-outro { color: var(--d-outro); }
+  .inbox-text { font-family: 'Inter', sans-serif; font-size: 14.5px; line-height: 1.45; color: var(--ink); }
+
+  /* CAPTURE */
+  .capture-screen {
+    background: var(--bg); height: 100%;
+    display: flex; flex-direction: column;
+    padding: 90px 28px 40px; position: relative;
+  }
+  .capture-pulse { width: 14px; height: 14px; border-radius: 50%; background: var(--rec-red); margin-bottom: 24px; }
+  .capture-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500; font-size: 56px;
+    color: var(--ink); letter-spacing: -0.02em;
+    line-height: 1; margin-bottom: 18px;
+  }
+  .capture-prompt {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 18px;
+    color: var(--ink-2); line-height: 1.45;
+    max-width: 280px;
+  }
+  .wave-row { display: flex; align-items: center; gap: 3px; margin-top: 36px; height: 56px; }
+  .wave-bar { width: 3px; background: var(--ink-2); opacity: 0.55; border-radius: 2px; }
+  .capture-domain-row { display: flex; gap: 8px; margin-top: 28px; flex-wrap: wrap; }
+  .domain-chip {
+    padding: 7px 12px; border-radius: 20px;
+    border: 1px solid var(--border); background: var(--surface);
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-2);
+  }
+  .domain-chip.active.dom-blackink { background: var(--d-blackink); color: var(--bg); border-color: var(--d-blackink); }
+  .capture-stop {
+    margin-top: auto; align-self: center;
+    width: 72px; height: 72px; border-radius: 50%;
+    background: var(--ink); display: flex;
+    align-items: center; justify-content: center;
+  }
+  .capture-stop-inner { width: 22px; height: 22px; border-radius: 4px; background: var(--bg); }
+
+  /* BRIEFING */
+  .brief-mission {
+    background: var(--premium);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--bronze);
+    border-radius: 12px;
+    padding: 18px; margin-bottom: 26px;
+  }
+  .brief-mission .lbl-star {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500; font-size: 10.5px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--bronze);
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .brief-mission .name { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 17px; color: var(--ink); margin-bottom: 4px; }
+  .brief-mission .meta { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--ink-2); letter-spacing: 0.02em; }
+  .brief-question {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 17px;
+    color: var(--ink); line-height: 1.5;
+    padding: 0 14px;
+    border-left: 2px solid var(--bronze);
+  }
+  .brief-physical { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-top: 8px; }
+  .brief-physical .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    font-family: 'Inter', sans-serif; font-size: 15px; color: var(--ink);
+  }
+  .brief-physical .row:last-child { border-bottom: 0; }
+  .brief-physical .v { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+  .brief-physical .v.up { color: var(--moss); }
+
+  /* DECISION */
+  .seg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .seg-btn {
+    padding: 9px 16px; border-radius: 24px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--ink-2);
+    font-family: 'Inter', sans-serif; font-weight: 500; font-size: 13px;
+  }
+  .seg-btn.on { background: var(--prussian); color: #F4EFE6; border-color: var(--prussian); }
+  .field-block { margin-top: 22px; }
+  .field-block .label { margin-bottom: 8px; display: block; }
+  .field {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    font-family: 'Inter', sans-serif; font-size: 14.5px;
+    color: var(--ink); width: 100%; line-height: 1.5; min-height: 56px;
+  }
+  .field.placeholder { color: var(--ink-3); font-style: italic; }
+  .field-tall { min-height: 90px; }
+  .decide-cta {
+    margin-top: 28px; width: 100%;
+    background: var(--ink); color: var(--bg);
+    border: 0; border-radius: 14px; padding: 16px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600; font-size: 15px;
+    letter-spacing: 0.02em; text-align: center;
+  }
+
+  /* WEEKLY */
+  .wr-week-meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink-2); letter-spacing: 0.02em; margin-top: 4px; display:block; }
+  .wr-divider-row { display: flex; align-items: center; gap: 14px; margin: 26px 0; }
+  .wr-divider-row .line { flex: 1; height: 1px; background: var(--border); }
+  .wr-divider-row .glyph { color: var(--bronze); font-size: 14px; }
+  .wr-quote {
+    font-family: 'Fraunces', serif;
+    font-style: italic; font-size: 19px;
+    line-height: 1.5; color: var(--ink);
+  }
+  .wr-list { margin-top: 22px; border-top: 1px solid var(--border); }
+  .wr-list .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 0; border-bottom: 1px solid var(--border);
+    font-family: 'Inter', sans-serif; font-size: 16px; color: var(--ink);
+  }
+  .wr-list .v { font-family: 'JetBrains Mono', monospace; font-size: 13.5px; letter-spacing: 0.02em; }
+  .wr-list .v.up { color: var(--moss); }
+  .wr-list .v.dn { color: var(--rec-red); }
+  .wr-list .v.flat { color: var(--ink-2); }
+
+  .detail-coords { margin-top: 36px; padding: 18px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: center; }
+  .detail-coords .glyph { color: var(--bronze); font-size: 18px; margin-bottom: 8px; line-height: 1; }
+  .detail-coords .coords { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-2); letter-spacing: 0.06em; margin-bottom: 6px; }
+  .detail-coords .place { font-family: 'Fraunces', serif; font-style: italic; font-size: 15px; color: var(--ink-2); }
+
+  /* DETAIL */
+  .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .detail-back {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-2); flex-shrink: 0;
+  }
+  .detail-title { font-family: 'Inter', sans-serif; font-weight: 500; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
+  .detail-meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--ink-2); margin-bottom: 10px; letter-spacing: 0.02em; }
+  .detail-body { font-family: 'Inter', sans-serif; font-size: 17px; line-height: 1.55; color: var(--ink); margin-bottom: 24px; }
+
+  /* PRINT */
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+  @media print {
+    html, body { background: #15110d; }
+    .page {
+      page-break-after: always;
+      break-after: page;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      min-height: 100vh;
+      height: 100vh;
+    }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ COVER ═══ -->
+<div class="page cover">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="cover-mark">✦</div>
+    <h1 class="cover-name">Atlas</h1>
+    <p class="cover-tag">Captura cognitiva.<br/>A vida em mapas.</p>
+    <div class="cover-meta">
+      <span>Protótipo navegável</span>
+      <span class="sep">·</span>
+      <span>Identidade warm-premium</span>
+      <span class="sep">·</span>
+      <span>27.IV.2026</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SECTION: FUNCIONAIS ═══ -->
+<div class="page section-divider">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="sd-label">Parte i</div>
+    <h2 class="sd-title">As superfícies funcionais</h2>
+    <p class="sd-desc">Captura sub-10 segundos. Inter respira em UI densa. Inbox sem peso, dock raro, bronze ausente.</p>
+  </div>
+</div>
+
+<!-- ═══ HOME ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>9:43</span><div class="icons">
+          <svg width="18" height="11" viewBox="0 0 18 11"><circle cx="2" cy="9" r="1.5" fill="currentColor"/><circle cx="6" cy="7" r="1.5" fill="currentColor"/><circle cx="10" cy="5" r="1.5" fill="currentColor"/><circle cx="14" cy="3" r="1.5" fill="currentColor"/></svg>
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div class="home-greet">Bom dia,<br/>Vitor</div>
+          <div class="home-meta">SEG · 27.IV.2026 · GOIÂNIA</div>
+          <div class="home-divider"></div>
+          <div class="home-prompt">"O que você fará hoje que ainda importará daqui a três meses?"</div>
+
+          <div class="home-section-h">Missão de hoje</div>
+          <div class="home-mission">
+            <div class="ttl">Refatorar onboarding BlackInk</div>
+            <div class="meta">DIA 3 DE 7 · PRAZO SEXTA</div>
+          </div>
+
+          <div class="home-section-h">Estado físico</div>
+          <div class="quick-row">
+            <div class="tile"><div class="lbl">Sono</div><div class="val">7h12 <span class="mono" style="font-size:13px;color:var(--moss);margin-left:4px">+12%</span></div></div>
+            <div class="tile"><div class="lbl">HRV</div><div class="val">62ms <span class="mono" style="font-size:13px;color:var(--moss);margin-left:4px">+4%</span></div></div>
+          </div>
+          <div class="quick-row">
+            <div class="tile"><div class="lbl">Energia</div><div class="val">4 <span class="mono" style="font-size:14px;color:var(--ink-2)">/ 5</span></div></div>
+            <div class="tile premium"><div class="lbl">Capturas hoje</div><div class="val">7</div></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Home</h2>
+      <p>Saudação contemplativa, missão do dia em destaque, estado físico em snapshot funcional.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ INBOX (light) ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>9:43</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div style="margin-bottom:28px">
+            <span class="display-lg" style="display:block">Inbox</span>
+            <span class="label" style="margin-top:10px;display:block">Últimas 50 capturas</span>
+          </div>
+
+          <div class="inbox-list">
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">21:23</span><span class="inbox-domain dom-blackink">BlackInk</span></div><div class="inbox-text">Cliente João pediu integração com Stripe. Possível upsell de R$ 240/mês.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">19:48</span><span class="inbox-domain dom-saude">Saúde</span></div><div class="inbox-text">Treino pesado hoje. HRV caiu 18% — talvez recovery amanhã.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">15:12</span><span class="inbox-domain dom-financas">Finanças</span></div><div class="inbox-text">PRIO3 quebrou suporte de R$ 38. Avaliar entrada na próxima reversão.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">11:30</span><span class="inbox-domain dom-outro">Outro</span></div><div class="inbox-text">Lembrete: comprar presente da Carol antes de sexta.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">08:17</span><span class="inbox-domain dom-blackink">BlackInk</span></div><div class="inbox-text">Refazer onboarding com vídeo de 90 segundos pode reduzir churn.</div></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Inbox · Dia</h2>
+      <p>Cards densos sem peso. Timestamp em mono, domínio com cor própria.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ INBOX (dark) ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen dark">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>23:16</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div style="margin-bottom:28px">
+            <span class="display-lg" style="display:block">Inbox</span>
+            <span class="label" style="margin-top:10px;display:block">Últimas 50 capturas</span>
+          </div>
+
+          <div class="inbox-list">
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">23:14</span><span class="inbox-domain dom-blackink">BlackInk</span></div><div class="inbox-text">Ideia 4h da manhã: rebranding completo do dashboard pra V2.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">22:48</span><span class="inbox-domain dom-saude">Saúde</span></div><div class="inbox-text">Sono ruim ontem (5h12). HRV deve cair amanhã — ajustar volume.</div></div>
+            <div class="inbox-card"><div class="inbox-meta"><span class="inbox-time">21:30</span><span class="inbox-domain dom-financas">Finanças</span></div><div class="inbox-text">Avaliar reduzir posição PRIO3 antes do payroll de sexta.</div></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Inbox · Noite</h2>
+      <p>Cores de domínio mais luminosas. Cards visíveis, contraste preservado pra olhos cansados.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CAPTURE ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>21:23</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="capture-screen">
+          <div class="capture-pulse"></div>
+          <div class="capture-counter">0:34</div>
+          <div class="capture-prompt">Fale o que está pensando. Atlas escuta.</div>
+
+          <div class="wave-row" id="wave-row"></div>
+
+          <div class="capture-domain-row">
+            <button class="domain-chip active dom-blackink">BlackInk</button>
+            <button class="domain-chip">Saúde</button>
+            <button class="domain-chip">Finanças</button>
+            <button class="domain-chip">Outro</button>
+          </div>
+
+          <div class="capture-stop"><div class="capture-stop-inner"></div></div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Captura ativa</h2>
+      <p>Sub-10 segundos pra capturar. Pulso vermelho-tinta, contador em mono. Função sob pressão.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DETAIL ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>21:24</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div class="detail-head">
+            <div class="detail-back"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div class="detail-title">Captura · BlackInk</div>
+          </div>
+
+          <div class="detail-meta">21:23 · 27.IV.2026 · 0:34</div>
+
+          <p class="detail-body">Cliente João pediu integração com Stripe. Possível upsell de R$ 240/mês recorrentes se eu empacotar como módulo, em vez de cobrar dev hour.</p>
+
+          <div class="label" style="display:block">Transcrição automática</div>
+          <p style="margin-top:8px;color:var(--ink-2);font-style:italic;font-family:'Fraunces',serif;font-size:14px;line-height:1.55">"Eu acho que faz mais sentido empacotar isso como produto. O João já mostrou disposição. Em quatro meses paga por si só."</p>
+
+          <div class="detail-coords">
+            <div class="glyph">✦</div>
+            <div class="coords">−16.6869° S · 49.2648° W</div>
+            <div class="place">Goiânia, capturado às 21:23</div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Detalhe da captura</h2>
+      <p>Transcrição em Fraunces italic. Coordenadas selam o momento. Cartografia sussurrada.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SECTION: CONTEMPLATIVAS ═══ -->
+<div class="page section-divider">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="sd-label">Parte ii</div>
+    <h2 class="sd-title">As superfícies editoriais</h2>
+    <p class="sd-desc">Briefing matinal, decisão estruturada, weekly review. Aqui Atlas brilha como artefato premium — Fraunces lidera, espaço respira, bronze fosco aparece pontual.</p>
+  </div>
+</div>
+
+<!-- ═══ BRIEFING ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>7:05</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div style="margin-bottom:28px">
+            <span class="label">Briefing matinal</span>
+            <span class="display-lg" style="margin-top:6px;display:block">Bom dia,<br/>Vitor</span>
+            <span class="mono" style="font-size:12px;color:var(--ink-2);margin-top:10px;display:block;letter-spacing:0.04em">SEG · 27.IV.2026 · GOIÂNIA</span>
+          </div>
+
+          <div class="brief-mission">
+            <div class="lbl-star"><span style="color:var(--bronze);font-size:13px">✦</span> Missão de hoje</div>
+            <div class="name">Refatorar onboarding BlackInk</div>
+            <div class="meta">DIA 3 DE 7 · PRAZO SEXTA</div>
+          </div>
+
+          <div class="label" style="margin-bottom:10px;display:block">A pergunta do dia</div>
+          <div class="brief-question">"O que você fará hoje que ainda importará daqui a três meses?"</div>
+
+          <div class="label" style="margin-top:26px;margin-bottom:10px;display:block">Estado físico</div>
+          <div class="brief-physical">
+            <div class="row"><span>Sono</span><span class="v">7h12</span></div>
+            <div class="row"><span>HRV</span><span class="v up">+12%</span></div>
+            <div class="row"><span>Energia</span><span class="v">4 / 5</span></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Briefing matinal</h2>
+      <p>Fraunces no nome, italic na pergunta, métricas em mono. Editorial premium.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DECISION ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>20:15</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div style="margin-bottom:24px">
+            <span class="label">Decisão estruturada</span>
+            <span class="display-md" style="margin-top:8px;display:block">Aceitar a oferta da agência ou seguir solo?</span>
+          </div>
+
+          <div class="field-block">
+            <span class="label">Reversibilidade</span>
+            <div class="seg">
+              <button class="seg-btn on">Reversível</button>
+              <button class="seg-btn">Difícil</button>
+              <button class="seg-btn">Irreversível</button>
+            </div>
+          </div>
+
+          <div class="field-block">
+            <span class="label">Contexto</span>
+            <div class="field">Agência ofereceu R$ 1.800/mês para gerenciar o Instagram BlackInk por três meses.</div>
+          </div>
+
+          <div class="field-block">
+            <span class="label">Alternativas consideradas</span>
+            <div class="field placeholder field-tall">Liste dois ou três caminhos antes de escolher…</div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Decisão estruturada</h2>
+      <p>Modo contemplativo. Articulação forçada antes de decidir. Prussiano marca o caminho ativo.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WEEKLY ═══ -->
+<div class="page">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage">
+    <div class="phone">
+      <div class="screen">
+        <div class="cartog"></div>
+        <div class="di"></div>
+        <div class="sb"><span>10:30</span><div class="icons">
+          <svg width="22" height="11" viewBox="0 0 22 11"><rect x="0" y="0" width="18" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="2" y="2" width="14" height="6" rx="1" fill="currentColor"/></svg>
+        </div></div>
+
+        <div class="view-pad">
+          <div style="margin-bottom:18px">
+            <span class="label">Weekly review</span>
+            <span class="display-lg" style="margin-top:8px;display:block">Semana 17</span>
+            <span class="wr-week-meta mono">21.IV — 27.IV.2026</span>
+          </div>
+
+          <div class="wr-divider-row">
+            <div class="line"></div>
+            <div class="glyph">✦</div>
+            <div class="line"></div>
+          </div>
+
+          <p class="wr-quote">Esta foi a semana em que parei de adiar a decisão sobre a agência. Avancei mais sem ela do que tentando convencer alguém a executar.</p>
+
+          <span class="label" style="margin-top:30px;display:block">As 4 dimensões</span>
+          <div class="wr-list">
+            <div class="row"><span>Performance</span><span class="v up">↑ 12%</span></div>
+            <div class="row"><span>Saúde</span><span class="v up">↑ 4%</span></div>
+            <div class="row"><span>Relacionamentos</span><span class="v dn">↓ 8%</span></div>
+            <div class="row"><span>Integridade</span><span class="v flat">— estável</span></div>
+          </div>
+        </div>
+        <div class="hi"></div>
+      </div>
+    </div>
+    <div class="page-caption">
+      <h2>Weekly review</h2>
+      <p>Reflexão do operador em italic, dimensões em mono. Tradeoff visível, sem suavização.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ COLOPHON ═══ -->
+<div class="page section-divider">
+  <div class="page-grid"></div>
+  <div class="page-glow"></div>
+  <div class="page-stage" style="max-width: 600px">
+    <div class="cover-mark">✦</div>
+    <h2 class="sd-title" style="font-size: 48px">Cartografia<br/>sussurrada</h2>
+    <p class="sd-desc">Atlas é o atlas pessoal de uma vida. Cada captura é cartografia. Símbolos cartográficos em três por cento de opacidade — você nota na terceira vez que abre o app, não no primeiro segundo. Sussurro, não anúncio.</p>
+    <div class="cover-meta" style="margin-top:40px">
+      <span>Fraunces</span><span class="sep">·</span>
+      <span>Inter</span><span class="sep">·</span>
+      <span>JetBrains Mono</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // populate waveform bars statically (random heights)
+  const wr = document.getElementById('wave-row');
+  if (wr) {
+    for (let i = 0; i < 64; i++) {
+      const b = document.createElement('div');
+      b.className = 'wave-bar';
+      b.style.height = (10 + Math.random() * 90) + '%';
+      wr.appendChild(b);
+    }
+  }
+</script>
+
+</body>
+</html>
