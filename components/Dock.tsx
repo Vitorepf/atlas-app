@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, View } from 'react-native'
-import { useEffect } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,6 +11,7 @@ import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
+import { useOverlays } from '../lib/overlays'
 
 const FOCUSED_ROUTES = new Set(['/capture', '/detail', '/decision'])
 
@@ -33,7 +34,9 @@ export function Dock() {
   const router = useRouter()
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const focused = FOCUSED_ROUTES.has(pathname)
+  const [quickOpen, setQuickOpen] = useState(false)
 
   const opacity = useSharedValue(focused ? 0 : 1)
   const ty = useSharedValue(focused ? 20 : 0)
@@ -47,6 +50,10 @@ export function Dock() {
       ty.value = withTiming(0, { duration: 280, easing: Easing.out(Easing.cubic) })
     }
   }, [focused, opacity, ty])
+
+  useEffect(() => {
+    setQuickOpen(false)
+  }, [focused, pathname])
 
   const animStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -66,6 +73,19 @@ export function Dock() {
 
   return (
     <Animated.View pointerEvents="box-none" style={wrapStyle}>
+      <QuickActionMenu
+        visible={quickOpen}
+        onRecord={() => {
+          setQuickOpen(false)
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+          router.push('/capture')
+        }}
+        onAtlas={() => {
+          setQuickOpen(false)
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          openAtlasAi()
+        }}
+      />
       <View
         style={[
           styles.dock,
@@ -85,6 +105,7 @@ export function Dock() {
               item={it}
               active={active}
               onPress={() => {
+                setQuickOpen(false)
                 Haptics.selectionAsync()
                 router.replace(it.href)
               }}
@@ -94,8 +115,8 @@ export function Dock() {
 
         <Pressable
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-            router.push('/capture')
+            Haptics.selectionAsync()
+            setQuickOpen((value) => !value)
           }}
           style={({ pressed }) => [
             styles.record,
@@ -118,6 +139,7 @@ export function Dock() {
               item={it}
               active={active}
               onPress={() => {
+                setQuickOpen(false)
                 Haptics.selectionAsync()
                 router.replace(it.href)
               }}
@@ -126,6 +148,87 @@ export function Dock() {
         })}
       </View>
     </Animated.View>
+  )
+}
+
+interface QuickActionMenuProps {
+  visible: boolean
+  onRecord: () => void
+  onAtlas: () => void
+}
+
+function QuickActionMenu({ visible, onRecord, onAtlas }: QuickActionMenuProps) {
+  const { c, name } = useTheme()
+  const opacity = useSharedValue(0)
+  const scale = useSharedValue(0.96)
+  const ty = useSharedValue(8)
+
+  useEffect(() => {
+    opacity.value = withTiming(visible ? 1 : 0, { duration: 180, easing: Easing.out(Easing.cubic) })
+    scale.value = withTiming(visible ? 1 : 0.96, { duration: 220, easing: Easing.out(Easing.cubic) })
+    ty.value = withTiming(visible ? 0 : 8, { duration: 220, easing: Easing.out(Easing.cubic) })
+  }, [opacity, scale, ty, visible])
+
+  const menuStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: ty.value }, { scale: scale.value }],
+  }))
+
+  return (
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.quickWrap,
+        {
+          backgroundColor: c.surface,
+          borderColor: c.border,
+          shadowColor: name === 'dark' ? '#000' : '#1C1916',
+        },
+        menuStyle,
+      ]}
+    >
+      <QuickActionButton
+        label="Gravar"
+        icon={<RecordIcon color={c.bg} />}
+        iconBg={name === 'dark' ? c.bronze : c.ink}
+        onPress={onRecord}
+      />
+      <View style={[styles.quickDivider, { backgroundColor: c.border }]} />
+      <QuickActionButton
+        label="Atlas"
+        icon={<AtlasGlyph color={c.bg} />}
+        iconBg={c.prussian}
+        onPress={onAtlas}
+      />
+    </Animated.View>
+  )
+}
+
+interface QuickActionButtonProps {
+  label: string
+  icon: ReactNode
+  iconBg: string
+  onPress: () => void
+}
+
+function QuickActionButton({ label, icon, iconBg, onPress }: QuickActionButtonProps) {
+  const { c } = useTheme()
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickButton,
+        { opacity: pressed ? 0.72 : 1 },
+      ]}
+    >
+      <View style={[styles.quickIcon, { backgroundColor: iconBg }]}>
+        {icon}
+      </View>
+      <Sans weight="med" size={13} color={c.ink}>
+        {label}
+      </Sans>
+    </Pressable>
   )
 }
 
@@ -224,6 +327,17 @@ function RecordIcon({ color }: { color: string }) {
   )
 }
 
+function AtlasGlyph({ color }: { color: string }) {
+  return (
+    <View style={{ width: 22, height: 22 }}>
+      <View style={{ position: 'absolute', left: 3, top: 3, width: 16, height: 16, borderRadius: 8, borderWidth: 1.6, borderColor: color }} />
+      <View style={{ position: 'absolute', left: 10.2, top: 1, width: 1.6, height: 20, borderRadius: 1, backgroundColor: color }} />
+      <View style={{ position: 'absolute', left: 1, top: 10.2, width: 20, height: 1.6, borderRadius: 1, backgroundColor: color }} />
+      <View style={{ position: 'absolute', left: 8, top: 8, width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
@@ -259,5 +373,42 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 16,
     elevation: 6,
+  },
+  quickWrap: {
+    position: 'absolute',
+    left: '50%',
+    bottom: 74,
+    width: 196,
+    marginLeft: -98,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
+    elevation: 10,
+  },
+  quickButton: {
+    width: 84,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 6,
+  },
+  quickIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 44,
+    marginHorizontal: 2,
   },
 })

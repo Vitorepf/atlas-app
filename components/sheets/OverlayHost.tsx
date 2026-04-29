@@ -4,6 +4,7 @@ import { ConfirmDelete } from './ConfirmDelete'
 import { EditSheet } from './EditSheet'
 import { SettingsSheet } from './SettingsSheet'
 import { MicModal } from './MicModal'
+import { AtlasAiSheet } from './AtlasAiSheet'
 
 // Mounts every overlay once. Each component subscribes to the overlay store
 // and animates itself in/out — never unmounted, so transitions stay smooth.
@@ -16,6 +17,7 @@ export function OverlayHost() {
       <EditSheet />
       <SettingsSheet />
       <MicModal />
+      <AtlasAiSheet />
     </>
   )
 }

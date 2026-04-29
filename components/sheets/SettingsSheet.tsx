@@ -6,7 +6,9 @@ import { Frau, Label, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import { useOverlays } from '../../lib/overlays'
 import {
+  type AiProvidersStatusResponse,
   getApiConfig,
+  getAiProvidersStatus,
   getHealth,
   hydrateApiConfig,
   listCaptures,
@@ -54,6 +56,9 @@ export function SettingsSheet() {
   const [tokenDraft, setTokenDraft] = useState('')
   const [apiStatus, setApiStatus] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
+  const [aiStatus, setAiStatus] = useState<AiProvidersStatusResponse | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!visible) return
@@ -64,6 +69,11 @@ export function SettingsSheet() {
       setPortDraft(String(config.apiPort))
       setTokenDraft(config.apiToken)
     })
+  }, [visible])
+
+  useEffect(() => {
+    if (!visible) return
+    void refreshAiStatus({ silent: true })
   }, [visible])
 
   const queue = queuedCaptures + queuedCheckins + queuedBehaviors + queuedBehaviorLogs + queuedSignals + queuedSnapshots
@@ -104,6 +114,21 @@ export function SettingsSheet() {
       setApiStatus(error instanceof Error ? error.message : 'Falha ao testar servidor')
     } finally {
       setTesting(false)
+    }
+  }
+
+  const refreshAiStatus = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setAiLoading(true)
+    setAiError(null)
+
+    try {
+      await saveApiConfig()
+      const status = await getAiProvidersStatus()
+      setAiStatus(status)
+    } catch (error) {
+      setAiError(humanAiError(error, 'Falha ao ler Atlas AI'))
+    } finally {
+      if (!silent) setAiLoading(false)
     }
   }
 
@@ -169,6 +194,32 @@ export function SettingsSheet() {
               disabled={syncing || testing}
               onPress={() => {
                 void syncNow(saveApiConfig, sync, setApiStatus)
+              }}
+            />
+          </View>
+        </Section>
+
+        <Section label="Atlas AI">
+          <Row first name="Gateway" desc={aiGatewayDescription(aiStatus, aiError)}>
+            <StatusBadge status={aiGatewayStatus(aiStatus, aiError, aiLoading)} />
+          </Row>
+          <Row name="Claude CLI" desc={providerDescription(aiStatus, 'claude_cli')}>
+            <StatusBadge status={providerStatus(aiStatus, 'claude_cli')} />
+          </Row>
+          <Row name="Codex CLI" desc={providerDescription(aiStatus, 'codex_cli')}>
+            <StatusBadge status={providerStatus(aiStatus, 'codex_cli')} />
+          </Row>
+          <Row name="Último evento" desc={lastAiEventDescription(aiStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {formatRelativeSync(aiStatus?.recent_events[0]?.occurred_at ?? null)}
+            </Mono>
+          </Row>
+          <View style={styles.apiActions}>
+            <MiniButton
+              label={aiLoading ? 'Atualizando…' : 'Atualizar AI'}
+              disabled={aiLoading}
+              onPress={() => {
+                void refreshAiStatus()
               }}
             />
           </View>
@@ -289,6 +340,9 @@ async function syncNow(
 }
 
 type ConnectionStatusKind = 'online' | 'pending' | 'offline'
+type ProviderHealth = AiProvidersStatusResponse['providers'][number]
+const PROVIDER_HEALTH_FRESH_MS = 10 * 60 * 1000
+const AI_WORKER_FRESH_MS = 2 * 60 * 1000
 
 function statusAfterSync(successMessage: string): string {
   const state = useAtlasStore.getState()
@@ -338,6 +392,131 @@ function connectionStatusDescription(input: {
   return 'Conexão pronta'
 }
 
+function providerByKey(status: AiProvidersStatusResponse | null, provider: string): ProviderHealth | null {
+  return status?.providers.find((item) => item.provider === provider) ?? null
+}
+
+function aiGatewayStatus(
+  status: AiProvidersStatusResponse | null,
+  error: string | null,
+  loading: boolean,
+): ConnectionStatusKind {
+  if (loading) return 'pending'
+  if (error) return 'offline'
+  if (!status) return 'offline'
+
+  const workerState = aiWorkerState(status)
+  const hasQueue = status.queue.queued > 0 || status.queue.processing > 0
+  if (hasQueue && workerState !== 'running') return 'offline'
+  if (status.queue.failed > 0 || hasQueue) return 'pending'
+
+  return 'online'
+}
+
+function aiGatewayDescription(status: AiProvidersStatusResponse | null, error: string | null): string {
+  if (error) return error
+  if (!status) return 'Status ainda não verificado'
+
+  const total = status.queue.queued + status.queue.processing + status.queue.failed
+  const workerState = aiWorkerState(status)
+  if (status.queue.queued > 0 && workerState !== 'running') {
+    return `Worker local parado · ${status.queue.queued} ${status.queue.queued === 1 ? 'item aguardando' : 'itens aguardando'}`
+  }
+
+  if (total === 0) {
+    const hasFreshWorker = status.providers.some((provider) => providerHealthIsFresh(provider))
+    if (workerState === 'running') return 'Worker local rodando; fila vazia'
+    return hasFreshWorker
+      ? 'Gateway responde; CLIs verificados, mas worker não está contínuo'
+      : 'Gateway responde; health do worker local desatualizado'
+  }
+
+  if (workerState === 'running') {
+    return `${status.queue.queued} na fila · ${status.queue.processing} processando · worker ativo`
+  }
+
+  return `${status.queue.queued} na fila · ${status.queue.processing} processando · ${status.queue.failed} falhas`
+}
+
+type AiWorkerState = 'running' | 'stopped' | 'stale' | 'unknown'
+
+function aiWorkerState(status: AiProvidersStatusResponse): AiWorkerState {
+  const workerEvent = status.recent_events.find((event) => event.event_type.startsWith('worker_'))
+  if (!workerEvent) return 'unknown'
+  if (workerEvent.event_type === 'worker_stopped') return 'stopped'
+
+  const occurredAt = new Date(workerEvent.occurred_at).getTime()
+  if (!Number.isFinite(occurredAt)) return 'unknown'
+  return Date.now() - occurredAt <= AI_WORKER_FRESH_MS ? 'running' : 'stale'
+}
+
+function providerStatus(status: AiProvidersStatusResponse | null, providerKey: string): ConnectionStatusKind {
+  const provider = providerByKey(status, providerKey)
+  if (!provider) return 'offline'
+
+  const recentEvent = recentProviderEvent(status, providerKey)
+  const hasFreshSuccess = recentEvent?.event_type === 'job_succeeded' || recentEvent?.event_type === 'health_check'
+  const hasFreshFailure = ['job_failed', 'timeout', 'auth_expired', 'rate_limited'].includes(recentEvent?.event_type ?? '')
+
+  if (!providerHealthIsFresh(provider) && !hasFreshSuccess && !hasFreshFailure) return 'pending'
+  if (hasFreshFailure) return recentEvent?.event_type === 'auth_expired' ? 'offline' : 'pending'
+  if (provider.status === 'online' && provider.operational_pain_score === 0) return 'online'
+  if (hasFreshSuccess) return 'online'
+  if (provider.status === 'online' || provider.status === 'degraded') return 'pending'
+  return 'offline'
+}
+
+function providerDescription(status: AiProvidersStatusResponse | null, providerKey: string): string {
+  const provider = providerByKey(status, providerKey)
+  if (!provider) return 'Sem health check registrado'
+
+  const message = provider.message ? ` · ${provider.message}` : ''
+  const recentEvent = recentProviderEvent(status, providerKey)
+  if (recentEvent?.event_type === 'job_succeeded') {
+    return `Último job ok · ${formatRelativeSync(recentEvent.occurred_at)}${message}`
+  }
+  if (recentEvent && ['job_failed', 'timeout', 'auth_expired', 'rate_limited'].includes(recentEvent.event_type)) {
+    return `${recentEvent.message} · ${formatRelativeSync(recentEvent.occurred_at)}${message}`
+  }
+
+  if (!providerHealthIsFresh(provider)) {
+    return `Health check desatualizado · ${formatRelativeSync(provider.checked_at)}${message}`
+  }
+
+  return `${providerPainLabel(provider.operational_pain_score)} · ${formatRelativeSync(provider.checked_at)}${message}`
+}
+
+function recentProviderEvent(status: AiProvidersStatusResponse | null, provider: string) {
+  const event = status?.recent_events.find((item) => item.provider === provider)
+  if (!event) return null
+
+  const occurredAt = new Date(event.occurred_at).getTime()
+  if (!Number.isFinite(occurredAt)) return null
+  return Date.now() - occurredAt <= PROVIDER_HEALTH_FRESH_MS ? event : null
+}
+
+function providerHealthIsFresh(provider: ProviderHealth): boolean {
+  const checkedAt = new Date(provider.checked_at).getTime()
+  if (!Number.isFinite(checkedAt)) return false
+
+  return Date.now() - checkedAt <= PROVIDER_HEALTH_FRESH_MS
+}
+
+function providerPainLabel(score: number): string {
+  if (score <= 0) return 'Sem dor operacional'
+  if (score === 1) return 'Dor operacional leve'
+  if (score === 2) return 'Dor operacional moderada'
+  if (score === 3) return 'Dor operacional alta'
+  return 'Dor operacional crítica'
+}
+
+function lastAiEventDescription(status: AiProvidersStatusResponse | null): string {
+  const event = status?.recent_events[0]
+  if (!event) return 'Nenhum evento do worker registrado'
+
+  return `${event.event_type} · ${event.message}`
+}
+
 function queueDescription(counts: {
   queuedCaptures: number
   queuedCheckins: number
@@ -351,6 +530,15 @@ function queueDescription(counts: {
 
 function firstQueueError(errors: Array<string | null | undefined>): string | null {
   return errors.find((error) => Boolean(error?.trim()))?.trim() ?? null
+}
+
+function humanAiError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback
+  if (message.includes('route ai/') || message.includes('rota ai/')) {
+    return 'Atlas AI não está carregado no servidor. Rebuild/restart o atlas-server.'
+  }
+
+  return message
 }
 
 function healthKitDescription(healthKit: {

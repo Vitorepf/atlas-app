@@ -12,6 +12,7 @@ export type OverlayKey =
   | 'edit'
   | 'settings'
   | 'mic'
+  | 'atlasAi'
 
 interface OverlayState {
   open: OverlayKey | null
@@ -28,6 +29,7 @@ interface OverlayState {
   openEdit: (item: InboxItem) => void
   openSettings: () => void
   openMic: () => void
+  openAtlasAi: () => void
   close: () => void
 }
 
@@ -43,5 +45,6 @@ export const useOverlays = create<OverlayState>((set) => ({
   openEdit: (item) => set({ open: 'edit', item }),
   openSettings: () => set({ open: 'settings' }),
   openMic: () => set({ open: 'mic' }),
+  openAtlasAi: () => set({ open: 'atlasAi' }),
   close: () => set({ open: null, onPickDomain: null, onConfirmDelete: null }),
 }))

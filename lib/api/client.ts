@@ -339,6 +339,130 @@ export interface AtlasCognitiveGameRun {
   updated_at: string
 }
 
+export type AtlasAiProvider = 'claude_cli' | 'codex_cli'
+export type AtlasAiStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface AtlasAiJob {
+  id: string
+  trace_id: string | null
+  client_id: string | null
+  kind: 'interaction' | 'curation' | 'analysis' | 'council' | 'skill_test' | 'manual'
+  status: AtlasAiStatus
+  priority: number
+  agent_slug: string
+  provider: AtlasAiProvider | string | null
+  model: string | null
+  input_text: string
+  context_refs: unknown[]
+  payload: Record<string, unknown>
+  result_text: string | null
+  result_json: Record<string, unknown>
+  error_code: string | null
+  error_message: string | null
+  available_at: string | null
+  reserved_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  attempts: number
+  max_attempts: number
+  timeout_seconds: number
+  worker_id: string | null
+  metadata: Record<string, unknown>
+  attempt_history?: AtlasAiJobAttempt[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AtlasAiJobAttempt {
+  id: string
+  ai_job_id: string
+  attempt_number: number
+  worker_id: string
+  provider: AtlasAiProvider | string
+  model: string | null
+  command: unknown[]
+  command_hash: string | null
+  prompt_hash: string
+  response_hash: string | null
+  status: 'processing' | 'succeeded' | 'failed' | 'timeout' | 'cancelled'
+  exit_code: number | null
+  duration_ms: number | null
+  output_text: string | null
+  stdout_excerpt: string | null
+  stderr_excerpt: string | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string
+  finished_at: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface AtlasAiTrace {
+  id: string
+  trace_key: string
+  source_type: string
+  source_id: string | null
+  status: AtlasAiStatus
+  operator_input: string
+  intent: string | null
+  agent_slug: string
+  provider: AtlasAiProvider | string | null
+  model: string | null
+  skill_versions: Record<string, unknown>
+  context_refs: unknown[]
+  prompt_hash: string | null
+  response_hash: string | null
+  response_text: string | null
+  latency_ms: number | null
+  feedback_score: number | null
+  feedback_action: string | null
+  feedback_comment: string | null
+  completed_at: string | null
+  metadata: Record<string, unknown>
+  job?: AtlasAiJob
+  jobs?: AtlasAiJob[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AtlasAiProviderHealth {
+  id: string
+  provider: AtlasAiProvider | string
+  status: 'online' | 'degraded' | 'offline' | 'unknown'
+  checked_at: string
+  last_success_at: string | null
+  last_failure_at: string | null
+  total_jobs_24h: number
+  failed_jobs_24h: number
+  p50_latency_ms: number | null
+  operational_pain_score: number
+  message: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface AtlasAiWorkerEvent {
+  id: string
+  worker_id: string
+  provider: AtlasAiProvider | string | null
+  ai_job_id: string | null
+  ai_job_attempt_id: string | null
+  event_type: string
+  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical'
+  message: string
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface AiProvidersStatusResponse {
+  queue: { queued: number; processing: number; failed: number }
+  providers: AtlasAiProviderHealth[]
+  recent_events: AtlasAiWorkerEvent[]
+}
+
 export interface CapturesResponse {
   captures: AtlasCapture[]
   next_cursor: string | null
@@ -400,6 +524,14 @@ export interface SemanticActivationsResponse {
 
 export interface CognitiveGameTodayResponse {
   game: AtlasCognitiveGameRun | null
+}
+
+export interface AiInteractionsResponse {
+  traces: AtlasAiTrace[]
+}
+
+export interface AiJobsResponse {
+  jobs: AtlasAiJob[]
 }
 
 export interface SyncDeltaInput {
@@ -773,6 +905,57 @@ export async function answerCognitiveGame(
     operator_answer,
     duration_seconds,
   })
+}
+
+export async function createAiInteraction(input: {
+  input_text: string
+  client_id?: string
+  agent_slug?: string
+  provider?: AtlasAiProvider | 'claude_codex'
+  kind?: AtlasAiJob['kind']
+  source_type?: string
+  source_id?: string
+  priority?: number
+  include_semantic_context?: boolean
+  context_note_limit?: number
+  payload?: Record<string, unknown>
+}): Promise<{ trace: AtlasAiTrace }> {
+  return apiPost('/ai/interactions', input)
+}
+
+export async function listAiInteractions(params: {
+  status?: AtlasAiStatus
+  agent?: string
+  limit?: number
+} = {}): Promise<AiInteractionsResponse> {
+  return apiGet<AiInteractionsResponse>(`/ai/interactions${queryString(params)}`)
+}
+
+export async function getAiInteraction(id: string): Promise<{ trace: AtlasAiTrace }> {
+  return apiGet(`/ai/interactions/${encodeURIComponent(id)}`)
+}
+
+export async function feedbackAiInteraction(
+  id: string,
+  feedback: { feedback_score?: number; feedback_action?: string; feedback_comment?: string },
+): Promise<{ trace: AtlasAiTrace }> {
+  return apiPost(`/ai/interactions/${encodeURIComponent(id)}/feedback`, feedback)
+}
+
+export async function listAiJobs(params: {
+  status?: AtlasAiStatus
+  provider?: AtlasAiProvider
+  limit?: number
+} = {}): Promise<AiJobsResponse> {
+  return apiGet<AiJobsResponse>(`/ai/jobs${queryString(params)}`)
+}
+
+export async function getAiProvidersStatus(): Promise<AiProvidersStatusResponse> {
+  return apiGet<AiProvidersStatusResponse>('/ai/providers/status')
+}
+
+export async function checkAiProviders(): Promise<{ providers: AtlasAiProviderHealth[] }> {
+  return apiPost('/ai/providers/check', {})
 }
 
 export async function apiGet<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
