@@ -36,6 +36,7 @@
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
+        "com.apple.developer.family-controls": true,
         "com.apple.security.application-groups": [
           "group.com.vitor.atlas.shared"
         ]
@@ -79,6 +80,13 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Atlas usa sua localização no momento da captura para preservar contexto."
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Atlas usa o Calendário para marcar tarefas e bloqueios que você confirmar.",
+          "remindersPermission": "Atlas usa Lembretes apenas quando você confirmar lembretes vinculados a tarefas."
         }
       ],
       "expo-secure-store",

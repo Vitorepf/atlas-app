@@ -19,6 +19,7 @@ export interface AtlasPalette {
   moss: string
   // Domains
   domBlackink: string
+  domAtlas: string
   domSaude: string
   domFinancas: string
   domOutro: string
@@ -41,6 +42,7 @@ export const lightPalette: AtlasPalette = {
   recRed:    '#8B2635',
   moss:      '#4A5D3A',
   domBlackink: '#1B3A57',
+  domAtlas:   '#5D4A8A',
   domSaude:    '#4A5D3A',
   domFinancas: '#9B7A3F',
   domOutro:    '#6B6358',
@@ -61,6 +63,7 @@ export const darkPalette: AtlasPalette = {
   recRed:    '#C9505F',
   moss:      '#7A9A65',
   domBlackink: '#6892B5',
+  domAtlas:   '#B6A6E8',
   domSaude:    '#7A9A65',
   domFinancas: '#C9A663',
   domOutro:    '#A89F90',

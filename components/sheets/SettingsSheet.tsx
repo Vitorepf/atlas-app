@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Constants from 'expo-constants'
 import { SideSheet } from './SideSheet'
+import { ScreenTimeSelectionSheet } from '../ScreenTimeSelectionSheet'
+import { CreateDomainPanel } from '../domains/CreateDomainPanel'
 import { Frau, Label, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import { useOverlays } from '../../lib/overlays'
+import { domainColor } from '../../lib/domains'
 import {
   type AiProvidersStatusResponse,
+  type AtlasHealth,
   getApiConfig,
   getAiProvidersStatus,
   getHealth,
@@ -17,6 +21,10 @@ import {
   setBackendToken,
 } from '../../lib/api/client'
 import { formatRelativeSync, localQueueCounts, useAtlasStore } from '../../lib/atlasStore'
+import {
+  SCREEN_TIME_BUCKETS,
+  type ScreenTimeLocalStatus,
+} from '../../lib/screenTime'
 
 export function SettingsSheet() {
   const open = useOverlays((s) => s.open)
@@ -25,19 +33,26 @@ export function SettingsSheet() {
   const { c, mode, setMode } = useTheme()
   const sync = useAtlasStore((s) => s.sync)
   const syncing = useAtlasStore((s) => s.syncing)
-  const syncHealthKit = useAtlasStore((s) => s.syncHealthKit)
   const requestHealthKitPermissions = useAtlasStore((s) => s.requestHealthKitPermissions)
+  const syncScreenTime = useAtlasStore((s) => s.syncScreenTime)
+  const configureScreenTime = useAtlasStore((s) => s.configureScreenTime)
+  const requestScreenTimePermissions = useAtlasStore((s) => s.requestScreenTimePermissions)
   const serverReachable = useAtlasStore((s) => s.serverReachable)
   const lastSyncAt = useAtlasStore((s) => s.lastSyncAt)
   const lastError = useAtlasStore((s) => s.lastError)
   const healthKit = useAtlasStore((s) => s.healthKit)
+  const domains = useAtlasStore((s) => s.domains)
   const healthKitSyncing = useAtlasStore((s) => s.healthKitSyncing)
+  const screenTime = useAtlasStore((s) => s.screenTime)
+  const screenTimeSyncing = useAtlasStore((s) => s.screenTimeSyncing)
   const queuedCaptures = useAtlasStore((s) => s.queuedCaptures.length)
   const queuedCheckins = useAtlasStore((s) => s.queuedCheckins.length)
   const queuedBehaviors = useAtlasStore((s) => s.queuedBehaviors.length)
   const queuedBehaviorLogs = useAtlasStore((s) => s.queuedBehaviorLogs.length)
   const queuedSignals = useAtlasStore((s) => s.queuedPassiveSignals.length)
   const queuedSnapshots = useAtlasStore((s) => s.queuedHealthSnapshots.length)
+  const queuedDigitalSessions = useAtlasStore((s) => s.queuedDigitalSessions.length)
+  const queuedDigitalSnapshots = useAtlasStore((s) => s.queuedDigitalActivitySnapshots.length)
   const queueLastError = useAtlasStore((s) => firstQueueError([
     ...s.queuedCaptures.map((item) => item.last_error),
     ...s.queuedCheckins.map((item) => item.last_error),
@@ -45,38 +60,59 @@ export function SettingsSheet() {
     ...s.queuedBehaviorLogs.map((item) => item.last_error),
     ...s.queuedPassiveSignals.map((item) => item.last_error),
     ...s.queuedHealthSnapshots.map((item) => item.last_error),
+    ...s.queuedDigitalSessions.map((item) => item.last_error),
+    ...s.queuedDigitalActivitySnapshots.map((item) => item.last_error),
   ]))
   const healthSignals = useAtlasStore((s) => (
     s.passiveSignals.filter((signal) => signal.source === 'healthkit').length
     + s.queuedPassiveSignals.filter((signal) => signal.source === 'healthkit').length
+  ))
+  const screenTimeSignals = useAtlasStore((s) => (
+    s.digitalSessions.filter((session) => session.source === 'screentime').length
+    + s.queuedDigitalSessions.filter((session) => session.source === 'screentime').length
   ))
 
   const [hostDraft, setHostDraft] = useState('')
   const [portDraft, setPortDraft] = useState('')
   const [tokenDraft, setTokenDraft] = useState('')
   const [apiStatus, setApiStatus] = useState<string | null>(null)
+  const [apiConfigLoaded, setApiConfigLoaded] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [serverHealth, setServerHealth] = useState<AtlasHealth | null>(null)
   const [aiStatus, setAiStatus] = useState<AiProvidersStatusResponse | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
 
   useEffect(() => {
     if (!visible) return
 
+    setApiConfigLoaded(false)
     void hydrateApiConfig().then(() => {
       const config = getApiConfig()
       setHostDraft(config.apiHost)
       setPortDraft(String(config.apiPort))
       setTokenDraft(config.apiToken)
+      setApiConfigLoaded(true)
     })
   }, [visible])
 
   useEffect(() => {
-    if (!visible) return
+    if (!visible || !apiConfigLoaded) return
+    void getHealth()
+      .then(setServerHealth)
+      .catch(() => setServerHealth(null))
     void refreshAiStatus({ silent: true })
-  }, [visible])
+  }, [visible, apiConfigLoaded])
 
-  const queue = queuedCaptures + queuedCheckins + queuedBehaviors + queuedBehaviorLogs + queuedSignals + queuedSnapshots
+  const queue = queuedCaptures
+    + queuedCheckins
+    + queuedBehaviors
+    + queuedBehaviorLogs
+    + queuedSignals
+    + queuedSnapshots
+    + queuedDigitalSessions
+    + queuedDigitalSnapshots
   const statusKind = apiStatus
     ? statusKindFromMessage(apiStatus)
     : (testing || syncing)
@@ -107,6 +143,7 @@ export function SettingsSheet() {
     try {
       await saveApiConfig()
       const health = await getHealth()
+      setServerHealth(health)
       await listCaptures({ limit: 1 })
       await sync()
       setApiStatus(statusAfterSync(health.db_connected ? 'Servidor e token ok' : 'Servidor online · Postgres indisponível'))
@@ -133,6 +170,7 @@ export function SettingsSheet() {
   }
 
   return (
+    <>
     <SideSheet visible={visible}>
       <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Pressable onPress={close} style={({ pressed }) => [styles.slot, { opacity: pressed ? 0.65 : 1 }]}>
@@ -144,7 +182,7 @@ export function SettingsSheet() {
         <View style={styles.slot} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
         <Section label="Aparência">
           <Row first name="Tema" desc="Dia, noite ou seguir o sistema">
             <Segmented
@@ -157,6 +195,22 @@ export function SettingsSheet() {
               onChange={(k) => setMode(k as typeof mode)}
             />
           </Row>
+        </Section>
+
+        <Section label="Domínios">
+          {domains.map((domain, index) => (
+            <Row
+              key={domain.key}
+              first={index === 0}
+              name={domain.label}
+              desc={`${domain.key} · ${domainPrivacyLabel(domain.defaultSensitivity)}`}
+            >
+              <View style={[styles.domainDot, { backgroundColor: domainColor(domain.key, c, domains) }]} />
+            </Row>
+          ))}
+          <View style={[styles.domainCreator, { borderTopColor: c.border }]}>
+            <CreateDomainPanel />
+          </View>
         </Section>
 
         <Section label="Servidor Atlas">
@@ -199,6 +253,24 @@ export function SettingsSheet() {
           </View>
         </Section>
 
+        <Section label="Operação do servidor">
+          <Row first name="PostgreSQL" desc={databaseHealthDescription(serverHealth)}>
+            <StatusBadge status={databaseHealthStatus(serverHealth)} />
+          </Row>
+          <Row name="Storage Atlas" desc={storageHealthDescription(serverHealth)}>
+            <StatusBadge status={storageHealthStatus(serverHealth)} />
+          </Row>
+          <Row name="Whisper" desc={transcriptionHealthDescription(serverHealth)}>
+            <StatusBadge status={transcriptionHealthStatus(serverHealth)} />
+          </Row>
+          <Row name="Fila de transcrição" desc={transcriptionQueueDescription(serverHealth)}>
+            <StatusBadge status={transcriptionQueueStatus(serverHealth)} />
+          </Row>
+          <Row name="Scheduler" desc={serverHealth?.checks?.scheduler?.note ?? 'Não verificado neste aparelho'}>
+            <StatusBadge status={serverHealth ? 'pending' : 'offline'} />
+          </Row>
+        </Section>
+
         <Section label="Atlas AI">
           <Row first name="Gateway" desc={aiGatewayDescription(aiStatus, aiError)}>
             <StatusBadge status={aiGatewayStatus(aiStatus, aiError, aiLoading)} />
@@ -232,12 +304,12 @@ export function SettingsSheet() {
           <Row name="Última coleta" desc={`${healthSignals} sinais de saúde no Atlas`}>
             <Mono size={12} letterSpacing={0.48} color={c.ink2}>{formatRelativeSync(healthKit.lastSyncAt)}</Mono>
           </Row>
-          <Row name="Histórico" desc={healthKit.historyBackfilled ? 'Importação inicial concluída' : 'Primeira coleta importa o histórico disponível'}>
+          <Row name="Base inicial" desc={healthKit.historyBackfilled ? 'Coleta inicial concluída' : 'Coleta automática pendente'}>
             <Mono size={12} letterSpacing={0.48} color={c.ink2}>
               {healthKit.historyBackfilled ? formatRelativeSync(healthKit.historyBackfilledAt) : 'pendente'}
             </Mono>
           </Row>
-          <Row name="Coleta automática" desc="Launch, retorno ao app, intervalo ativo e eventos do HealthKit">
+          <Row name="Coleta automática" desc="Primeiro plano, eventos do HealthKit e segundo plano">
             <Mono size={12} letterSpacing={0.48} color={healthKit.enabled ? c.moss : c.ink2}>
               {healthKit.enabled ? formatRelativeSync(healthKit.backgroundConfiguredAt) : 'inativa'}
             </Mono>
@@ -260,24 +332,96 @@ export function SettingsSheet() {
           ) : null}
           <View style={styles.apiActions}>
             <MiniButton
-              label={healthKitSyncing ? 'Solicitando…' : 'Permitir Saúde'}
+              label={healthKitSyncing ? 'Atualizando…' : 'Permitir Saúde'}
               disabled={healthKitSyncing}
               onPress={() => {
                 void requestHealthKitPermissions()
               }}
             />
+          </View>
+        </Section>
+
+        <Section label="Produtividade iPhone">
+          <Row first name="Estado" desc={screenTimeDescription(screenTime)}>
+            <StatusBadge status={screenTimeStatusKind(screenTime, screenTimeSyncing)} />
+          </Row>
+          <Row name="Buckets cognitivos" desc={screenTime.nativeModuleAvailable ? 'Categorias nativas prontas para coleta' : 'Modulo iOS nativo ausente neste build'}>
+            <Mono size={12} letterSpacing={0.48} color={screenTime.configuredBucketCount > 0 ? c.moss : c.ink2}>
+              {screenTime.configuredBucketCount}/{SCREEN_TIME_BUCKETS.length}
+            </Mono>
+          </Row>
+          <Row name="Última coleta" desc={`${screenTimeSignals} sessões do iPhone no Atlas`}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {formatRelativeSync(screenTime.lastSyncAt)}
+            </Mono>
+          </Row>
+          {screenTime.available && screenTime.lastError ? (
+            <View style={styles.healthError}>
+              <Sans size={12} lineHeight={17} color={c.recRed}>
+                {screenTime.lastError}
+              </Sans>
+            </View>
+          ) : null}
+          {screenTime.debugTrail.length > 0 ? (
+            <View style={styles.healthDebug}>
+              {screenTime.debugTrail.slice(-3).map((line) => (
+                <Mono key={line} size={9.5} letterSpacing={0.1} color={c.ink2}>
+                  {line}
+                </Mono>
+              ))}
+            </View>
+          ) : null}
+          <View style={styles.bucketGrid}>
+            {SCREEN_TIME_BUCKETS.map((bucket) => (
+              <Pressable
+                key={bucket.id}
+                disabled={!screenTime.enabled}
+                onPress={() => setScreenTimeSelectionBucket(bucket.id)}
+                style={({ pressed }) => [
+                  styles.bucketChip,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: pressed ? c.surface : 'transparent',
+                    opacity: screenTime.enabled ? 1 : 0.55,
+                  },
+                ]}
+              >
+                <Mono size={10} letterSpacing={0.34} color={c.prussian}>
+                  {bucket.shortLabel}
+                </Mono>
+                <Sans size={11} lineHeight={14} color={c.ink2}>
+                  {bucket.categoryLabel}
+                </Sans>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.apiActions}>
             <MiniButton
-              label={healthKitSyncing ? 'Coletando…' : 'Coletar agora'}
-              disabled={healthKitSyncing || !healthKit.available || !healthKit.enabled}
+              label="Autorizar"
+              disabled={!screenTime.nativeModuleAvailable || screenTimeSyncing}
               onPress={() => {
-                void syncHealthKit()
+                void requestScreenTimePermissions()
+              }}
+            />
+            <MiniButton
+              label="Ativar coleta"
+              disabled={!screenTime.enabled || screenTimeSyncing}
+              onPress={() => {
+                void configureScreenTime()
+              }}
+            />
+            <MiniButton
+              label="Coletar agora"
+              disabled={!screenTime.enabled || screenTime.configuredBucketCount <= 0 || screenTimeSyncing}
+              onPress={() => {
+                void syncScreenTime()
               }}
             />
           </View>
         </Section>
 
         <Section label="Sync">
-          <Row first name="Fila local" desc={queueDescription({ queuedCaptures, queuedCheckins, queuedBehaviors, queuedBehaviorLogs, queuedSignals, queuedSnapshots })}>
+          <Row first name="Fila local" desc={queueDescription({ queuedCaptures, queuedCheckins, queuedBehaviors, queuedBehaviorLogs, queuedSignals, queuedSnapshots, queuedDigitalSessions, queuedDigitalSnapshots })}>
             <Mono size={12} letterSpacing={0.48} color={queue > 0 ? c.bronze : c.ink2}>{queue}</Mono>
           </Row>
           <Row name="Última sincronização" desc={lastSyncAt ? 'Servidor Laravel' : 'Ainda não sincronizado'}>
@@ -301,6 +445,17 @@ export function SettingsSheet() {
         </Section>
       </ScrollView>
     </SideSheet>
+    <ScreenTimeSelectionSheet
+      visible={visible && screenTimeSelectionBucket !== null}
+      bucketId={screenTimeSelectionBucket}
+      onClose={() => {
+        setScreenTimeSelectionBucket(null)
+        if (screenTime.enabled) {
+          void configureScreenTime()
+        }
+      }}
+    />
+    </>
   )
 }
 
@@ -390,6 +545,74 @@ function connectionStatusDescription(input: {
   }
 
   return 'Conexão pronta'
+}
+
+function databaseHealthStatus(health: AtlasHealth | null): ConnectionStatusKind {
+  if (!health) return 'offline'
+  return health.db_connected ? 'online' : 'offline'
+}
+
+function databaseHealthDescription(health: AtlasHealth | null): string {
+  if (!health) return 'Rode "Testar conexão" para carregar o health operacional'
+  return health.db_connected ? 'Postgres conectado' : 'Servidor responde, mas Postgres falhou'
+}
+
+function storageHealthStatus(health: AtlasHealth | null): ConnectionStatusKind {
+  if (!health) return 'offline'
+  return health.checks?.storage?.writable ? 'online' : 'offline'
+}
+
+function storageHealthDescription(health: AtlasHealth | null): string {
+  const storage = health?.checks?.storage
+  if (!storage) return 'Storage ainda não verificado'
+  if (storage.writable) return `Escrita ok · ${storage.path ?? 'disco atlas'}`
+  return storage.error ? `Falha no storage · ${storage.error}` : 'Storage Atlas sem escrita'
+}
+
+function transcriptionHealthStatus(health: AtlasHealth | null): ConnectionStatusKind {
+  const transcription = health?.checks?.transcription
+  if (!transcription) return 'offline'
+  if (!transcription.enabled) return 'pending'
+
+  const ready = transcription.binary_exists
+    && transcription.binary_executable
+    && transcription.model_exists
+    && transcription.ffmpeg_exists
+    && transcription.ffmpeg_executable
+
+  return ready ? 'online' : 'offline'
+}
+
+function transcriptionHealthDescription(health: AtlasHealth | null): string {
+  const transcription = health?.checks?.transcription
+  if (!transcription) return 'Whisper ainda não verificado'
+  if (!transcription.enabled) return 'Transcrição desativada no servidor'
+
+  const missing: string[] = []
+  if (!transcription.binary_exists || !transcription.binary_executable) missing.push('whisper-cli')
+  if (!transcription.model_exists) missing.push('modelo')
+  if (!transcription.ffmpeg_exists || !transcription.ffmpeg_executable) missing.push('ffmpeg')
+
+  if (missing.length === 0) {
+    return `${transcription.engine ?? 'Whisper'} · ${transcription.language ?? 'auto'} · bin/model/ffmpeg ok`
+  }
+
+  return `Falta validar: ${missing.join(', ')}`
+}
+
+function transcriptionQueueStatus(health: AtlasHealth | null): ConnectionStatusKind {
+  const jobs = health?.checks?.transcription_jobs
+  if (!jobs) return 'offline'
+  if (jobs.failed > 0) return 'pending'
+  if (jobs.queued > 0 || jobs.processing > 0) return 'pending'
+  return 'online'
+}
+
+function transcriptionQueueDescription(health: AtlasHealth | null): string {
+  const jobs = health?.checks?.transcription_jobs
+  const queue = health?.checks?.queue
+  if (!jobs || !queue) return 'Fila ainda não verificada'
+  return `${jobs.queued} aguardando · ${jobs.processing} processando · ${jobs.failed} falhas · ${queue.connection}/${queue.transcription_queue}`
 }
 
 function providerByKey(status: AiProvidersStatusResponse | null, provider: string): ProviderHealth | null {
@@ -524,8 +747,10 @@ function queueDescription(counts: {
   queuedBehaviorLogs: number
   queuedSignals: number
   queuedSnapshots: number
+  queuedDigitalSessions: number
+  queuedDigitalSnapshots: number
 }): string {
-  return `${counts.queuedCaptures} capturas · ${counts.queuedCheckins} check-ins · ${counts.queuedBehaviors} comportamentos · ${counts.queuedBehaviorLogs} logs · ${counts.queuedSignals} sinais · ${counts.queuedSnapshots} snapshots`
+  return `${counts.queuedCaptures} capturas · ${counts.queuedCheckins} check-ins · ${counts.queuedBehaviors} comportamentos · ${counts.queuedBehaviorLogs} logs · ${counts.queuedSignals} sinais · ${counts.queuedSnapshots} saúde · ${counts.queuedDigitalSessions} sessões digitais · ${counts.queuedDigitalSnapshots} snapshots digitais`
 }
 
 function firstQueueError(errors: Array<string | null | undefined>): string | null {
@@ -553,6 +778,41 @@ function healthKitDescription(healthKit: {
   if (!healthKit.available) return 'HealthKit indisponível neste aparelho'
   if (!healthKit.enabled) return `${healthKit.requestedTypeCount || 0} tipos de leitura aguardando permissão`
   return `${healthKit.requestedTypeCount || 0} tipos de leitura solicitados`
+}
+
+function screenTimeStatusKind(
+  screenTime: ScreenTimeLocalStatus,
+  syncing: boolean,
+): ConnectionStatusKind {
+  if (syncing) return 'pending'
+  if (!screenTime.available || !screenTime.enabled) return 'offline'
+  if (screenTime.lastError || screenTime.configuredBucketCount <= 0) return 'pending'
+  return 'online'
+}
+
+function screenTimeDescription(screenTime: ScreenTimeLocalStatus): string {
+  if (!screenTime.nativeModuleAvailable) {
+    return screenTime.lastError ?? 'Modulo iOS nativo ausente neste build'
+  }
+  if (screenTime.entitlementRequired) {
+    return 'Family Controls/DeviceActivity exige entitlement aprovado no build iOS'
+  }
+  if (!screenTime.available) {
+    return screenTime.lastError ?? 'Rastreamento nativo pausado; Sensor 4 segue via Rize/backend'
+  }
+  if (!screenTime.enabled) {
+    return 'Autorize o Tempo de Uso para medir buckets cognitivos'
+  }
+  if (screenTime.configuredBucketCount <= 0) {
+    return 'Permissão ok; falta selecionar os buckets'
+  }
+  return `${screenTime.configuredBucketCount} buckets ativos · dados selecionados pelo operador`
+}
+
+function domainPrivacyLabel(value?: string | null): string {
+  if (value === 'sensitive') return 'sensível'
+  if (value === 'private') return 'privado'
+  return 'normal'
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
@@ -772,6 +1032,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  domainDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  domainCreator: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+  },
   healthError: {
     paddingHorizontal: 22,
     paddingTop: 10,
@@ -779,6 +1049,22 @@ const styles = StyleSheet.create({
   healthDebug: {
     paddingHorizontal: 22,
     paddingTop: 8,
+    gap: 4,
+  },
+  bucketGrid: {
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  bucketChip: {
+    width: '48%',
+    minHeight: 58,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     gap: 4,
   },
   queueError: {

@@ -18,8 +18,9 @@ export default function DetailScreen() {
   const { id, error } = useLocalSearchParams<{ id?: string; error?: string }>()
   const captures = useAtlasStore((s) => s.captures)
   const queuedCaptures = useAtlasStore((s) => s.queuedCaptures)
+  const domains = useAtlasStore((s) => s.domains)
   const item = visibleCaptures({ captures, queuedCaptures })
-    .map(captureToInboxItem)
+    .map((capture) => captureToInboxItem(capture, domains))
     .find((x) => x.id === id || x.clientId === id)
 
   const phase: Phase = error || item?.transcriptionStatus === 'failed'
@@ -72,7 +73,7 @@ export default function DetailScreen() {
           color={c.ink2}
           style={{ textTransform: 'uppercase' }}
         >
-          Captura · {domainLabel(item.domain)}
+          Captura · {item.domainLabel ?? domainLabel(item.domain)}
         </Sans>
       </View>
 
@@ -125,7 +126,7 @@ export default function DetailScreen() {
 
       <View
         pointerEvents="none"
-        style={[styles.accent, { backgroundColor: domainColor(item.domain, c) }]}
+        style={[styles.accent, { backgroundColor: domainColor(item.domain, c, domains) }]}
       />
     </Screen>
   )

@@ -2,6 +2,7 @@ import { Pressable, StyleSheet } from 'react-native'
 import { Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { domainColor, type DomainKey } from '../lib/domains'
+import { useAtlasStore } from '../lib/atlasStore'
 
 interface Props {
   domain: DomainKey
@@ -12,7 +13,8 @@ interface Props {
 
 export function DomainChip({ domain, label, active, onPress }: Props) {
   const c = usePalette()
-  const accent = domainColor(domain, c)
+  const domains = useAtlasStore((s) => s.domains)
+  const accent = domainColor(domain, c, domains)
   const bg = active ? accent : c.surface
   const border = active ? accent : c.border
   const fg = active ? c.bg : c.ink2

@@ -13,6 +13,8 @@ import { AtlasThemeProvider, useTheme } from '../design/theme'
 import { useAtlasFonts } from '../design/fonts'
 import { AtlasShell } from '../components/AtlasShell'
 import { useAutoHealthKitSync } from '../lib/autoHealthSync'
+import { useAtlasDeepLinks } from '../lib/deepLinks'
+import { useAtlasPushNotifications } from '../lib/pushNotifications'
 
 const queryClient = new QueryClient()
 
@@ -45,6 +47,8 @@ export default function RootLayout() {
 function ThemedRoot() {
   const { c, name } = useTheme()
   useAutoHealthKitSync()
+  useAtlasDeepLinks()
+  useAtlasPushNotifications()
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
@@ -60,10 +64,14 @@ function ThemedRoot() {
         >
           <Stack.Screen name="index" />
           <Stack.Screen name="inbox" />
+          <Stack.Screen name="mobile-pairing" options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
+          <Stack.Screen name="mobile-thread" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="health"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="sleep"    options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="ritual"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="review"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
+          <Stack.Screen name="projects" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
+          <Stack.Screen name="routines" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="bitacula" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="memory"   options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="capture"  options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />

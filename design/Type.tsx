@@ -46,17 +46,24 @@ function buildStyle(
 
 interface FrauProps extends BaseProps {
   italic?: boolean
+  weight?: 'reg' | 'med'
 }
 
+// italic + med has no font in tokens — italic wins (oralidade rule).
 export function Frau({
   children,
   italic,
+  weight,
   style,
   numberOfLines,
   ...rest
 }: FrauProps) {
   const c = usePalette()
-  const family = italic ? fonts.serifItalic : fonts.serif
+  const family = italic
+    ? fonts.serifItalic
+    : weight === 'med'
+      ? fonts.serifMd
+      : fonts.serif
   return (
     <Text numberOfLines={numberOfLines} style={buildStyle(family, c.ink, rest, style)}>
       {children}

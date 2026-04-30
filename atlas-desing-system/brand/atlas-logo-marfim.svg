@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Atlas</title>
+  <circle cx="100" cy="100" r="64" fill="none" stroke="#F4EFE6" stroke-width="1.2"></circle>
+  <circle cx="100" cy="100" r="56" fill="none" stroke="#F4EFE6" stroke-width="0.7" opacity="0.6"></circle>
+  <line x1="100" y1="22" x2="100" y2="52" stroke="#F4EFE6" stroke-width="1.6" stroke-linecap="round"></line>
+  <line x1="100" y1="148" x2="100" y2="178" stroke="#F4EFE6" stroke-width="1.6" stroke-linecap="round"></line>
+  <line x1="22" y1="100" x2="52" y2="100" stroke="#F4EFE6" stroke-width="1.6" stroke-linecap="round"></line>
+  <line x1="148" y1="100" x2="178" y2="100" stroke="#F4EFE6" stroke-width="1.6" stroke-linecap="round"></line>
+  <path d="M 100,70 L 104.8,95.2 L 130,100 L 104.8,104.8 L 100,130 L 95.2,104.8 L 70,100 L 95.2,95.2 Z" fill="#F4EFE6"></path>
+  <circle cx="100" cy="100" r="1.5" fill="#9B7A3F"></circle>
+</svg>

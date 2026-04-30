@@ -21,7 +21,6 @@ import { Dock } from './Dock'
 import { Frau, Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { OfflineBanner } from './OfflineBanner'
-import { OfflineQueue } from './OfflineQueue'
 import { OverlayHost } from './sheets/OverlayHost'
 import { useAtlasStore } from '../lib/atlasStore'
 
@@ -107,13 +106,29 @@ export function AtlasShell({ children }: Props) {
   const showPending = !syncing && reachable && queue > 0 && Boolean(lastError)
   const showQueue = showOffline || showPending
 
+  // Push the children down by the banner's content height (excluding the
+  // safe-area top, which is already covered by each Screen's SafeAreaView)
+  // when the banner is visible. Animation is synced with OfflineBanner's
+  // own slide so the page content moves in lockstep.
+  const bannerOffset = useSharedValue(0)
+  useEffect(() => {
+    bannerOffset.value = withTiming(showQueue ? BANNER_CONTENT_HEIGHT : 0, {
+      duration: 320,
+      easing: Easing.bezier(0.2, 0.7, 0.2, 1),
+    })
+  }, [bannerOffset, showQueue])
+  const childrenWrapStyle = useAnimatedStyle(() => ({
+    paddingTop: bannerOffset.value,
+  }))
+
   return (
     <ShellContext.Provider value={value}>
       <View style={[styles.fill, { backgroundColor: c.bg }]}>
-        <View style={[styles.fill, showQueue && { opacity: 0.85 }]}>{children}</View>
+        <Animated.View style={[styles.fill, showQueue && { opacity: 0.85 }, childrenWrapStyle]}>
+          {children}
+        </Animated.View>
         <SyncBar active={syncActive || syncing} />
         <OfflineBanner visible={showQueue} queue={queue} label={showOffline ? 'Sem conexão' : 'Sync pendente'} />
-        <OfflineQueue visible={showQueue} queue={queue} />
         <Dock />
         <OverlayHost />
         {toast && <Toast key={toast.key} variant={toast.variant} msg={toast.msg} />}
@@ -121,6 +136,11 @@ export function AtlasShell({ children }: Props) {
     </ShellContext.Provider>
   )
 }
+
+// Banner inner content height (paddingV 10 + content ~17 + paddingV 10 +
+// hairline). The banner's safe-area top is already provided by each
+// Screen's own SafeAreaView, so we only push down by the content portion.
+const BANNER_CONTENT_HEIGHT = 38
 
 interface ToastProps {
   msg: string

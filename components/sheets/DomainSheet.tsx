@@ -1,9 +1,11 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { BottomSheet } from './BottomSheet'
 import { Frau, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import { useOverlays } from '../../lib/overlays'
-import { DOMAINS, domainColor, type DomainKey } from '../../lib/domains'
+import { domainColor, type DomainKey } from '../../lib/domains'
+import { useAtlasStore } from '../../lib/atlasStore'
+import { CreateDomainPanel } from '../domains/CreateDomainPanel'
 
 interface DomainGlyph {
   key: DomainKey
@@ -12,6 +14,7 @@ interface DomainGlyph {
 
 const GLYPHS: DomainGlyph[] = [
   { key: 'blackink', glyph: '◆' },
+  { key: 'atlas',    glyph: '✦' },
   { key: 'saude',    glyph: '✜' },
   { key: 'financas', glyph: '▲' },
   { key: 'outro',    glyph: '·' },
@@ -29,7 +32,7 @@ export function DomainSheet() {
   }
 
   return (
-    <BottomSheet visible={visible} onClose={() => finish(null)} height="40%">
+    <BottomSheet visible={visible} onClose={() => finish(null)} height="85%">
       <Body onPick={finish} />
     </BottomSheet>
   )
@@ -37,15 +40,20 @@ export function DomainSheet() {
 
 function Body({ onPick }: { onPick: (d: DomainKey | null) => void }) {
   const { c } = useTheme()
+  const domains = useAtlasStore((s) => s.domains)
   return (
-    <View style={styles.body}>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.body}
+      showsVerticalScrollIndicator={false}
+    >
       <Frau size={24} lineHeight={29} letterSpacing={-0.36} color={c.ink} style={styles.header}>
         Sobre o quê é?
       </Frau>
 
       <View style={styles.list}>
-        {DOMAINS.map((d) => {
-          const accent = domainColor(d.key, c)
+        {domains.map((d) => {
+          const accent = domainColor(d.key, c, domains)
           const glyph = GLYPHS.find((g) => g.key === d.key)?.glyph ?? '·'
           return (
             <Pressable
@@ -72,6 +80,8 @@ function Body({ onPick }: { onPick: (d: DomainKey | null) => void }) {
         })}
       </View>
 
+      <CreateDomainPanel onCreated={(domain) => onPick(domain.key)} />
+
       <Pressable
         onPress={() => onPick(null)}
         style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, marginTop: 16, paddingVertical: 10 }]}
@@ -80,12 +90,12 @@ function Body({ onPick }: { onPick: (d: DomainKey | null) => void }) {
           Pular
         </Sans>
       </Pressable>
-    </View>
+    </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  body: { flex: 1, paddingHorizontal: 22, paddingTop: 6 },
+  body: { paddingHorizontal: 22, paddingTop: 6, paddingBottom: 28 },
   header: { marginTop: 6, marginBottom: 18 },
   list: { gap: 8 },
   btn: {

@@ -6,7 +6,7 @@ import { Frau, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import { useOverlays } from '../../lib/overlays'
 import { useShell } from '../AtlasShell'
-import { DOMAINS, domainColor, type DomainKey } from '../../lib/domains'
+import { domainColor, type DomainKey } from '../../lib/domains'
 import { useAtlasStore } from '../../lib/atlasStore'
 
 export function EditSheet() {
@@ -15,6 +15,7 @@ export function EditSheet() {
   const close = useOverlays((s) => s.close)
   const { showToast } = useShell()
   const updateCapture = useAtlasStore((s) => s.updateCapture)
+  const domains = useAtlasStore((s) => s.domains)
   const visible = open === 'edit' && item != null
 
   const { c } = useTheme()
@@ -73,9 +74,9 @@ export function EditSheet() {
         </View>
 
         <View style={[styles.footer, { borderTopColor: c.border, backgroundColor: c.bg }]}>
-          {DOMAINS.map((d) => {
+          {domains.map((d) => {
             const active = d.key === activeDomain
-            const accent = domainColor(d.key, c)
+            const accent = domainColor(d.key, c, domains)
             return (
               <Pressable
                 key={d.key}

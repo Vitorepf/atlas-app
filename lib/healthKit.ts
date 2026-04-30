@@ -4,8 +4,12 @@ import { Platform } from 'react-native'
 import type {
   CategoryTypeIdentifier,
   CorrelationTypeIdentifier,
+  DeletedSample,
+  FilterForSamples,
   ObjectTypeIdentifier,
   QuantityTypeIdentifier,
+  QueryOptionsWithAnchorAndUnit,
+  QueryOptionsWithSortOrderAndUnit,
   QueryStatisticsResponse,
   SampleTypeIdentifier,
 } from '@kingstinct/react-native-healthkit'
@@ -23,9 +27,18 @@ const HEALTHKIT_HISTORY_BACKFILLED_KEY = 'atlas.healthkit.historyBackfilled.v1'
 const HEALTHKIT_HISTORY_BACKFILLED_AT_KEY = 'atlas.healthkit.historyBackfilledAt'
 const HEALTHKIT_BACKGROUND_CONFIGURED_AT_KEY = 'atlas.healthkit.backgroundConfiguredAt'
 const HEALTHKIT_SAMPLE_LIMIT = 100
-const HEALTHKIT_HISTORY_LIMIT = 0
+const HEALTHKIT_BACKFILL_SAMPLE_LIMIT = 1500
+const HEALTHKIT_SAMPLE_BACKFILL_DAYS = 60
 const HEALTHKIT_DAILY_BACKFILL_DAYS = 60
-const HEALTHKIT_SLEEP_REFRESH_DAYS = 45
+const HEALTHKIT_DAILY_REFRESH_DAYS = 14
+const HEALTHKIT_SLEEP_REFRESH_DAYS = 14
+const HEALTHKIT_SLEEP_SAMPLE_LIMIT = 1200
+const HEALTHKIT_WORKOUT_REFRESH_DAYS = 14
+const HEALTHKIT_WORKOUT_SAMPLE_LIMIT = 300
+const HEALTHKIT_WORKOUT_HEART_RATE_SAMPLE_LIMIT = 2500
+const HEALTHKIT_WAKING_HEART_RATE_SAMPLE_LIMIT = 12000
+const HEALTHKIT_WAKING_HEART_RATE_REFRESH_DAYS = 14
+const HEALTHKIT_SLEEP_HEART_RATE_SAMPLE_LIMIT = 4000
 const AUTH_STATUS_SHOULD_REQUEST = 1
 
 const ActivitySummaryTypeIdentifier = 'HKActivitySummaryTypeIdentifier' as const satisfies ObjectTypeIdentifier
@@ -262,6 +275,7 @@ const ALL_READ_TYPES = uniqueTypes([
 const PRIMARY_HEALTHKIT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierAppleExerciseTime',
+  'HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances',
   'HKQuantityTypeIdentifierAppleSleepingWristTemperature',
   'HKQuantityTypeIdentifierAppleStandTime',
   'HKQuantityTypeIdentifierBasalEnergyBurned',
@@ -269,7 +283,7 @@ const PRIMARY_HEALTHKIT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierBodyMass',
   'HKQuantityTypeIdentifierBodyMassIndex',
   'HKQuantityTypeIdentifierDistanceWalkingRunning',
-  'HKQuantityTypeIdentifierHeartRate',
+  'HKQuantityTypeIdentifierEstimatedWorkoutEffortScore',
   'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
   'HKQuantityTypeIdentifierHeight',
   'HKQuantityTypeIdentifierLeanBodyMass',
@@ -279,6 +293,7 @@ const PRIMARY_HEALTHKIT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierVO2Max',
   'HKQuantityTypeIdentifierWaistCircumference',
+  'HKQuantityTypeIdentifierWorkoutEffortScore',
 ] as const satisfies readonly QuantityTypeIdentifier[]
 
 const PRIMARY_HEALTHKIT_CATEGORY_TYPES = [
@@ -291,9 +306,14 @@ const PRIMARY_HEALTHKIT_SPECIAL_TYPES = [
   WorkoutTypeIdentifier,
 ] as const satisfies readonly ObjectTypeIdentifier[]
 
+const WORKOUT_HEART_RATE_QUANTITY_TYPES = [
+  'HKQuantityTypeIdentifierHeartRate',
+] as const satisfies readonly QuantityTypeIdentifier[]
+
 const PRIMARY_READ_TYPES = uniqueTypes([
   ...CHARACTERISTIC_TYPES,
   ...PRIMARY_HEALTHKIT_QUANTITY_TYPES,
+  ...WORKOUT_HEART_RATE_QUANTITY_TYPES,
   ...PRIMARY_HEALTHKIT_CATEGORY_TYPES,
   ...PRIMARY_HEALTHKIT_SPECIAL_TYPES,
 ])
@@ -301,9 +321,9 @@ const PRIMARY_READ_TYPES = uniqueTypes([
 const BACKGROUND_SAMPLE_TYPES = uniqueTypes([
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierAppleExerciseTime',
+  'HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances',
   'HKQuantityTypeIdentifierAppleSleepingWristTemperature',
   'HKQuantityTypeIdentifierDistanceWalkingRunning',
-  'HKQuantityTypeIdentifierHeartRate',
   'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
   'HKQuantityTypeIdentifierOxygenSaturation',
   'HKQuantityTypeIdentifierRespiratoryRate',
@@ -321,12 +341,14 @@ const BACKGROUND_SAMPLE_TYPES = uniqueTypes([
 const SIGNAL_ALIASES: Record<string, string> = {
   HKQuantityTypeIdentifierActiveEnergyBurned: 'active_energy_kcal',
   HKQuantityTypeIdentifierAppleExerciseTime: 'exercise_minutes',
+  HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances: 'sleep_breathing_disturbances',
   HKQuantityTypeIdentifierAppleStandTime: 'stand_minutes',
   HKQuantityTypeIdentifierBasalEnergyBurned: 'basal_energy_kcal',
   HKQuantityTypeIdentifierBodyFatPercentage: 'body_fat_percentage',
   HKQuantityTypeIdentifierBodyMass: 'body_mass',
   HKQuantityTypeIdentifierBodyMassIndex: 'body_mass_index',
   HKQuantityTypeIdentifierDistanceWalkingRunning: 'walking_running_distance',
+  HKQuantityTypeIdentifierEstimatedWorkoutEffortScore: 'estimated_workout_effort_score',
   HKQuantityTypeIdentifierHeight: 'height',
   HKQuantityTypeIdentifierHeartRate: 'heart_rate_bpm',
   HKQuantityTypeIdentifierHeartRateVariabilitySDNN: 'hrv_ms',
@@ -338,6 +360,7 @@ const SIGNAL_ALIASES: Record<string, string> = {
   HKQuantityTypeIdentifierVO2Max: 'vo2max',
   HKQuantityTypeIdentifierWaistCircumference: 'waist_circumference',
   HKQuantityTypeIdentifierAppleSleepingWristTemperature: 'wrist_temperature',
+  HKQuantityTypeIdentifierWorkoutEffortScore: 'workout_effort_score',
   HKCategoryTypeIdentifierSleepAnalysis: 'sleep_stage',
 }
 
@@ -386,6 +409,31 @@ const DAILY_STATISTIC_IDENTIFIERS = new Set<string>(
   DAILY_CUMULATIVE_STATISTICS.map((definition) => definition.identifier),
 )
 
+const WORKOUT_HEART_RATE_AGGREGATE_SIGNAL_TYPES = [
+  'workout_hr_avg_bpm',
+  'workout_hr_max_bpm',
+  'workout_cardio_load',
+  'workout_cardio_strain',
+  'workout_hr_zone_1_min',
+  'workout_hr_zone_2_min',
+  'workout_hr_zone_3_min',
+  'workout_hr_zone_4_min',
+  'workout_hr_zone_5_min',
+] as const
+
+const WAKING_HEART_RATE_AGGREGATE_SIGNAL_TYPES = [
+  'waking_hr_avg_bpm',
+  'waking_hr_max_bpm',
+  'waking_cardio_load',
+  'waking_cardio_strain',
+  'waking_hr_zone_1_min',
+  'waking_hr_zone_2_min',
+  'waking_hr_zone_3_min',
+  'waking_hr_zone_4_min',
+  'waking_hr_zone_5_min',
+  'waking_hr_sample_count',
+] as const
+
 const MOST_RECENT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierAppleSleepingWristTemperature',
   'HKQuantityTypeIdentifierBodyFatPercentage',
@@ -401,6 +449,31 @@ const MOST_RECENT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierWaistCircumference',
 ] as const satisfies readonly QuantityTypeIdentifier[]
 
+const NORMALIZED_QUANTITY_UNITS: Partial<Record<QuantityTypeIdentifier, string>> = {
+  HKQuantityTypeIdentifierActiveEnergyBurned: 'kcal',
+  HKQuantityTypeIdentifierAppleExerciseTime: 'min',
+  HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances: 'count',
+  HKQuantityTypeIdentifierAppleSleepingWristTemperature: 'degC',
+  HKQuantityTypeIdentifierAppleStandTime: 'min',
+  HKQuantityTypeIdentifierBasalEnergyBurned: 'kcal',
+  HKQuantityTypeIdentifierBodyFatPercentage: '%',
+  HKQuantityTypeIdentifierBodyMass: 'kg',
+  HKQuantityTypeIdentifierBodyMassIndex: 'count',
+  HKQuantityTypeIdentifierDistanceWalkingRunning: 'm',
+  HKQuantityTypeIdentifierEstimatedWorkoutEffortScore: 'count',
+  HKQuantityTypeIdentifierHeartRate: 'count/min',
+  HKQuantityTypeIdentifierHeartRateVariabilitySDNN: 'ms',
+  HKQuantityTypeIdentifierHeight: 'm',
+  HKQuantityTypeIdentifierLeanBodyMass: 'kg',
+  HKQuantityTypeIdentifierOxygenSaturation: '%',
+  HKQuantityTypeIdentifierRespiratoryRate: 'count/min',
+  HKQuantityTypeIdentifierRestingHeartRate: 'count/min',
+  HKQuantityTypeIdentifierStepCount: 'count',
+  HKQuantityTypeIdentifierVO2Max: 'ml/(kg*min)',
+  HKQuantityTypeIdentifierWaistCircumference: 'cm',
+  HKQuantityTypeIdentifierWorkoutEffortScore: 'count',
+}
+
 export interface HealthKitLocalStatus {
   available: boolean
   enabled: boolean
@@ -415,7 +488,9 @@ export interface HealthKitLocalStatus {
 }
 
 export interface HealthKitPermissionResult extends HealthKitLocalStatus {
+  // HealthKit does not expose per-type read grants; this means the OS processed the request.
   granted: boolean
+  authorizationRequestProcessed: boolean
   availableTypeCount: number
   unavailableTypeCount: number
   medicationsGranted: boolean
@@ -472,6 +547,7 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
     return {
       ...status,
       granted: false,
+      authorizationRequestProcessed: false,
       availableTypeCount: 0,
       unavailableTypeCount: PRIMARY_READ_TYPES.length,
       medicationsGranted: false,
@@ -480,10 +556,10 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
 
   const availableTypes = await availableObjectTypes(healthKit, PRIMARY_READ_TYPES)
   await logHealthKitDebug('permission:available-types', { count: availableTypes.length })
-  const granted = await requestReadTypes(healthKit, availableTypes)
-  await logHealthKitDebug('permission:request-finished', { granted })
+  const requestProcessed = await requestReadTypes(healthKit, availableTypes)
+  await logHealthKitDebug('permission:request-finished', { requestProcessed })
   const medicationsGranted = false
-  const enabled = granted || medicationsGranted
+  const enabled = requestProcessed || medicationsGranted
 
   await AsyncStorage.multiSet([
     [HEALTHKIT_ENABLED_KEY, enabled ? 'true' : 'false'],
@@ -499,7 +575,8 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
   return {
     ...status,
     enabled,
-    granted: enabled,
+    granted: requestProcessed,
+    authorizationRequestProcessed: requestProcessed,
     availableTypeCount: availableTypes.length,
     unavailableTypeCount: PRIMARY_READ_TYPES.length - availableTypes.length,
     medicationsGranted,
@@ -508,10 +585,11 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
 
 export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): Promise<HealthKitSyncResult> {
   const historyBackfilled = (await AsyncStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_KEY)) === 'true'
-  const queryLimit = historyBackfilled ? limit : HEALTHKIT_HISTORY_LIMIT
+  const queryLimit = historyBackfilled ? limit : HEALTHKIT_BACKFILL_SAMPLE_LIMIT
   const mode = historyBackfilled ? 'incremental' : 'historical-backfill'
+  const backfillFilter = historyBackfilled ? undefined : recentSampleFilter(HEALTHKIT_SAMPLE_BACKFILL_DAYS)
 
-  await logHealthKitDebug('collect:start', { limit: queryLimit, mode })
+  await logHealthKitDebug('collect:start', { limit: queryLimit, mode, backfillDays: historyBackfilled ? null : HEALTHKIT_SAMPLE_BACKFILL_DAYS })
   const healthKit = await loadHealthKit()
   if (!healthKit || !(await isHealthKitAvailable(healthKit))) {
     await logHealthKitDebug('collect:unavailable')
@@ -528,6 +606,7 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
   })
   const availableSet = new Set<string>(readableTypes)
   const sleepSamples: SleepSampleForAggregation[] = []
+  const workoutsForHeartRate: WorkoutSampleForAggregation[] = []
 
   for (const identifier of PRIMARY_HEALTHKIT_QUANTITY_TYPES) {
     if (!availableSet.has(identifier)) continue
@@ -535,9 +614,18 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
 
     try {
       const anchor = historyBackfilled ? await readAnchor('quantity', identifier) : undefined
-      const response = await healthKit.queryQuantitySamplesWithAnchor(identifier, { anchor, limit: queryLimit })
+      const response = await healthKit.queryQuantitySamplesWithAnchor(
+        identifier,
+        quantityAnchorOptions(identifier, anchor, queryLimit, backfillFilter),
+      )
       await writeAnchor('quantity', identifier, response.newAnchor)
-      await logHealthKitDebug('collect:quantity', { identifier, count: response.samples.length, mode })
+      signals.push(...deletedSamplesToSignals('quantity', identifier, response.deletedSamples))
+      await logHealthKitDebug('collect:quantity', {
+        identifier,
+        count: response.samples.length,
+        deleted: response.deletedSamples.length,
+        mode,
+      })
       for (const sample of response.samples) {
         signals.push(quantitySampleToSignal(identifier, sample))
       }
@@ -551,9 +639,19 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
 
     try {
       const anchor = historyBackfilled ? await readAnchor('category', identifier) : undefined
-      const response = await healthKit.queryCategorySamplesWithAnchor(identifier, { anchor, limit: queryLimit })
+      const response = await healthKit.queryCategorySamplesWithAnchor(identifier, {
+        anchor,
+        limit: queryLimit,
+        ...(backfillFilter ? { filter: backfillFilter } : {}),
+      })
       await writeAnchor('category', identifier, response.newAnchor)
-      await logHealthKitDebug('collect:category', { identifier, count: response.samples.length, mode })
+      signals.push(...deletedSamplesToSignals('category', identifier, response.deletedSamples))
+      await logHealthKitDebug('collect:category', {
+        identifier,
+        count: response.samples.length,
+        deleted: response.deletedSamples.length,
+        mode,
+      })
       for (const sample of response.samples) {
         signals.push(categorySampleToSignal(identifier, sample))
         if (identifier === 'HKCategoryTypeIdentifierSleepAnalysis' && ASLEEP_VALUES.has(Number(sample.value))) {
@@ -572,8 +670,9 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
 
   if (availableSet.has('HKCategoryTypeIdentifierSleepAnalysis')) {
     try {
-      const recentSleepSamples = await recentSleepCategorySamples(healthKit)
-      await logHealthKitDebug('collect:recent-sleep', { count: recentSleepSamples.length })
+      const sleepRefreshDays = historyBackfilled ? HEALTHKIT_SLEEP_REFRESH_DAYS : HEALTHKIT_DAILY_BACKFILL_DAYS
+      const recentSleepSamples = await recentSleepCategorySamples(healthKit, sleepRefreshDays)
+      await logHealthKitDebug('collect:recent-sleep', { count: recentSleepSamples.length, days: sleepRefreshDays })
       for (const sample of recentSleepSamples) {
         signals.push(categorySampleToSignal('HKCategoryTypeIdentifierSleepAnalysis', sample))
         if (ASLEEP_VALUES.has(Number(sample.value))) {
@@ -590,29 +689,97 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
     }
   }
 
-  signals.push(...sleepDurationSignals(uniqueSleepSamples(sleepSamples)))
+  const sleepSamplesForAggregation = uniqueSleepSamples(sleepSamples)
+  signals.push(...sleepDurationSignals(sleepSamplesForAggregation))
+
+  if (availableSet.has('HKQuantityTypeIdentifierHeartRate')) {
+    signals.push(...await sleepHeartRateAggregateSignals(
+      healthKit,
+      sleepSamplesForAggregation,
+      errors,
+    ))
+  }
 
   if (availableSet.has(WorkoutTypeIdentifier)) {
     try {
       const anchor = historyBackfilled ? await readAnchor('workout', WorkoutTypeIdentifier) : undefined
-      const response = await healthKit.queryWorkoutSamplesWithAnchor({ anchor, limit: queryLimit })
+      const response = await healthKit.queryWorkoutSamplesWithAnchor({
+        anchor,
+        limit: queryLimit,
+        ...(backfillFilter ? { filter: backfillFilter } : {}),
+      })
       await writeAnchor('workout', WorkoutTypeIdentifier, response.newAnchor)
-      await logHealthKitDebug('collect:workout', { count: response.workouts.length, mode })
+      signals.push(...deletedSamplesToSignals('workout', WorkoutTypeIdentifier, response.deletedSamples))
+      signals.push(...deletedWorkoutAggregateSignals(response.deletedSamples))
+      await logHealthKitDebug('collect:workout', {
+        count: response.workouts.length,
+        deleted: response.deletedSamples.length,
+        mode,
+      })
       for (const workout of response.workouts) {
         const sample = typeof workout.toJSON === 'function' ? workout.toJSON() : workout
         signals.push(workoutToSignal(sample))
+        const aggregateSample = workoutSampleForAggregation(sample)
+        if (aggregateSample) workoutsForHeartRate.push(aggregateSample)
       }
     } catch (error) {
       errors.push(`${WorkoutTypeIdentifier}: ${humanError(error)}`)
     }
   }
 
+  const workoutsForAggregation = uniqueWorkoutSamples(workoutsForHeartRate)
+
+  if (availableSet.has('HKQuantityTypeIdentifierHeartRate')) {
+    const workoutRefreshDays = historyBackfilled ? HEALTHKIT_WORKOUT_REFRESH_DAYS : HEALTHKIT_DAILY_BACKFILL_DAYS
+    let workoutsForHeartRateAggregates = workoutsForAggregation
+
+    if (availableSet.has(WorkoutTypeIdentifier)) {
+      try {
+        const recentWorkouts = await recentWorkoutSamples(healthKit, workoutRefreshDays)
+        workoutsForHeartRate.push(...recentWorkouts)
+        workoutsForHeartRateAggregates = uniqueWorkoutSamples(workoutsForHeartRate)
+        await logHealthKitDebug('collect:recent-workouts-for-hr', { count: recentWorkouts.length, days: workoutRefreshDays })
+      } catch (error) {
+        errors.push(`recent_workouts_for_hr: ${humanError(error)}`)
+      }
+    }
+
+    const heartRateProfile = await personalHeartRateProfile(healthKit)
+
+    if (availableSet.has(WorkoutTypeIdentifier)) {
+      signals.push(...await workoutHeartRateAggregateSignals(
+        healthKit,
+        workoutsForHeartRateAggregates,
+        heartRateProfile,
+        errors,
+      ))
+    }
+
+    signals.push(...await wakingHeartRateAggregateSignals(
+      healthKit,
+      historyBackfilled ? HEALTHKIT_WAKING_HEART_RATE_REFRESH_DAYS : HEALTHKIT_DAILY_BACKFILL_DAYS,
+      sleepSamplesForAggregation,
+      workoutsForHeartRateAggregates,
+      heartRateProfile,
+      errors,
+    ))
+  }
+
   if (availableSet.has(StateOfMindTypeIdentifier)) {
     try {
       const anchor = historyBackfilled ? await readAnchor('state_of_mind', StateOfMindTypeIdentifier) : undefined
-      const response = await healthKit.queryStateOfMindSamplesWithAnchor({ anchor, limit: queryLimit })
+      const response = await healthKit.queryStateOfMindSamplesWithAnchor({
+        anchor,
+        limit: queryLimit,
+        ...(backfillFilter ? { filter: backfillFilter } : {}),
+      })
       await writeAnchor('state_of_mind', StateOfMindTypeIdentifier, response.newAnchor)
-      await logHealthKitDebug('collect:state-of-mind', { count: response.samples.length, mode })
+      signals.push(...deletedSamplesToSignals('state_of_mind', StateOfMindTypeIdentifier, response.deletedSamples))
+      await logHealthKitDebug('collect:state-of-mind', {
+        count: response.samples.length,
+        deleted: response.deletedSamples.length,
+        mode,
+      })
       for (const sample of response.samples) {
         signals.push(stateOfMindToSignal(sample))
       }
@@ -624,7 +791,7 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
   signals.push(...await dailyStatisticSignals(
     healthKit,
     availableSet,
-    historyBackfilled ? 14 : HEALTHKIT_DAILY_BACKFILL_DAYS,
+    historyBackfilled ? HEALTHKIT_DAILY_REFRESH_DAYS : HEALTHKIT_DAILY_BACKFILL_DAYS,
     errors,
   ))
   signals.push(...await mostRecentQuantitySignals(healthKit, availableSet, errors))
@@ -847,6 +1014,90 @@ async function requestReadTypes(healthKit: HealthKitModule, types: readonly Obje
   }
 }
 
+function quantityAnchorOptions(
+  identifier: QuantityTypeIdentifier,
+  anchor: string | undefined,
+  limit: number,
+  filter?: FilterForSamples,
+): QueryOptionsWithAnchorAndUnit {
+  const unit = NORMALIZED_QUANTITY_UNITS[identifier]
+
+  return {
+    anchor,
+    limit,
+    ...(filter ? { filter } : {}),
+    ...(unit ? { unit } : {}),
+  }
+}
+
+function quantityLatestOptions(
+  identifier: QuantityTypeIdentifier,
+): QueryOptionsWithSortOrderAndUnit {
+  const unit = NORMALIZED_QUANTITY_UNITS[identifier]
+
+  return {
+    limit: 1,
+    ascending: false,
+    ...(unit ? { unit } : {}),
+  }
+}
+
+function recentSampleFilter(days: number): FilterForSamples {
+  const { start, end } = recentLocalDayRange(days)
+
+  return {
+    date: {
+      startDate: start,
+      endDate: end,
+      strictStartDate: false,
+      strictEndDate: true,
+    },
+  }
+}
+
+function deletedSamplesToSignals(
+  kind: 'quantity' | 'category' | 'workout' | 'state_of_mind',
+  identifier: string,
+  deletedSamples: readonly DeletedSample[],
+): StorePassiveSignalInput[] {
+  return deletedSamples.map((sample) => deletedSampleToSignal(kind, identifier, sample))
+}
+
+function deletedSampleToSignal(
+  kind: 'quantity' | 'category' | 'workout' | 'state_of_mind',
+  identifier: string,
+  sample: DeletedSample,
+): StorePassiveSignalInput {
+  const deletedAt = new Date().toISOString()
+  const signalType = kind === 'workout'
+    ? 'workout'
+    : kind === 'state_of_mind'
+      ? 'state_of_mind_valence'
+      : SIGNAL_ALIASES[identifier] ?? identifier
+
+  return {
+    client_id: deterministicUuid(`healthkit:${kind}:${sample.uuid}`),
+    source: 'healthkit',
+    signal_type: signalType,
+    value_numeric: null,
+    value_text: null,
+    unit: null,
+    started_at: deletedAt,
+    ended_at: null,
+    recorded_timezone: deviceTimezone(),
+    deleted_at: deletedAt,
+    metadata: {
+      healthkit: {
+        kind: 'deleted_sample',
+        original_kind: kind,
+        type: identifier,
+        uuid: sample.uuid,
+        metadata: toPlain(sample.metadata),
+      },
+    },
+  }
+}
+
 function quantitySampleToSignal(identifier: QuantityTypeIdentifier, sample: HealthKitSample & { quantity: number; unit: string }): StorePassiveSignalInput {
   return {
     client_id: deterministicUuid(`healthkit:quantity:${sample.uuid}`),
@@ -924,6 +1175,743 @@ function workoutToSignal(sample: HealthKitSample & {
       total_distance: toPlain(sample.totalDistance),
     }),
   }
+}
+
+function workoutSampleForAggregation(sample: HealthKitSample & {
+  workoutActivityType?: unknown
+  duration?: { quantity?: number; unit?: string } | number
+}): WorkoutSampleForAggregation | null {
+  if (!sample.uuid) return null
+  const startDate = toDate(sample.startDate)
+  const endDate = toDate(sample.endDate)
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) return null
+
+  const durationSeconds = typeof sample.duration === 'number'
+    ? sample.duration
+    : Number(sample.duration?.quantity ?? (endDate.getTime() - startDate.getTime()) / 1000)
+
+  return {
+    uuid: sample.uuid,
+    startDate,
+    endDate,
+    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : (endDate.getTime() - startDate.getTime()) / 1000,
+    activityType: sample.workoutActivityType === undefined ? null : String(sample.workoutActivityType),
+  }
+}
+
+async function recentWorkoutSamples(
+  healthKit: HealthKitModule,
+  days: number,
+): Promise<WorkoutSampleForAggregation[]> {
+  const { start, end } = recentLocalDayRange(days)
+  const workouts = await healthKit.queryWorkoutSamples({
+    limit: HEALTHKIT_WORKOUT_SAMPLE_LIMIT,
+    ascending: false,
+    filter: {
+      date: {
+        startDate: start,
+        endDate: end,
+        strictStartDate: false,
+        strictEndDate: true,
+      },
+    },
+  })
+
+  return workouts
+    .map((workout) => workoutSampleForAggregation(typeof workout.toJSON === 'function' ? workout.toJSON() : workout))
+    .filter((workout): workout is WorkoutSampleForAggregation => workout !== null)
+}
+
+function uniqueWorkoutSamples(samples: WorkoutSampleForAggregation[]): WorkoutSampleForAggregation[] {
+  const byUuid = new Map<string, WorkoutSampleForAggregation>()
+  for (const sample of samples) {
+    byUuid.set(sample.uuid, sample)
+  }
+  return [...byUuid.values()]
+}
+
+async function workoutHeartRateAggregateSignals(
+  healthKit: HealthKitModule,
+  workouts: WorkoutSampleForAggregation[],
+  profile: HeartRateProfile,
+  errors: string[],
+): Promise<StorePassiveSignalInput[]> {
+  if (workouts.length === 0) return []
+
+  const signals: StorePassiveSignalInput[] = []
+
+  for (const workout of workouts) {
+    try {
+      const samples = await healthKit.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', {
+        limit: HEALTHKIT_WORKOUT_HEART_RATE_SAMPLE_LIMIT,
+        ascending: true,
+        unit: 'count/min',
+        filter: {
+          date: {
+            startDate: workout.startDate,
+            endDate: workout.endDate,
+            strictStartDate: true,
+            strictEndDate: true,
+          },
+        },
+      })
+      const aggregate = workoutHeartRateAggregate(workout, samples, profile)
+      if (aggregate) signals.push(...workoutHeartRateAggregateToSignals(workout, aggregate))
+    } catch (error) {
+      errors.push(`workout_heart_rate:${workout.uuid}: ${humanError(error)}`)
+    }
+  }
+
+  await logHealthKitDebug('collect:workout-heart-rate-aggregates', {
+    workouts: workouts.length,
+    signals: signals.length,
+    maxHeartRate: profile.maxHeartRate,
+    restingHeartRate: profile.restingHeartRate,
+    maxHeartRateSource: profile.source,
+  })
+
+  return signals
+}
+
+function workoutHeartRateAggregate(
+  workout: WorkoutSampleForAggregation,
+  samples: readonly (HealthKitSample & { quantity: number; unit?: string })[],
+  profile: HeartRateProfile,
+): WorkoutHeartRateAggregate | null {
+  const heartRates = samples
+    .map((sample) => ({
+      bpm: Number(sample.quantity),
+      start: toDate(sample.startDate).getTime(),
+      end: toDate(sample.endDate).getTime(),
+    }))
+    .filter((sample) => Number.isFinite(sample.bpm) && sample.bpm >= 35 && sample.bpm <= 230 && Number.isFinite(sample.start))
+    .sort((a, b) => a.start - b.start)
+
+  if (heartRates.length < 3) return null
+
+  const observedMax = Math.max(...heartRates.map((sample) => sample.bpm))
+  const effectiveProfile = effectiveHeartRateProfile(profile, observedMax)
+  const zones = [0, 0, 0, 0, 0]
+  let weightedHeartRate = 0
+  let weightedSeconds = 0
+  let maxObserved = 0
+  const workoutEnd = workout.endDate.getTime()
+
+  for (let index = 0; index < heartRates.length; index += 1) {
+    const sample = heartRates[index]
+    const next = heartRates[index + 1]
+    const nativeDuration = sample.end > sample.start ? sample.end - sample.start : 0
+    const inferredDuration = next ? Math.max(0, next.start - sample.start) : 30000
+    const durationMs = Math.min(Math.max(nativeDuration, inferredDuration), 180000, Math.max(0, workoutEnd - sample.start))
+    if (durationMs <= 0) continue
+
+    const seconds = durationMs / 1000
+    const zone = heartRateZone(sample.bpm, effectiveProfile)
+    if (zone >= 1) zones[zone - 1] += seconds / 60
+    weightedHeartRate += sample.bpm * seconds
+    weightedSeconds += seconds
+    maxObserved = Math.max(maxObserved, sample.bpm)
+  }
+
+  if (weightedSeconds <= 0) return null
+
+  const zoneLoad = zones.reduce((sum, minutes, index) => sum + minutes * (index + 1), 0)
+  const durationMinutes = Math.max(workout.durationSeconds / 60, weightedSeconds / 60)
+  const density = durationMinutes > 0 ? zoneLoad / durationMinutes : 0
+  const cardioLoad = zoneLoad
+  const strain = clampNumber(100 * (1 - Math.exp(-cardioLoad / 150)) + Math.max(0, density - 2.2) * 4, 0, 100)
+
+  return {
+    averageBpm: weightedHeartRate / weightedSeconds,
+    maxBpm: maxObserved,
+    maxHeartRate: effectiveProfile.maxHeartRate,
+    restingHeartRate: effectiveProfile.restingHeartRate,
+    maxHeartRateSource: effectiveProfile.source,
+    zoneMinutes: zones,
+    cardioLoad,
+    strain,
+    sampleCount: heartRates.length,
+    durationMinutes,
+  }
+}
+
+function workoutHeartRateAggregateToSignals(
+  workout: WorkoutSampleForAggregation,
+  aggregate: WorkoutHeartRateAggregate,
+): StorePassiveSignalInput[] {
+  const baseMetadata = {
+    healthkit: {
+      kind: 'workout_heart_rate_aggregate',
+      workout_uuid: workout.uuid,
+      workout_activity_type: workout.activityType,
+      max_heart_rate_estimate: aggregate.maxHeartRate,
+      resting_heart_rate_bpm: aggregate.restingHeartRate,
+      max_heart_rate_source: aggregate.maxHeartRateSource,
+      heart_rate_sample_count: aggregate.sampleCount,
+      duration_minutes: aggregate.durationMinutes,
+    },
+  }
+  const definitions: Array<{ type: string; value: number; unit: string }> = [
+    { type: 'workout_hr_avg_bpm', value: aggregate.averageBpm, unit: 'bpm' },
+    { type: 'workout_hr_max_bpm', value: aggregate.maxBpm, unit: 'bpm' },
+    { type: 'workout_cardio_load', value: aggregate.cardioLoad, unit: 'a.u.' },
+    { type: 'workout_cardio_strain', value: aggregate.strain, unit: '%' },
+    ...aggregate.zoneMinutes.map((minutes, index) => ({
+      type: `workout_hr_zone_${index + 1}_min`,
+      value: minutes,
+      unit: 'min',
+    })),
+  ]
+
+  return definitions.map((definition) => ({
+    client_id: deterministicUuid(`healthkit:workout-heart-rate:${workout.uuid}:${definition.type}`),
+    source: 'healthkit',
+    signal_type: definition.type,
+    value_numeric: Number(definition.value.toFixed(3)),
+    value_text: workout.activityType,
+    unit: definition.unit,
+    started_at: workout.startDate.toISOString(),
+    ended_at: workout.endDate.toISOString(),
+    recorded_timezone: deviceTimezone(),
+    metadata: baseMetadata,
+  }))
+}
+
+async function sleepHeartRateAggregateSignals(
+  healthKit: HealthKitModule,
+  sleepSamples: SleepSampleForAggregation[],
+  errors: string[],
+): Promise<StorePassiveSignalInput[]> {
+  const windows = sleepHeartRateWindows(sleepSamples)
+  const signals: StorePassiveSignalInput[] = []
+
+  for (const window of windows) {
+    try {
+      const samples = await healthKit.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', {
+        limit: HEALTHKIT_SLEEP_HEART_RATE_SAMPLE_LIMIT,
+        ascending: true,
+        unit: 'count/min',
+        filter: {
+          date: {
+            startDate: window.startDate,
+            endDate: window.endDate,
+            strictStartDate: false,
+            strictEndDate: false,
+          },
+        },
+      })
+      const aggregate = sleepHeartRateAggregate(window, samples)
+      if (aggregate) signals.push(...sleepHeartRateAggregateToSignals(window, aggregate))
+    } catch (error) {
+      errors.push(`sleep_heart_rate:${window.dateKey}: ${humanError(error)}`)
+    }
+  }
+
+  await logHealthKitDebug('collect:sleep-heart-rate-aggregates', {
+    windows: windows.length,
+    signals: signals.length,
+  })
+
+  return signals
+}
+
+function sleepHeartRateWindows(samples: SleepSampleForAggregation[]): SleepHeartRateWindow[] {
+  const buckets = new Map<string, SleepSampleForAggregation[]>()
+  for (const sample of samples) {
+    const dateKey = localDateKey(sample.endDate)
+    buckets.set(dateKey, [...(buckets.get(dateKey) ?? []), sample])
+  }
+
+  return [...buckets.entries()].map(([dateKey, bucket]) => ({
+    dateKey,
+    startDate: new Date(Math.min(...bucket.map((sample) => sample.startDate.getTime()))),
+    endDate: new Date(Math.max(...bucket.map((sample) => sample.endDate.getTime()))),
+    intervals: bucket
+      .map((sample) => ({ start: sample.startDate.getTime(), end: sample.endDate.getTime() }))
+      .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
+      .sort((a, b) => a.start - b.start),
+    sampleUuids: bucket.map((sample) => sample.uuid).sort(),
+  }))
+}
+
+function sleepHeartRateAggregate(
+  window: SleepHeartRateWindow,
+  samples: readonly (HealthKitSample & { quantity: number; unit?: string })[],
+): SleepHeartRateAggregate | null {
+  const heartRates = samples
+    .map((sample) => ({
+      bpm: Number(sample.quantity),
+      start: toDate(sample.startDate).getTime(),
+      end: toDate(sample.endDate).getTime(),
+    }))
+    .filter((sample) => (
+      Number.isFinite(sample.bpm)
+      && sample.bpm >= 35
+      && sample.bpm <= 230
+      && Number.isFinite(sample.start)
+      && overlapsAnyInterval(sample.start, sample.end > sample.start ? sample.end : sample.start + 1, window.intervals)
+    ))
+    .sort((a, b) => a.start - b.start)
+
+  if (heartRates.length < 3) return null
+
+  let weightedHeartRate = 0
+  let weightedSeconds = 0
+  let minBpm = Number.POSITIVE_INFINITY
+  let maxBpm = 0
+  const values: number[] = []
+
+  for (let index = 0; index < heartRates.length; index += 1) {
+    const sample = heartRates[index]
+    const next = heartRates[index + 1]
+    const nativeDuration = sample.end > sample.start ? sample.end - sample.start : 0
+    const inferredDuration = next ? Math.max(0, next.start - sample.start) : 30000
+    const durationMs = clippedIntervalDuration(sample.start, sample.start + Math.min(Math.max(nativeDuration, inferredDuration), 300000), window.intervals)
+    if (durationMs <= 0) continue
+
+    const seconds = durationMs / 1000
+    weightedHeartRate += sample.bpm * seconds
+    weightedSeconds += seconds
+    minBpm = Math.min(minBpm, sample.bpm)
+    maxBpm = Math.max(maxBpm, sample.bpm)
+    values.push(sample.bpm)
+  }
+
+  if (weightedSeconds <= 0 || values.length < 3) return null
+
+  return {
+    averageBpm: weightedHeartRate / weightedSeconds,
+    minBpm,
+    maxBpm,
+    medianBpm: median(values),
+    sampleCount: values.length,
+    durationMinutes: weightedSeconds / 60,
+  }
+}
+
+function sleepHeartRateAggregateToSignals(
+  window: SleepHeartRateWindow,
+  aggregate: SleepHeartRateAggregate,
+): StorePassiveSignalInput[] {
+  const metadata = {
+    healthkit: {
+      kind: 'sleep_heart_rate_aggregate',
+      type: 'HKQuantityTypeIdentifierHeartRate',
+      date_key: window.dateKey,
+      sleep_sample_uuids: window.sampleUuids,
+      heart_rate_sample_count: aggregate.sampleCount,
+      duration_minutes: aggregate.durationMinutes,
+      privacy: 'aggregate_only',
+    },
+  }
+  const definitions: Array<{ type: string; value: number; unit: string }> = [
+    { type: 'sleep_hr_avg_bpm', value: aggregate.averageBpm, unit: 'bpm' },
+    { type: 'sleep_hr_min_bpm', value: aggregate.minBpm, unit: 'bpm' },
+    { type: 'sleep_hr_max_bpm', value: aggregate.maxBpm, unit: 'bpm' },
+    { type: 'sleep_hr_median_bpm', value: aggregate.medianBpm, unit: 'bpm' },
+    { type: 'sleep_hr_sample_count', value: aggregate.sampleCount, unit: 'count' },
+  ]
+
+  return definitions.map((definition) => ({
+    client_id: healthKitSleepAggregateClientId(window.dateKey, definition.type),
+    source: 'healthkit',
+    signal_type: definition.type,
+    value_numeric: Number(definition.value.toFixed(3)),
+    value_text: null,
+    unit: definition.unit,
+    started_at: window.startDate.toISOString(),
+    ended_at: window.endDate.toISOString(),
+    recorded_timezone: deviceTimezone(),
+    metadata,
+  }))
+}
+
+export function healthKitSleepAggregateClientId(dateKey: string, signalType: string): string {
+  return deterministicUuid(`healthkit:sleep-aggregate:${dateKey}:${signalType}`)
+}
+
+async function wakingHeartRateAggregateSignals(
+  healthKit: HealthKitModule,
+  days: number,
+  sleepSamples: SleepSampleForAggregation[],
+  workouts: WorkoutSampleForAggregation[],
+  profile: HeartRateProfile,
+  errors: string[],
+): Promise<StorePassiveSignalInput[]> {
+  const { start, end } = recentLocalDayRange(days)
+
+  try {
+    const samples = await healthKit.queryQuantitySamples('HKQuantityTypeIdentifierHeartRate', {
+      limit: HEALTHKIT_WAKING_HEART_RATE_SAMPLE_LIMIT,
+      ascending: true,
+      unit: 'count/min',
+      filter: {
+        date: {
+          startDate: start,
+          endDate: end,
+          strictStartDate: false,
+          strictEndDate: true,
+        },
+      },
+    })
+
+    const points = heartRatePoints(samples)
+    const excludedIntervals = mergeIntervals([
+      ...sleepSamples.map((sample) => ({ start: sample.startDate.getTime(), end: sample.endDate.getTime() })),
+      ...workouts.map((workout) => ({ start: workout.startDate.getTime(), end: workout.endDate.getTime() })),
+    ])
+    const signals: StorePassiveSignalInput[] = []
+
+    for (const dayStart of localDayStarts(start, end)) {
+      const dayEnd = new Date(dayStart)
+      dayEnd.setDate(dayStart.getDate() + 1)
+      const dateKey = localDateKey(dayStart)
+      const aggregate = wakingHeartRateAggregate(
+        dateKey,
+        dayStart,
+        dayEnd,
+        points.filter((point) => point.start >= dayStart.getTime() && point.start < dayEnd.getTime()),
+        excludedIntervals,
+        profile,
+      )
+
+      signals.push(...(
+        aggregate
+          ? wakingHeartRateAggregateToSignals(aggregate)
+          : deletedWakingHeartRateAggregateSignals(dateKey, dayStart, dayEnd)
+      ))
+    }
+
+    await logHealthKitDebug('collect:waking-heart-rate-aggregates', {
+      days,
+      samples: samples.length,
+      signals: signals.length,
+      maxHeartRate: profile.maxHeartRate,
+      restingHeartRate: profile.restingHeartRate,
+      maxHeartRateSource: profile.source,
+    })
+
+    return signals
+  } catch (error) {
+    errors.push(`waking_heart_rate: ${humanError(error)}`)
+    return []
+  }
+}
+
+function wakingHeartRateAggregate(
+  dateKey: string,
+  dayStart: Date,
+  dayEnd: Date,
+  points: HeartRatePoint[],
+  excludedIntervals: Array<{ start: number; end: number }>,
+  profile: HeartRateProfile,
+): WakingHeartRateAggregate | null {
+  const validPoints = points
+    .filter((point) => (
+      point.bpm >= 35
+      && point.bpm <= 230
+      && !overlapsAnyInterval(point.start, point.end > point.start ? point.end : point.start + 1, excludedIntervals)
+    ))
+    .sort((a, b) => a.start - b.start)
+
+  if (validPoints.length < 8) return null
+
+  const observedMax = Math.max(...validPoints.map((point) => point.bpm))
+  const effectiveProfile = effectiveHeartRateProfile(profile, observedMax)
+  const zones = [0, 0, 0, 0, 0]
+  let weightedHeartRate = 0
+  let weightedSeconds = 0
+  let maxObserved = 0
+
+  for (let index = 0; index < validPoints.length; index += 1) {
+    const point = validPoints[index]
+    const next = validPoints[index + 1]
+    const nativeDuration = point.end > point.start ? point.end - point.start : 0
+    const inferredDuration = next ? Math.max(0, next.start - point.start) : 30000
+    const sampleEnd = Math.min(
+      point.start + Math.min(Math.max(nativeDuration, inferredDuration), 300000),
+      dayEnd.getTime(),
+    )
+    const durationMs = durationExcludingIntervals(point.start, sampleEnd, excludedIntervals)
+    if (durationMs <= 0) continue
+
+    const seconds = durationMs / 1000
+    const zone = heartRateZone(point.bpm, effectiveProfile)
+    if (zone >= 1) zones[zone - 1] += seconds / 60
+    weightedHeartRate += point.bpm * seconds
+    weightedSeconds += seconds
+    maxObserved = Math.max(maxObserved, point.bpm)
+  }
+
+  if (weightedSeconds < 20 * 60) return null
+
+  const wakingZoneWeights = [0.1, 0.45, 1.2, 2.8, 4.5]
+  const cardioLoad = zones.reduce((sum, minutes, index) => sum + minutes * wakingZoneWeights[index], 0)
+  const density = cardioLoad / Math.max(weightedSeconds / 60, 1)
+  const strain = clampNumber(100 * (1 - Math.exp(-cardioLoad / 220)) + Math.max(0, density - 1.4) * 5, 0, 100)
+
+  return {
+    dateKey,
+    startDate: dayStart,
+    endDate: dayEnd,
+    averageBpm: weightedHeartRate / weightedSeconds,
+    maxBpm: maxObserved,
+    maxHeartRate: effectiveProfile.maxHeartRate,
+    restingHeartRate: effectiveProfile.restingHeartRate,
+    maxHeartRateSource: effectiveProfile.source,
+    zoneMinutes: zones,
+    cardioLoad,
+    strain,
+    sampleCount: validPoints.length,
+    durationMinutes: weightedSeconds / 60,
+  }
+}
+
+function wakingHeartRateAggregateToSignals(aggregate: WakingHeartRateAggregate): StorePassiveSignalInput[] {
+  const metadata = {
+    healthkit: {
+      kind: 'waking_heart_rate_aggregate',
+      type: 'HKQuantityTypeIdentifierHeartRate',
+      date_key: aggregate.dateKey,
+      max_heart_rate_estimate: aggregate.maxHeartRate,
+      resting_heart_rate_bpm: aggregate.restingHeartRate,
+      max_heart_rate_source: aggregate.maxHeartRateSource,
+      heart_rate_sample_count: aggregate.sampleCount,
+      duration_minutes: aggregate.durationMinutes,
+      privacy: 'aggregate_only',
+      exclusions: ['sleep', 'workout'],
+    },
+  }
+  const definitions: Array<{ type: string; value: number; unit: string }> = [
+    { type: 'waking_hr_avg_bpm', value: aggregate.averageBpm, unit: 'bpm' },
+    { type: 'waking_hr_max_bpm', value: aggregate.maxBpm, unit: 'bpm' },
+    { type: 'waking_cardio_load', value: aggregate.cardioLoad, unit: 'a.u.' },
+    { type: 'waking_cardio_strain', value: aggregate.strain, unit: '%' },
+    ...aggregate.zoneMinutes.map((minutes, index) => ({
+      type: `waking_hr_zone_${index + 1}_min`,
+      value: minutes,
+      unit: 'min',
+    })),
+    { type: 'waking_hr_sample_count', value: aggregate.sampleCount, unit: 'count' },
+  ]
+
+  return definitions.map((definition) => ({
+    client_id: healthKitWakingHeartRateAggregateClientId(aggregate.dateKey, definition.type),
+    source: 'healthkit',
+    signal_type: definition.type,
+    value_numeric: Number(definition.value.toFixed(3)),
+    value_text: null,
+    unit: definition.unit,
+    started_at: aggregate.startDate.toISOString(),
+    ended_at: aggregate.endDate.toISOString(),
+    recorded_timezone: deviceTimezone(),
+    metadata,
+  }))
+}
+
+function deletedWakingHeartRateAggregateSignals(dateKey: string, dayStart: Date, dayEnd: Date): StorePassiveSignalInput[] {
+  const deletedAt = new Date().toISOString()
+  return WAKING_HEART_RATE_AGGREGATE_SIGNAL_TYPES.map((signalType) => ({
+    client_id: healthKitWakingHeartRateAggregateClientId(dateKey, signalType),
+    source: 'healthkit' as const,
+    signal_type: signalType,
+    value_numeric: null,
+    value_text: null,
+    unit: null,
+    started_at: dayStart.toISOString(),
+    ended_at: dayEnd.toISOString(),
+    recorded_timezone: deviceTimezone(),
+    deleted_at: deletedAt,
+    metadata: {
+      healthkit: {
+        kind: 'deleted_waking_heart_rate_aggregate',
+        date_key: dateKey,
+      },
+    },
+  }))
+}
+
+function healthKitWakingHeartRateAggregateClientId(dateKey: string, signalType: string): string {
+  return deterministicUuid(`healthkit:waking-heart-rate:${dateKey}:${signalType}`)
+}
+
+function heartRatePoints(samples: readonly (HealthKitSample & { quantity: number; unit?: string })[]): HeartRatePoint[] {
+  return samples
+    .map((sample) => {
+      const start = toDate(sample.startDate).getTime()
+      const rawEnd = toDate(sample.endDate).getTime()
+      return {
+        bpm: Number(sample.quantity),
+        start,
+        end: Number.isFinite(rawEnd) && rawEnd > start ? rawEnd : start + 1,
+      }
+    })
+    .filter((point) => Number.isFinite(point.bpm) && Number.isFinite(point.start))
+}
+
+function overlapsAnyInterval(start: number, end: number, intervals: Array<{ start: number; end: number }>): boolean {
+  return intervals.some((interval) => Math.max(start, interval.start) < Math.min(end, interval.end))
+}
+
+function clippedIntervalDuration(start: number, end: number, intervals: Array<{ start: number; end: number }>): number {
+  return intervals.reduce((total, interval) => total + Math.max(0, Math.min(end, interval.end) - Math.max(start, interval.start)), 0)
+}
+
+function durationExcludingIntervals(start: number, end: number, excludedIntervals: Array<{ start: number; end: number }>): number {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
+  let total = end - start
+
+  for (const interval of excludedIntervals) {
+    total -= Math.max(0, Math.min(end, interval.end) - Math.max(start, interval.start))
+    if (total <= 0) return 0
+  }
+
+  return Math.max(0, total)
+}
+
+function mergeIntervals(intervals: Array<{ start: number; end: number }>): Array<{ start: number; end: number }> {
+  const sorted = intervals
+    .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
+    .sort((a, b) => a.start - b.start)
+
+  if (sorted.length === 0) return []
+
+  const merged: Array<{ start: number; end: number }> = [{ ...sorted[0] }]
+  for (const interval of sorted.slice(1)) {
+    const current = merged[merged.length - 1]
+    if (interval.start <= current.end) {
+      current.end = Math.max(current.end, interval.end)
+    } else {
+      merged.push({ ...interval })
+    }
+  }
+  return merged
+}
+
+function localDayStarts(start: Date, end: Date): Date[] {
+  const days: Date[] = []
+  const current = startOfLocalDay(start)
+  while (current < end) {
+    days.push(new Date(current))
+    current.setDate(current.getDate() + 1)
+  }
+  return days
+}
+
+function deletedWorkoutAggregateSignals(deletedSamples: readonly DeletedSample[]): StorePassiveSignalInput[] {
+  return deletedSamples.flatMap((sample) => {
+    const deletedAt = new Date().toISOString()
+    return WORKOUT_HEART_RATE_AGGREGATE_SIGNAL_TYPES.map((signalType) => ({
+      client_id: deterministicUuid(`healthkit:workout-heart-rate:${sample.uuid}:${signalType}`),
+      source: 'healthkit' as const,
+      signal_type: signalType,
+      value_numeric: null,
+      value_text: null,
+      unit: null,
+      started_at: deletedAt,
+      ended_at: null,
+      recorded_timezone: deviceTimezone(),
+      deleted_at: deletedAt,
+      metadata: {
+        healthkit: {
+          kind: 'deleted_derived_workout_heart_rate_aggregate',
+          workout_uuid: sample.uuid,
+        },
+      },
+    }))
+  })
+}
+
+async function readDateOfBirthSafely(healthKit: HealthKitModule): Promise<Date | null> {
+  try {
+    const value = await healthKit.getDateOfBirthAsync()
+    if (value === undefined || value === null) return null
+    const date = toDate(value as Date | string | number | undefined)
+    return Number.isFinite(date.getTime()) && date < new Date() ? date : null
+  } catch {
+    return null
+  }
+}
+
+async function personalHeartRateProfile(
+  healthKit: HealthKitModule,
+): Promise<HeartRateProfile> {
+  const dateOfBirth = await readDateOfBirthSafely(healthKit)
+  const restingHeartRate = await readLatestQuantityValue(
+    healthKit,
+    'HKQuantityTypeIdentifierRestingHeartRate',
+    'count/min',
+  )
+
+  return {
+    maxHeartRate: estimatedMaxHeartRate(dateOfBirth),
+    restingHeartRate: typeof restingHeartRate === 'number' && restingHeartRate >= 35 && restingHeartRate <= 110
+      ? restingHeartRate
+      : null,
+    source: dateOfBirth ? 'date_of_birth' : 'default',
+  }
+}
+
+async function readLatestQuantityValue(
+  healthKit: HealthKitModule,
+  identifier: QuantityTypeIdentifier,
+  unit: string,
+): Promise<number | null> {
+  try {
+    const samples = await healthKit.queryQuantitySamples(identifier, {
+      limit: 1,
+      ascending: false,
+      unit,
+    })
+    const value = Number(samples[0]?.quantity)
+    return Number.isFinite(value) ? value : null
+  } catch (error) {
+    await logHealthKitDebug('collect:optional-latest-quantity-failed', {
+      identifier,
+      error: humanError(error),
+    })
+    return null
+  }
+}
+
+function estimatedMaxHeartRate(dateOfBirth: Date | null, now = new Date()): number {
+  if (!dateOfBirth) return 190
+  const age = ageYears(dateOfBirth, now)
+  return clampNumber(Math.round(208 - 0.7 * age), 160, 205)
+}
+
+function ageYears(dateOfBirth: Date, now: Date): number {
+  let age = now.getFullYear() - dateOfBirth.getFullYear()
+  const monthDiff = now.getMonth() - dateOfBirth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < dateOfBirth.getDate())) age -= 1
+  return Math.max(0, age)
+}
+
+function effectiveHeartRateProfile(profile: HeartRateProfile, observedMax: number): HeartRateProfile {
+  if (!Number.isFinite(observedMax) || observedMax < 120) return profile
+  const observedEstimate = clampNumber(Math.ceil(observedMax * 1.015), 160, 215)
+  if (observedEstimate <= profile.maxHeartRate) return profile
+
+  return {
+    ...profile,
+    maxHeartRate: observedEstimate,
+    source: 'observed_peak',
+  }
+}
+
+function heartRateZone(bpm: number, profile: HeartRateProfile): number {
+  const reserve = typeof profile.restingHeartRate === 'number'
+    ? profile.maxHeartRate - profile.restingHeartRate
+    : null
+  const ratio = reserve && reserve >= 60
+    ? (bpm - Number(profile.restingHeartRate)) / reserve
+    : bpm / profile.maxHeartRate
+  if (ratio >= 0.9) return 5
+  if (ratio >= 0.8) return 4
+  if (ratio >= 0.7) return 3
+  if (ratio >= 0.6) return 2
+  if (ratio >= 0.5) return 1
+  return 0
 }
 
 function stateOfMindToSignal(sample: HealthKitSample & {
@@ -1149,10 +2137,7 @@ async function mostRecentQuantitySignals(
     if (!availableSet.has(identifier)) continue
 
     try {
-      const samples = await healthKit.queryQuantitySamples(identifier, {
-        limit: 1,
-        ascending: false,
-      })
+      const samples = await healthKit.queryQuantitySamples(identifier, quantityLatestOptions(identifier))
       await logHealthKitDebug('collect:most-recent-quantity', {
         identifier,
         count: samples.length,
@@ -1169,10 +2154,11 @@ async function mostRecentQuantitySignals(
 
 async function recentSleepCategorySamples(
   healthKit: HealthKitModule,
+  days: number,
 ): Promise<readonly (HealthKitSample & { value: unknown })[]> {
-  const { start, end } = recentLocalDayRange(HEALTHKIT_SLEEP_REFRESH_DAYS)
+  const { start, end } = recentLocalDayRange(days)
   return healthKit.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', {
-    limit: 0,
+    limit: HEALTHKIT_SLEEP_SAMPLE_LIMIT,
     ascending: false,
     filter: {
       date: {
@@ -1278,13 +2264,11 @@ function sleepDurationSignals(samples: SleepSampleForAggregation[]): StorePassiv
   return [...buckets.entries()].map(([dateKey, bucket]) => {
     const startedAt = new Date(Math.min(...bucket.map((sample) => sample.startDate.getTime())))
     const endedAt = new Date(Math.max(...bucket.map((sample) => sample.endDate.getTime())))
-    const hours = bucket.reduce((total, sample) => (
-      total + Math.max(0, sample.endDate.getTime() - sample.startDate.getTime()) / 3600000
-    ), 0)
+    const hours = unionDurationHours(bucket)
     const uuidList = bucket.map((sample) => sample.uuid).sort()
 
     return {
-      client_id: deterministicUuid(`healthkit:sleep_duration:${dateKey}:${uuidList.join(',')}`),
+      client_id: healthKitSleepDurationClientId(dateKey),
       source: 'healthkit',
       signal_type: 'sleep_duration_hours',
       value_numeric: Number(hours.toFixed(2)),
@@ -1298,11 +2282,53 @@ function sleepDurationSignals(samples: SleepSampleForAggregation[]): StorePassiv
           kind: 'derived',
           type: 'sleep_duration_hours',
           source_type: 'HKCategoryTypeIdentifierSleepAnalysis',
+          date_key: dateKey,
           sample_uuids: uuidList,
         },
       },
     }
   })
+}
+
+export function healthKitSleepDurationClientId(dateKey: string): string {
+  return deterministicUuid(`healthkit:sleep_duration:${dateKey}`)
+}
+
+function unionDurationHours(samples: SleepSampleForAggregation[]): number {
+  const intervals = samples
+    .map((sample) => ({
+      start: sample.startDate.getTime(),
+      end: sample.endDate.getTime(),
+    }))
+    .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
+    .sort((a, b) => a.start - b.start)
+
+  let totalMs = 0
+  let currentStart: number | null = null
+  let currentEnd: number | null = null
+
+  for (const interval of intervals) {
+    if (currentStart === null || currentEnd === null) {
+      currentStart = interval.start
+      currentEnd = interval.end
+      continue
+    }
+
+    if (interval.start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, interval.end)
+      continue
+    }
+
+    totalMs += currentEnd - currentStart
+    currentStart = interval.start
+    currentEnd = interval.end
+  }
+
+  if (currentStart !== null && currentEnd !== null) {
+    totalMs += currentEnd - currentStart
+  }
+
+  return totalMs / 3600000
 }
 
 function uniqueSleepSamples(samples: SleepSampleForAggregation[]): SleepSampleForAggregation[] {
@@ -1462,6 +2488,16 @@ function localDateKey(date: Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
 function deviceTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
@@ -1525,4 +2561,60 @@ interface SleepSampleForAggregation {
   startDate: Date
   endDate: Date
   value: number
+}
+
+interface WorkoutSampleForAggregation {
+  uuid: string
+  startDate: Date
+  endDate: Date
+  durationSeconds: number
+  activityType: string | null
+}
+
+interface WorkoutHeartRateAggregate {
+  averageBpm: number
+  maxBpm: number
+  maxHeartRate: number
+  restingHeartRate: number | null
+  maxHeartRateSource: string
+  zoneMinutes: number[]
+  cardioLoad: number
+  strain: number
+  sampleCount: number
+  durationMinutes: number
+}
+
+interface WakingHeartRateAggregate extends WorkoutHeartRateAggregate {
+  dateKey: string
+  startDate: Date
+  endDate: Date
+}
+
+interface SleepHeartRateWindow {
+  dateKey: string
+  startDate: Date
+  endDate: Date
+  intervals: Array<{ start: number; end: number }>
+  sampleUuids: string[]
+}
+
+interface SleepHeartRateAggregate {
+  averageBpm: number
+  minBpm: number
+  maxBpm: number
+  medianBpm: number
+  sampleCount: number
+  durationMinutes: number
+}
+
+interface HeartRateProfile {
+  maxHeartRate: number
+  restingHeartRate: number | null
+  source: string
+}
+
+interface HeartRatePoint {
+  bpm: number
+  start: number
+  end: number
 }

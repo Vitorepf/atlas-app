@@ -18,7 +18,9 @@ import {
   visibleBehaviors,
   visiblePassiveSignals,
 } from '../lib/atlasStore'
+import { selectBitaculaBriefingItems } from '../lib/bitaculaBriefing'
 import { buildReadinessV1 } from '../lib/readiness'
+import { isCheckinLevelFresh } from '../lib/checkinFreshness'
 
 export default function RitualScreen() {
   const c = usePalette()
@@ -34,6 +36,11 @@ export default function RitualScreen() {
   const queuedBehaviorLogs = useAtlasStore((s) => s.queuedBehaviorLogs)
   const logBehavior = useAtlasStore((s) => s.logBehavior)
   const latestState = latestCheckin({ checkins, queuedCheckins })
+  const currentLevelState = isCheckinLevelFresh(latestState) ? latestState : null
+  const checkinsForReadiness = useMemo(
+    () => (latestState ? [latestState, ...checkins] : checkins),
+    [checkins, latestState],
+  )
   const allSignals = useMemo(
     () => visiblePassiveSignals({ passiveSignals, queuedPassiveSignals }),
     [passiveSignals, queuedPassiveSignals],
@@ -43,8 +50,9 @@ export default function RitualScreen() {
       healthSignals: allSignals.filter((signal) => signal.source === 'healthkit'),
       allSignals,
       latestCheckin: latestState,
+      checkins: checkinsForReadiness,
     }),
-    [allSignals, latestState],
+    [allSignals, checkinsForReadiness, latestState],
   )
   const sleep = latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'sleep_duration_hours')
   const hrv = latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'hrv_ms')
@@ -138,7 +146,7 @@ export default function RitualScreen() {
         <PhysicalRow label="Agora" value={readiness.current.display} />
         <PhysicalRow label="Sono" value={formatPassiveSignal(sleep)} />
         <PhysicalRow label="HRV" value={formatPassiveSignal(hrv)} />
-        <PhysicalRow label="Energia" value={latestState ? `${latestState.energy_level} / 5` : 'Sem check-in'} last />
+        <PhysicalRow label="Energia" value={currentLevelState ? `${currentLevelState.energy_level} / 5` : 'Sem check-in'} last />
       </View>
 
       <View style={{ height: 28 }} />
@@ -163,13 +171,9 @@ function BitaculaBriefing({
 }) {
   const c = usePalette()
   const date = yesterdayDateKey()
-  const activeBehaviors = behaviors
-    .filter((behavior) => !behavior.archived_at && behavior.show_in_morning_briefing)
-    .slice(0, 12)
-  const logsByBehavior = new Map(
-    logs
-      .filter((log) => log.log_date === date && !log.reverted_at)
-      .map((log) => [log.behavior_client_id, log]),
+  const briefingItems = useMemo(
+    () => selectBitaculaBriefingItems({ behaviors, logs, date, limit: 12 }),
+    [behaviors, logs, date],
   )
 
   return (
@@ -183,7 +187,7 @@ function BitaculaBriefing({
         </Pressable>
       </View>
       <View style={[styles.bitaculaPanel, { backgroundColor: c.surface, borderColor: c.border }]}>
-        {activeBehaviors.length === 0 ? (
+        {briefingItems.length === 0 ? (
           <Pressable
             onPress={onOpen}
             style={({ pressed }) => [
@@ -192,11 +196,11 @@ function BitaculaBriefing({
             ]}
           >
             <Sans size={14} lineHeight={20} color={c.ink2}>
-              Adicione comportamentos pequenos para cruzar com sono, saúde, foco e capturas.
+              Adicione fatores pequenos para cruzar com sono, saúde, foco e capturas.
             </Sans>
           </Pressable>
-        ) : activeBehaviors.map((behavior, index) => {
-          const current = logsByBehavior.get(behavior.client_id)
+        ) : briefingItems.map(({ behavior, log }, index) => {
+          const current = log
           const isYes = current?.value === 'yes'
           const nextValue = isYes ? 'no' : 'yes'
 
@@ -208,7 +212,7 @@ function BitaculaBriefing({
                 styles.bitaculaRow,
                 !isYes && { backgroundColor: pressed ? c.premium : 'transparent' },
                 isYes && { backgroundColor: c.prussian },
-                index < activeBehaviors.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                index < briefingItems.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
               ]}
             >
               <View style={{ flex: 1, minWidth: 0 }}>

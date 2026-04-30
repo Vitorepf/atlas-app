@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import type { InboxItem } from '../components/InboxCard'
+import type { InboxDomainFilter } from '../components/inbox/InboxDomainStatus'
 import type { DomainKey } from './domains'
+
+export type CaptureMode = 'audio' | 'text' | 'photo'
+export type CaptureSensitivity = 'normal' | 'private' | 'sensitive'
+export interface CaptureSettings {
+  mode: CaptureMode
+  domain: DomainKey
+  sensitivity: CaptureSensitivity
+}
 
 // Overlay registry — every sheet/modal in the app routes through here so
 // only one shell context manages animation, scrim, and dismissal.
@@ -13,6 +22,8 @@ export type OverlayKey =
   | 'settings'
   | 'mic'
   | 'atlasAi'
+  | 'inboxDomainFilter'
+  | 'captureSettings'
 
 interface OverlayState {
   open: OverlayKey | null
@@ -22,6 +33,12 @@ interface OverlayState {
   onPickDomain: ((d: DomainKey | null) => void) | null
   // Confirm-delete callback (resolves true on confirm, false on cancel)
   onConfirmDelete: ((confirmed: boolean) => void) | null
+  // Inbox domain filter — current value and select callback
+  inboxDomainFilter: InboxDomainFilter
+  onPickInboxDomainFilter: ((d: InboxDomainFilter) => void) | null
+  // Capture settings — current values and update callback
+  captureSettings: CaptureSettings | null
+  onUpdateCaptureSettings: ((next: Partial<CaptureSettings>) => void) | null
 
   openDetail: (item: InboxItem) => void
   openDomain: (cb: (d: DomainKey | null) => void) => void
@@ -30,6 +47,14 @@ interface OverlayState {
   openSettings: () => void
   openMic: () => void
   openAtlasAi: () => void
+  openInboxDomainFilter: (
+    current: InboxDomainFilter,
+    cb: (d: InboxDomainFilter) => void,
+  ) => void
+  openCaptureSettings: (
+    current: CaptureSettings,
+    onUpdate: (next: Partial<CaptureSettings>) => void,
+  ) => void
   close: () => void
 }
 
@@ -38,6 +63,10 @@ export const useOverlays = create<OverlayState>((set) => ({
   item: null,
   onPickDomain: null,
   onConfirmDelete: null,
+  inboxDomainFilter: 'all',
+  onPickInboxDomainFilter: null,
+  captureSettings: null,
+  onUpdateCaptureSettings: null,
 
   openDetail: (item) => set({ open: 'detail', item }),
   openDomain: (cb) => set({ open: 'domain', onPickDomain: cb }),
@@ -46,5 +75,24 @@ export const useOverlays = create<OverlayState>((set) => ({
   openSettings: () => set({ open: 'settings' }),
   openMic: () => set({ open: 'mic' }),
   openAtlasAi: () => set({ open: 'atlasAi' }),
-  close: () => set({ open: null, onPickDomain: null, onConfirmDelete: null }),
+  openInboxDomainFilter: (current, cb) =>
+    set({
+      open: 'inboxDomainFilter',
+      inboxDomainFilter: current,
+      onPickInboxDomainFilter: cb,
+    }),
+  openCaptureSettings: (current, onUpdate) =>
+    set({
+      open: 'captureSettings',
+      captureSettings: current,
+      onUpdateCaptureSettings: onUpdate,
+    }),
+  close: () =>
+    set({
+      open: null,
+      onPickDomain: null,
+      onConfirmDelete: null,
+      onPickInboxDomainFilter: null,
+      onUpdateCaptureSettings: null,
+    }),
 }))

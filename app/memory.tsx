@@ -18,10 +18,13 @@ import {
   listSemanticActivations,
   listSemanticCurationProposals,
   listSemanticNotes,
+  listSuggestionAudit,
   markSemanticActivationShown,
   reindexSemanticVault,
   searchSemanticNotes,
   startCognitiveGame,
+  type AtlasAuditItem,
+  type AtlasCognitiveReturn,
   type AtlasCognitiveGameRun,
   type AtlasSemanticActivation,
   type AtlasSemanticCurationProposal,
@@ -40,23 +43,26 @@ export default function MemoryScreen() {
   const [activations, setActivations] = useState<AtlasSemanticActivation[]>([])
   const [proposals, setProposals] = useState<AtlasSemanticCurationProposal[]>([])
   const [notes, setNotes] = useState<AtlasSemanticNote[]>([])
+  const [auditItems, setAuditItems] = useState<AtlasAuditItem[]>([])
   const [game, setGame] = useState<AtlasCognitiveGameRun | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
     setLoading(true)
     try {
-      const [vaultHealth, activationPage, proposalPage, notePage, todayGame] = await Promise.all([
+      const [vaultHealth, activationPage, proposalPage, notePage, auditPage, todayGame] = await Promise.all([
         getVaultHealth(),
         listSemanticActivations({ limit: 8 }),
         listSemanticCurationProposals({ limit: 8 }),
         listSemanticNotes({ limit: 20 }),
+        listSuggestionAudit({ limit: 8 }),
         getTodayCognitiveGame(),
       ])
       setHealth(vaultHealth)
       setActivations(activationPage.activations)
       setProposals(proposalPage.proposals)
       setNotes(notePage.notes)
+      setAuditItems(auditPage.items)
       setGame(todayGame.game)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar memória semântica.')
@@ -83,6 +89,7 @@ export default function MemoryScreen() {
     () => (health?.recommendations ?? []).map((item) => String(item)).slice(0, 3),
     [health],
   )
+  const cognitiveReturn = useMemo(() => cognitiveReturnFromHealth(health), [health])
 
   async function runAction<T>(key: string, action: () => Promise<T>, reload = true): Promise<T | null> {
     setBusy(key)
@@ -175,6 +182,27 @@ export default function MemoryScreen() {
         )}
       </View>
 
+      <SectionHeader label="Cognitive Return on Notes" />
+      <View style={[styles.panel, { backgroundColor: c.surface, borderColor: c.border }]}>
+        {loading && !health ? (
+          <LoadingRow />
+        ) : cognitiveReturn ? (
+          <>
+            <MetricRow label="Score CRON" value={`${cognitiveReturn.score ?? 0}/100 · ${cognitiveReturn.label ?? 'sem rótulo'}`} />
+            <MetricRow label="Taxa útil 7d" value={percent(cognitiveReturn.utility_rate_7d)} />
+            <MetricRow label="Cobertura ativa 7d" value={percent(cognitiveReturn.active_note_coverage_7d)} />
+            <MetricRow label="Notas por retorno útil" value={cognitiveReturn.notes_per_useful_activation_7d == null ? 'sem retorno' : String(cognitiveReturn.notes_per_useful_activation_7d)} last />
+            {cognitiveReturn.interpretation ? (
+              <Sans size={13} lineHeight={19} color={c.ink2} style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+                {cognitiveReturn.interpretation}
+              </Sans>
+            ) : null}
+          </>
+        ) : (
+          <EmptyText text="Sem métrica CRON ainda. Recalcule o vault para gerar retorno cognitivo." />
+        )}
+      </View>
+
       {recommendations.length > 0 ? (
         <View style={[styles.recommendations, { borderColor: c.border }]}>
           {recommendations.map((item, index) => (
@@ -195,8 +223,10 @@ export default function MemoryScreen() {
           <ActivationCard
             key={activation.id}
             activation={activation}
-            onUseful={() => runAction(`useful-${activation.id}`, () => feedbackSemanticActivation(activation.id, 5))}
-            onWeak={() => runAction(`weak-${activation.id}`, () => feedbackSemanticActivation(activation.id, 2))}
+            onUseful={() => runAction(`useful-${activation.id}`, () => feedbackSemanticActivation(activation.id, 5, 'useful'))}
+            onUseless={() => runAction(`useless-${activation.id}`, () => feedbackSemanticActivation(activation.id, 1, 'not_useful'))}
+            onTooEarly={() => runAction(`early-${activation.id}`, () => feedbackSemanticActivation(activation.id, 2, 'too_early'))}
+            onTooLate={() => runAction(`late-${activation.id}`, () => feedbackSemanticActivation(activation.id, 3, 'too_late'))}
             onDismiss={() => runAction(`dismiss-${activation.id}`, () => dismissSemanticActivation(activation.id))}
             busy={busy}
           />
@@ -216,6 +246,16 @@ export default function MemoryScreen() {
             onDismiss={() => runAction(`proposal-dismiss-${proposal.id}`, () => dismissSemanticCurationProposal(proposal.id))}
             busy={busy}
           />
+        ))}
+      </View>
+
+      <SectionHeader label="Auditoria IA" />
+      <View style={{ gap: 10 }}>
+        {!loading && auditItems.length === 0 ? (
+          <EmptyCard text="Sem logs de auditoria. Propostas, ativações e jobs de IA aparecerão aqui com a explicação da decisão." />
+        ) : null}
+        {auditItems.map((item) => (
+          <AuditCard key={item.id} item={item} />
         ))}
       </View>
 
@@ -329,13 +369,17 @@ function MetricRow({ label, value, last }: { label: string; value: string; last?
 function ActivationCard({
   activation,
   onUseful,
-  onWeak,
+  onUseless,
+  onTooEarly,
+  onTooLate,
   onDismiss,
   busy,
 }: {
   activation: AtlasSemanticActivation
   onUseful: () => void
-  onWeak: () => void
+  onUseless: () => void
+  onTooEarly: () => void
+  onTooLate: () => void
   onDismiss: () => void
   busy: string | null
 }) {
@@ -354,10 +398,21 @@ function ActivationCard({
         <Sans size={14} lineHeight={21} color={c.ink2} style={{ marginTop: 8 }}>
           {activation.prompt}
         </Sans>
+        {activation.metadata?.fatigue_policy ? (
+          <Mono size={10.5} lineHeight={15} color={c.ink2} style={{ marginTop: 10 }}>
+            Fadiga: {activationRelevance(activation)} · poucos disparos, alta relevância
+          </Mono>
+        ) : null}
+        <AuditLine
+          label="Por que"
+          value={activationWhy(activation)}
+        />
       </View>
       <View style={[styles.cardActions, { borderTopColor: c.border }]}>
         <SmallAction label="Útil" onPress={onUseful} disabled={disabled} />
-        <SmallAction label="Fraca" onPress={onWeak} disabled={disabled} />
+        <SmallAction label="Inútil" onPress={onUseless} disabled={disabled} danger />
+        <SmallAction label="Cedo" onPress={onTooEarly} disabled={disabled} />
+        <SmallAction label="Tarde" onPress={onTooLate} disabled={disabled} />
         <SmallAction label="Dispensar" onPress={onDismiss} disabled={disabled} danger />
       </View>
     </View>
@@ -377,6 +432,7 @@ function ProposalCard({
 }) {
   const c = usePalette()
   const disabled = busy != null
+  const template = proposalTemplate(proposal)
 
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
@@ -390,13 +446,188 @@ function ProposalCard({
         <Sans size={14} lineHeight={21} color={c.ink2} style={{ marginTop: 8 }}>
           {proposal.proposed_summary}
         </Sans>
+        <View style={styles.proposalTemplate}>
+          <TemplateRow label="Tese" value={template.thesis} />
+          <TemplateRow label="Próxima ação" value={template.nextAction} />
+          <TemplateRow label="Maturidade" value={template.maturity} />
+          <TemplateRow label="Fonte" value={template.rawSource} />
+        </View>
+        <AuditLine label="Por que" value={proposal.reason} />
       </View>
       <View style={[styles.cardActions, { borderTopColor: c.border }]}>
-        <SmallAction label="Promover" onPress={onAccept} disabled={disabled} />
+        <SmallAction label="Ratificar" onPress={onAccept} disabled={disabled} />
         <SmallAction label="Ignorar" onPress={onDismiss} disabled={disabled} danger />
       </View>
     </View>
   )
+}
+
+function AuditCard({ item }: { item: AtlasAuditItem }) {
+  const c = usePalette()
+  return (
+    <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <View style={styles.cardInner}>
+        <View style={styles.noteMeta}>
+          <Mono size={10} color={auditTypeColor(item.type, c)} letterSpacing={0.8} style={{ textTransform: 'uppercase' }}>
+            {auditTypeLabel(item.type)} · {item.status}
+          </Mono>
+          <Mono size={10} color={c.ink2}>{auditPrivacy(item)}</Mono>
+        </View>
+        <Sans weight="sb" size={15} lineHeight={20} color={c.ink} style={{ marginTop: 6 }}>
+          {item.title}
+        </Sans>
+        <Sans size={13} lineHeight={19} color={c.ink2} style={{ marginTop: 8 }}>
+          {item.why}
+        </Sans>
+        <View style={styles.auditFacts}>
+          <TemplateRow label="Evidência" value={auditEvidenceDetail(item)} />
+          <TemplateRow label="Referência" value={auditRef(item)} />
+        </View>
+      </View>
+    </View>
+  )
+}
+
+function AuditLine({ label, value }: { label: string; value: string }) {
+  const c = usePalette()
+  if (!value) return null
+
+  return (
+    <View style={styles.auditLine}>
+      <Mono size={10} letterSpacing={0.4} color={c.ink2}>{label}</Mono>
+      <Sans size={12.5} lineHeight={17} color={c.ink2}>{value}</Sans>
+    </View>
+  )
+}
+
+function TemplateRow({ label, value }: { label: string; value: string }) {
+  const c = usePalette()
+  return (
+    <View style={styles.templateRow}>
+      <Mono size={10} letterSpacing={0.4} color={c.ink2}>{label}</Mono>
+      <Sans size={12.5} lineHeight={17} color={c.ink}>{value}</Sans>
+    </View>
+  )
+}
+
+function proposalTemplate(proposal: AtlasSemanticCurationProposal) {
+  const frontmatter = proposal.proposed_frontmatter ?? {}
+  return {
+    thesis: stringValue(frontmatter.thesis) || proposal.proposed_summary,
+    nextAction: stringValue(frontmatter.next_action) || 'Vitor ratificar, editar ou descartar.',
+    maturity: stringValue(frontmatter.maturity) || 'seed',
+    rawSource: clip(stringValue(frontmatter.raw_source) || sourceRef(proposal), 120),
+  }
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function sourceRef(proposal: AtlasSemanticCurationProposal): string {
+  const captureId = proposal.source_refs?.capture_id
+  return typeof captureId === 'string' ? `capture:${captureId.slice(0, 8)}` : proposal.source_type
+}
+
+function cognitiveReturnFromHealth(health: AtlasVaultHealthSnapshot | null): AtlasCognitiveReturn | null {
+  if (!health) return null
+  if (health.cognitive_return && Object.keys(health.cognitive_return).length > 0) {
+    return health.cognitive_return
+  }
+
+  const metadataReturn = health.metadata?.cognitive_return
+  if (metadataReturn && typeof metadataReturn === 'object' && !Array.isArray(metadataReturn)) {
+    return metadataReturn as AtlasCognitiveReturn
+  }
+
+  return {
+    score: health.activations_7d > 0 ? Math.round((health.useful_activations_7d / health.activations_7d) * 100) : 0,
+    label: health.activations_7d > 0 ? 'básico' : 'sem sinal',
+    activations_7d: health.activations_7d,
+    useful_activations_7d: health.useful_activations_7d,
+    utility_rate_7d: health.activations_7d > 0 ? health.useful_activations_7d / health.activations_7d : 0,
+    notes_per_useful_activation_7d: health.useful_activations_7d > 0 ? health.active_notes / health.useful_activations_7d : null,
+    interpretation: 'Métrica básica derivada do snapshot atual; recalcule o vault para CRON completo.',
+  }
+}
+
+function percent(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value * 100)}%` : 'sem dado'
+}
+
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 3)}...` : value
+}
+
+function activationRelevance(activation: AtlasSemanticActivation): string {
+  const score = activation.context_payload?.score ?? activation.metadata?.relevance_score
+  if (typeof score === 'number') return String(score)
+  if (typeof score === 'string') return score
+  return 'sem score'
+}
+
+function activationWhy(activation: AtlasSemanticActivation): string {
+  const matches = activation.context_payload?.matched_signals
+  if (Array.isArray(matches) && matches.length > 0) {
+    return `Sinais casaram: ${matches.slice(0, 5).join(' · ')}.`
+  }
+
+  return `Contexto: ${activation.context_type}.`
+}
+
+function auditTypeLabel(type: string): string {
+  switch (type) {
+    case 'curation_proposal':
+      return 'proposta'
+    case 'semantic_activation':
+      return 'ativação'
+    case 'ai_audit':
+      return 'ia'
+    default:
+      return type.replace(/_/g, ' ')
+  }
+}
+
+function auditTypeColor(type: string, c: ReturnType<typeof usePalette>): string {
+  if (type === 'semantic_activation') return c.moss
+  if (type === 'ai_audit') return c.prussian
+  return c.bronze
+}
+
+function auditPrivacy(item: AtlasAuditItem): string {
+  const sensitivity = item.privacy?.sensitivity
+  return typeof sensitivity === 'string' && sensitivity ? sensitivity : 'normal'
+}
+
+function auditEvidenceDetail(item: AtlasAuditItem): string {
+  const evidence = item.evidence ?? {}
+  const pieces = [
+    stringValue(evidence.main_thesis),
+    signalList(evidence.matched_signals),
+    stringValue(evidence.provider),
+    stringValue(evidence.context_type),
+  ].filter(Boolean)
+
+  return clip(pieces.join(' · ') || 'Sem evidência resumida.', 180)
+}
+
+function auditRef(item: AtlasAuditItem): string {
+  const refs = item.raw_refs ?? {}
+  const keys = ['capture_id', 'note_id', 'trace_id', 'job_id', 'activation_id']
+  const found = keys
+    .map((key) => {
+      const value = refs[key]
+      return typeof value === 'string' && value ? `${key}:${value.slice(0, 8)}` : null
+    })
+    .filter(Boolean)
+
+  return found.join(' · ') || item.id
+}
+
+function signalList(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+
+  return value.slice(0, 5).map((item) => String(item)).join(' · ')
 }
 
 function NoteCard({ note }: { note: AtlasSemanticNote }) {
@@ -419,6 +650,11 @@ function NoteCard({ note }: { note: AtlasSemanticNote }) {
         <Mono size={10.5} lineHeight={16} color={c.ink2} style={{ marginTop: 10 }}>
           {note.path}
         </Mono>
+        {(note.source_links_count || note.target_links_count) ? (
+          <Mono size={10.5} lineHeight={16} color={c.ink2} style={{ marginTop: 8 }}>
+            Links sugeridos: {(note.source_links_count ?? 0) + (note.target_links_count ?? 0)}
+          </Mono>
+        ) : null}
       </View>
     </View>
   )
@@ -500,11 +736,28 @@ const styles = StyleSheet.create({
   cardActions: {
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
+    flexWrap: 'wrap',
   },
   smallAction: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: '33.33%',
     paddingVertical: 13,
     paddingHorizontal: 6,
+  },
+  proposalTemplate: {
+    marginTop: 12,
+    gap: 8,
+  },
+  templateRow: {
+    gap: 3,
+  },
+  auditLine: {
+    marginTop: 10,
+    gap: 3,
+  },
+  auditFacts: {
+    marginTop: 12,
+    gap: 8,
   },
   metricRow: {
     minHeight: 52,

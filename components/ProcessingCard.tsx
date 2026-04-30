@@ -10,6 +10,7 @@ import Animated, {
 import { Frau, Mono, Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { domainColor, domainLabel, type DomainKey } from '../lib/domains'
+import { useAtlasStore } from '../lib/atlasStore'
 import { Skeleton } from './Skeleton'
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
 // Bronze dot pulsando, label em italic, skeleton lines.
 export function ProcessingCard({ domain }: Props) {
   const { c } = useTheme()
+  const domains = useAtlasStore((s) => s.domains)
   const opacity = useSharedValue(0)
   const ty = useSharedValue(-8)
 
@@ -47,10 +49,10 @@ export function ProcessingCard({ domain }: Props) {
           weight="sb"
           size={10.5}
           letterSpacing={1.05}
-          color={domainColor(domain, c)}
+          color={domainColor(domain, c, domains)}
           style={{ textTransform: 'uppercase' }}
         >
-          {domainLabel(domain)}
+          {domainLabel(domain, domains)}
         </Sans>
         <View style={styles.spacer} />
         <PulsingDot color={c.bronze} />

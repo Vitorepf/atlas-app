@@ -5,6 +5,7 @@ import {
   subscribeToHealthKitChanges,
 } from './healthKit'
 import { useAtlasStore } from './atlasStore'
+import { registerHealthKitBackgroundTask } from './healthBackgroundTask'
 
 const STARTUP_DELAY_MS = 3500
 const FOREGROUND_MIN_INTERVAL_MS = 30 * 60 * 1000
@@ -52,6 +53,7 @@ export function useAutoHealthKitSync(): void {
 
     void (async () => {
       await configureHealthKitBackgroundDelivery()
+      await registerHealthKitBackgroundTask()
       if (disposed) return
 
       cleanup = await subscribeToHealthKitChanges((typeIdentifier) => {
