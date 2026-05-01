@@ -7,6 +7,7 @@ import { MicModal } from './MicModal'
 import { AtlasAiSheet } from './AtlasAiSheet'
 import { InboxDomainSheet } from '../inbox/InboxDomainSheet'
 import { CaptureSettingsSheet } from '../capture/CaptureSettingsSheet'
+import { ProviderChoiceModal } from './ProviderChoiceModal'
 
 // Mounts every overlay once. Each component subscribes to the overlay store
 // and animates itself in/out — never unmounted, so transitions stay smooth.
@@ -22,6 +23,7 @@ export function OverlayHost() {
       <AtlasAiSheet />
       <InboxDomainSheet />
       <CaptureSettingsSheet />
+      <ProviderChoiceModal />
     </>
   )
 }

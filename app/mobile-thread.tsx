@@ -7,6 +7,7 @@ import { Frau, Label, Mono, Sans } from '../design/Type'
 import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
+import { useProviderChoice } from '../lib/hooks/useProviderChoice'
 import {
   getMobileAiThread,
   replyMobileAiThread,
@@ -32,6 +33,8 @@ export default function MobileThreadScreen() {
   const messages = useMemo(() => sortMessages(thread?.messages ?? []), [thread?.messages])
   const activeTraces = useMemo(() => pendingTraces(traces), [traces])
   const canSubmit = Boolean(threadId && draft.trim().length > 0 && !submitting && activeTraces.length === 0)
+
+  useProviderChoice(traces)
 
   const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!threadId) {

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { Frau, Label, Sans } from '../design/Type'
-import { usePalette } from '../design/theme'
-import { useShell } from './AtlasShell'
-import { useOverlays } from '../lib/overlays'
-import { resumeAiJobChoice, type AtlasAiChoiceOption } from '../lib/api/client'
+import { Frau, Label, Sans } from '../../design/Type'
+import { usePalette } from '../../design/theme'
+import { useShell } from '../AtlasShell'
+import { useOverlays } from '../../lib/overlays'
+import { resumeAiJobChoice, type AtlasAiChoiceOption } from '../../lib/api/client'
 
 export function ProviderChoiceModal() {
   const c = usePalette()
