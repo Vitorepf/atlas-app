@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -18,12 +18,13 @@ import {
 } from '../components/inbox/InboxDomainStatus'
 import { CaptureButton } from '../components/inbox/CaptureButton'
 import { OperationalInboxCard } from '../components/inbox/OperationalInboxCard'
-import { Frau, Sans } from '../design/Type'
+import { Frau, Mono, Sans } from '../design/Type'
 import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 import { useShell } from '../components/AtlasShell'
 import { captureToInboxItem, useAtlasStore, visibleCaptures } from '../lib/atlasStore'
+import { syncAtlasBadge } from '../lib/pushNotifications'
 import {
   AtlasApiError,
   acceptProjectPlanProposal,
@@ -35,6 +36,7 @@ import {
   proposeCaptureProjectPlan,
   regenerateProjectPlanProposal,
   respondMobileInboxItem,
+  snoozeMobileInboxItem,
   type AtlasProjectPlanProposal,
   type AtlasOperationalInboxItem,
   type CaptureTriageInput,
@@ -45,6 +47,7 @@ type InboxSort = 'recent' | 'oldest' | 'needs_triage'
 type QuickAction = 'promote' | 'create_task' | 'create_project' | 'snooze' | 'archive'
 type BulkAction = 'promote' | 'snooze' | 'archive'
 type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
+type OperationalFilter = 'all' | 'approval' | 'insight' | 'proposal' | 'job' | 'self_diagnostic' | 'alert'
 type ProjectPlanDraft = {
   title: string
   nextAction: string
@@ -70,6 +73,16 @@ const TASK_PRIORITIES: Array<{ key: TaskPriority; label: string }> = [
   { key: 'urgent', label: 'urgente' },
 ]
 
+const OPERATIONAL_FILTERS: Array<{ key: OperationalFilter; label: string }> = [
+  { key: 'all', label: 'Tudo' },
+  { key: 'approval', label: 'Aprovacoes' },
+  { key: 'insight', label: 'Insights' },
+  { key: 'proposal', label: 'Propostas' },
+  { key: 'job', label: 'Jobs' },
+  { key: 'self_diagnostic', label: 'Auto-diagnostico' },
+  { key: 'alert', label: 'Alertas' },
+]
+
 const SNOOZE_CHOICES: Array<{ key: string; label: string; days: number; reason: string }> = [
   { key: 'tomorrow', label: 'amanhã', days: 1, reason: 'Adiada para revisão amanhã.' },
   { key: 'week', label: '7 dias', days: 7, reason: 'Adiada por uma semana.' },
@@ -80,6 +93,9 @@ const ROMAN_MONTHS = [
   'I', 'II', 'III', 'IV', 'V', 'VI',
   'VII', 'VIII', 'IX', 'X', 'XI', 'XII',
 ]
+
+const OPERATIONAL_PAGE_SIZE = 25
+const OPERATIONAL_POLL_INTERVAL_MS = 60_000
 
 export default function InboxScreen() {
   const c = usePalette()
@@ -113,7 +129,10 @@ export default function InboxScreen() {
   const [projectProposal, setProjectProposal] = useState<AtlasProjectPlanProposal | null>(null)
   const [projectPlanDraft, setProjectPlanDraft] = useState<ProjectPlanDraft>(() => defaultProjectPlanDraft())
   const [operationalItems, setOperationalItems] = useState<AtlasOperationalInboxItem[]>([])
+  const [operationalCursor, setOperationalCursor] = useState<string | null>(null)
+  const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>('all')
   const [operationalBusyId, setOperationalBusyId] = useState<string | null>(null)
+  const [operationalLoadingMore, setOperationalLoadingMore] = useState(false)
   const [mobilePaired, setMobilePaired] = useState<boolean | null>(null)
   const searchFocus = useSharedValue(0)
 
@@ -146,6 +165,11 @@ export default function InboxScreen() {
   }, [items, visibleItems, domainFilter, filter, query])
   const sortedItems = useMemo(() => sortItems(filteredItems, sort), [filteredItems, sort])
   const groups = useMemo(() => groupByDate(sortedItems), [sortedItems])
+  const operationalCounts = useMemo(() => countOperationalItems(operationalItems), [operationalItems])
+  const filteredOperationalItems = useMemo(
+    () => operationalItems.filter((item) => operationalFilterMatches(item, operationalFilter)),
+    [operationalFilter, operationalItems],
+  )
 
   useEffect(() => {
     const openIds = new Set(openItems.map((item) => item.id))
@@ -162,12 +186,16 @@ export default function InboxScreen() {
 
   const refreshOperationalInbox = useCallback(async () => {
     try {
-      const response = await listMobileInbox({ status: 'unread', limit: 25 })
-      setOperationalItems(response.items)
+      const response = await listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE })
+      setOperationalItems(response.items.filter(isActiveOperationalItem))
+      setOperationalCursor(response.next_cursor ?? null)
+      void syncAtlasBadge(response.unread_count)
       setMobilePaired(true)
     } catch (error) {
       if (error instanceof AtlasApiError && error.status === 401) {
         setOperationalItems([])
+        setOperationalCursor(null)
+        void syncAtlasBadge(0)
         setMobilePaired(false)
         return
       }
@@ -175,16 +203,68 @@ export default function InboxScreen() {
     }
   }, [showToast])
 
+  const loadMoreOperationalInbox = useCallback(async () => {
+    if (!operationalCursor || operationalLoadingMore) return
+
+    setOperationalLoadingMore(true)
+    try {
+      const response = await listMobileInbox({
+        status: 'active',
+        limit: OPERATIONAL_PAGE_SIZE,
+        cursor: operationalCursor,
+      })
+      setOperationalItems((current) => mergeOperationalItems(current, response.items.filter(isActiveOperationalItem)))
+      setOperationalCursor(response.next_cursor ?? null)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'falha ao carregar mais itens')
+    } finally {
+      setOperationalLoadingMore(false)
+    }
+  }, [operationalCursor, operationalLoadingMore, showToast])
+
   useFocusEffect(
     useCallback(() => {
       let active = true
+      let pollTimer: ReturnType<typeof setInterval> | null = null
+
+      const startPolling = () => {
+        if (pollTimer) return
+        pollTimer = setInterval(() => {
+          if (!active || AppState.currentState !== 'active') return
+          void refreshOperationalInbox()
+        }, OPERATIONAL_POLL_INTERVAL_MS)
+      }
+
+      const stopPolling = () => {
+        if (pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
+      }
+
       void hydrateApiConfig().then(() => {
         if (active) setMobilePaired(Boolean(getMobileDeviceSession()))
       })
       void refreshOperationalInbox()
 
+      if (AppState.currentState === 'active') {
+        startPolling()
+      }
+
+      const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+        if (!active) return
+        if (nextState === 'active') {
+          void refreshOperationalInbox()
+          startPolling()
+        } else {
+          stopPolling()
+        }
+      })
+
       return () => {
         active = false
+        stopPolling()
+        subscription.remove()
       }
     }, [refreshOperationalInbox]),
   )
@@ -372,8 +452,12 @@ export default function InboxScreen() {
 
     setOperationalBusyId(item.id)
     try {
-      if (actionId === 'dismiss' || actionId === 'discard') {
+      if (actionId === 'snooze') {
+        await snoozeMobileInboxItem(item.id, daysFromNowIso(7), 'Item operacional adiado por sete dias pelo app.')
+        showToast('item adiado por 7 dias')
+      } else if (actionId === 'dismiss' || actionId === 'discard') {
         await dismissMobileInboxItem(item.id, `Ação ${actionId} pelo app.`)
+        showToast('item descartado')
       } else if (actionId === 'discuss') {
         const response = await discussMobileInboxItem(item.id)
         const threadId = threadIdFromActionResult(response.result)
@@ -383,7 +467,8 @@ export default function InboxScreen() {
           showToast('thread contextual criada')
         }
       } else {
-        await respondMobileInboxItem(item.id, actionId)
+        const response = await respondMobileInboxItem(item.id, actionId)
+        showToast(operationalActionMessage(actionId, response.result))
       }
 
       await refreshOperationalInbox()
@@ -604,15 +689,47 @@ export default function InboxScreen() {
       {operationalItems.length > 0 ? (
         <View>
           <SectionHeader label="Operacional" style={styles.firstSection} />
+          <OperationalFilterStrip
+            active={operationalFilter}
+            counts={operationalCounts}
+            onChange={setOperationalFilter}
+          />
           <View style={styles.list}>
-            {operationalItems.map((item) => (
-              <OperationalInboxCard
-                key={item.id}
-                item={item}
-                busy={operationalBusyId === item.id}
-                onAction={(actionId) => void runOperationalAction(item, actionId)}
-              />
-            ))}
+            {filteredOperationalItems.length > 0 ? (
+              filteredOperationalItems.map((item) => (
+                <OperationalInboxCard
+                  key={item.id}
+                  item={item}
+                  busy={operationalBusyId === item.id}
+                  onOpen={() => router.push({ pathname: '/mobile-inbox-item', params: { inboxId: item.id } })}
+                  onAction={(actionId) => void runOperationalAction(item, actionId)}
+                />
+              ))
+            ) : (
+              <View style={[styles.operationalEmpty, { borderColor: c.border, backgroundColor: c.surface }]}>
+                <Sans size={12.5} lineHeight={17} color={c.ink2}>
+                  Nenhum item ativo neste filtro.
+                </Sans>
+              </View>
+            )}
+            {operationalCursor ? (
+              <Pressable
+                disabled={operationalLoadingMore}
+                onPress={() => void loadMoreOperationalInbox()}
+                style={({ pressed }) => [
+                  styles.loadMoreOperational,
+                  {
+                    borderColor: c.border,
+                    backgroundColor: pressed ? c.premium : 'transparent',
+                    opacity: operationalLoadingMore ? 0.55 : 1,
+                  },
+                ]}
+              >
+                <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian} align="center">
+                  {operationalLoadingMore ? 'Carregando...' : 'Carregar mais'}
+                </Sans>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -726,6 +843,69 @@ function MobileGatewayBanner({ onPress }: { onPress: () => void }) {
   )
 }
 
+function OperationalFilterStrip({
+  active,
+  counts,
+  onChange,
+}: {
+  active: OperationalFilter
+  counts: Record<OperationalFilter, number>
+  onChange: (filter: OperationalFilter) => void
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.operationalFilterStrip}
+      style={styles.operationalFilterScroll}
+    >
+      {OPERATIONAL_FILTERS.map((option) => (
+        <OperationalFilterChip
+          key={option.key}
+          label={option.label}
+          count={counts[option.key]}
+          active={active === option.key}
+          onPress={() => onChange(option.key)}
+        />
+      ))}
+    </ScrollView>
+  )
+}
+
+function OperationalFilterChip({
+  label,
+  count,
+  active,
+  onPress,
+}: {
+  label: string
+  count: number
+  active: boolean
+  onPress: () => void
+}) {
+  const c = usePalette()
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.operationalFilterChip,
+        {
+          borderColor: active ? c.prussian : c.border,
+          backgroundColor: active ? c.surface : 'transparent',
+          opacity: pressed ? 0.65 : count === 0 ? 0.45 : 1,
+        },
+      ]}
+    >
+      <Sans weight={active ? 'sb' : 'med'} size={11.5} lineHeight={15} color={active ? c.prussian : c.ink2} numberOfLines={1}>
+        {label}
+      </Sans>
+      <Mono size={10.5} lineHeight={14} color={active ? c.prussian : c.ink3}>
+        {count}
+      </Mono>
+    </Pressable>
+  )
+}
+
 function threadIdFromActionResult(result: Record<string, unknown>): string | null {
   const threadId = result.thread_id
   if (typeof threadId === 'string' && threadId !== '') return threadId
@@ -735,6 +915,73 @@ function threadIdFromActionResult(result: Record<string, unknown>): string | nul
 
   const match = deepLink.match(/^atlas:\/\/thread\/([^/?#]+)/)
   return match?.[1] ?? null
+}
+
+function isActiveOperationalItem(item: AtlasOperationalInboxItem): boolean {
+  if (item.status === 'resolved' || item.status === 'dismissed' || item.status === 'expired') {
+    return false
+  }
+
+  if (item.status === 'snoozed' && item.snoozed_until) {
+    const snoozedUntil = new Date(item.snoozed_until)
+    return Number.isFinite(snoozedUntil.getTime()) && snoozedUntil.getTime() <= Date.now()
+  }
+
+  return true
+}
+
+function countOperationalItems(items: AtlasOperationalInboxItem[]): Record<OperationalFilter, number> {
+  return items.reduce<Record<OperationalFilter, number>>((counts, item) => {
+    counts.all += 1
+    for (const option of OPERATIONAL_FILTERS) {
+      if (option.key === 'all') continue
+      if (operationalFilterMatches(item, option.key)) counts[option.key] += 1
+    }
+    return counts
+  }, {
+    all: 0,
+    approval: 0,
+    insight: 0,
+    proposal: 0,
+    job: 0,
+    self_diagnostic: 0,
+    alert: 0,
+  })
+}
+
+function operationalFilterMatches(item: AtlasOperationalInboxItem, filter: OperationalFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'job') return item.type === 'job_result' || item.type === 'job_status'
+  return item.type === filter
+}
+
+function mergeOperationalItems(
+  current: AtlasOperationalInboxItem[],
+  next: AtlasOperationalInboxItem[],
+): AtlasOperationalInboxItem[] {
+  const byId = new Map<string, AtlasOperationalInboxItem>()
+  for (const item of current) byId.set(item.id, item)
+  for (const item of next) byId.set(item.id, item)
+
+  return Array.from(byId.values()).sort((a, b) => timestampForSort(b.created_at) - timestampForSort(a.created_at))
+}
+
+function timestampForSort(value: string | null): number {
+  if (!value) return 0
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
+function operationalActionMessage(actionId: string, result: Record<string, unknown>): string {
+  if (actionId === 'create_proposal' && typeof result.proposal_item_id === 'string') {
+    return 'proposta criada no Inbox'
+  }
+  if (actionId === 'ignore_30d') return 'auto-diagnóstico ignorado por 30 dias'
+  if (actionId === 'review_patch') return 'proposta marcada para revisão'
+  if (actionId === 'view_trace') return 'trace marcado para revisão'
+  if (actionId === 'mark_read') return 'marcado como lido'
+
+  return 'ação aplicada'
 }
 
 function FilterChip({
@@ -1325,6 +1572,40 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  operationalFilterScroll: {
+    marginTop: -4,
+    marginBottom: 10,
+  },
+  operationalFilterStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 16,
+  },
+  operationalFilterChip: {
+    minHeight: 31,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  operationalEmpty: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  loadMoreOperational: {
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   mobileGatewayBanner: {
     borderRadius: 16,

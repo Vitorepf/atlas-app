@@ -117,6 +117,7 @@ export interface AtlasOperationalInboxItem {
 export interface MobileInboxResponse {
   items: AtlasOperationalInboxItem[]
   unread_count: number
+  next_cursor?: string | null
   generated_at: string
 }
 
@@ -547,6 +548,8 @@ export interface AtlasProject {
   current_step?: AtlasProjectStep | null
   tasks_count?: number
   steps_count?: number
+  open_blockers_count?: number
+  top_blocker?: AtlasProjectBlocker | null
   execution_health?: {
     status: 'healthy' | 'attention' | 'paused' | 'completed' | 'archived' | string
     reasons: string[]
@@ -556,6 +559,8 @@ export interface AtlasProject {
     overdue: boolean
     deferred_action?: boolean
     deferred_ready?: boolean
+    open_blockers_count?: number
+    has_open_blockers?: boolean
     last_touched_days: number | null
   }
   last_touched_at: string | null
@@ -566,6 +571,46 @@ export interface AtlasProject {
   created_at: string | null
   updated_at: string | null
   deleted_at: string | null
+}
+
+export type AtlasProjectBlockerReasonCode =
+  | 'unclear'
+  | 'too_large'
+  | 'boring'
+  | 'waiting_external'
+  | 'missing_resource'
+  | 'fear'
+  | 'energy'
+  | 'technical_unknown'
+  | 'decision_needed'
+  | 'other'
+
+export type AtlasProjectBlockerStatus = 'open' | 'resolved' | 'cancelled'
+export type AtlasProjectBlockerSeverity = 'low' | 'medium' | 'high'
+
+export interface AtlasProjectBlocker {
+  id: string
+  project_id: string
+  task_id: string | null
+  project_step_id: string | null
+  unblock_task_id: string | null
+  status: AtlasProjectBlockerStatus | string
+  severity: AtlasProjectBlockerSeverity | string
+  reason_code: AtlasProjectBlockerReasonCode | string
+  description: string
+  unblock_next_action: string | null
+  waiting_on: string | null
+  due_at: string | null
+  resolved_at: string | null
+  resolution_note: string | null
+  created_from_event_id: string | null
+  project?: Pick<AtlasProject, 'id' | 'title' | 'status' | 'domain'> | null
+  task?: Pick<AtlasTask, 'id' | 'title' | 'status' | 'planning_status'> | null
+  project_step?: Pick<AtlasProjectStep, 'id' | 'title' | 'status' | 'step_order'> | null
+  unblock_task?: Pick<AtlasTask, 'id' | 'title' | 'status' | 'planning_status'> | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
 }
 
 export type AtlasProjectPlanProposalStatus =
@@ -618,6 +663,211 @@ export interface AtlasTaskEvent {
   occurred_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export type AtlasEngineeringEvidenceStatus =
+  | 'passed'
+  | 'failed'
+  | 'needs_review'
+  | 'not_applicable'
+  | string
+
+export type AtlasEngineeringEvidenceType =
+  | 'acceptance'
+  | 'scenario'
+  | 'validation_evidence'
+  | 'manual_qa'
+  | 'deep_code_review'
+  | 'database_review'
+  | string
+
+export interface AtlasEngineeringTaskContract {
+  contract_version: number
+  source: string
+  type: string
+  goal: string
+  context: string[]
+  in_scope: string[]
+  out_of_scope: string[]
+  acceptance_criteria: string[]
+  likely_files: string[]
+  patterns_to_follow: string[]
+  patterns_to_avoid: string[]
+  edge_cases: string[]
+  dependencies: {
+    blocked_by: string[]
+    blocks: string[]
+  }
+  test_coverage: string[]
+  estimated_size: 'XS' | 'S' | 'M' | 'L' | 'XL' | string
+  definition_of_done: string[]
+  refs: Record<string, unknown>
+}
+
+export interface AtlasEngineeringBlueprintPhase {
+  id: string
+  title: string
+  gate: string
+  required_outputs: string[]
+}
+
+export interface AtlasEngineeringAcceptanceItem {
+  id: string
+  criterion: string
+  verification_method: string
+  status: string
+  evidence_required: boolean
+}
+
+export interface AtlasEngineeringScenario {
+  id: string
+  name: string
+  source?: string
+  verification_method?: string
+}
+
+export interface AtlasEngineeringReviewGate {
+  id: string
+  title: string
+  required: boolean
+  status: string
+  minimum_confidence?: number
+  checks?: string[]
+  evidence?: string
+  evidence_id?: string | null
+}
+
+export interface AtlasEngineeringBlueprint {
+  schema_version: number
+  blueprint_id: string
+  source: string
+  generated_at: string
+  objective: string
+  phases: AtlasEngineeringBlueprintPhase[]
+  task_contract_refs: {
+    task_id: string
+    project_id: string | null
+    project_step_id: string | null
+  }
+  acceptance_matrix: AtlasEngineeringAcceptanceItem[]
+  scenario_inventory: AtlasEngineeringScenario[]
+  review_gates: AtlasEngineeringReviewGate[]
+  contingency_policy: {
+    stop_conditions: string[]
+    fallback: string
+    human_review_required_when: string[]
+  }
+}
+
+export interface AtlasEngineeringEvidence {
+  id: string
+  evidence_type: AtlasEngineeringEvidenceType
+  target_id: string | null
+  status: AtlasEngineeringEvidenceStatus
+  confidence: number | null
+  summary: string
+  trace_id?: string | null
+  command: string | null
+  artifact_url: string | null
+  output_excerpt: string | null
+  files: string[]
+  metadata: Record<string, unknown>
+  source: string
+  recorded_at: string | null
+}
+
+export interface AtlasEngineeringRunSummary {
+  generated_at?: string | null
+  plan_id?: string | null
+  blueprint_id?: string | null
+  status?: string | null
+  decision?: string | null
+  changed_files_count?: number
+  acceptance_total?: number
+  acceptance_needs_review?: number
+  review_needs_attention?: number
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringDecision {
+  status: string
+  auto_complete_allowed: boolean
+  reason: string
+}
+
+export interface AtlasEngineeringAcceptanceStatusItem extends AtlasEngineeringAcceptanceItem {
+  evidence?: string
+}
+
+export interface AtlasEngineeringStatusSnapshot {
+  snapshot_version: number
+  generated_at: string
+  task_id: string
+  contract_goal: string
+  blueprint_id: string
+  decision: AtlasEngineeringDecision
+  acceptance_checklist: AtlasEngineeringAcceptanceStatusItem[]
+  review_gates: AtlasEngineeringReviewGate[]
+  evidence_summary: {
+    total: number
+    latest: AtlasEngineeringEvidence | null
+    passed: number
+    failed: number
+    needs_review: number
+  }
+}
+
+export interface AtlasEngineeringBlueprintSnapshot {
+  id: string
+  task_id: string
+  project_id: string | null
+  project_step_id: string | null
+  status: string
+  version: number
+  source: string
+  content_hash: string
+  frozen_at: string | null
+  created_at: string | null
+  updated_at: string | null
+  matches_current_content: boolean
+}
+
+export interface AtlasEngineeringPackageResponse {
+  task_id: string
+  contract: AtlasEngineeringTaskContract
+  blueprint: AtlasEngineeringBlueprint
+  blueprint_snapshot: AtlasEngineeringBlueprintSnapshot | null
+  status_snapshot: AtlasEngineeringStatusSnapshot
+  latest_run: AtlasEngineeringRunSummary | null
+  run_history: AtlasEngineeringRunSummary[]
+  latest_evidence: AtlasEngineeringEvidence | null
+  evidence_history: AtlasEngineeringEvidence[]
+  events: AtlasTaskEvent[]
+}
+
+export interface AtlasEngineeringEvidenceInput {
+  evidence_type: AtlasEngineeringEvidenceType
+  target_id?: string | null
+  status: AtlasEngineeringEvidenceStatus
+  confidence?: number | null
+  summary: string
+  trace_id?: string | null
+  command?: string | null
+  artifact_url?: string | null
+  output_excerpt?: string | null
+  files?: string[]
+  metadata?: Record<string, unknown>
+}
+
+export interface AtlasEngineeringEvidenceResponse {
+  task_id: string
+  evidence: AtlasEngineeringEvidence
+  contract: AtlasEngineeringTaskContract
+  blueprint: AtlasEngineeringBlueprint
+  blueprint_snapshot: AtlasEngineeringBlueprintSnapshot | null
+  status_snapshot: AtlasEngineeringStatusSnapshot
+  latest_run: AtlasEngineeringRunSummary | null
+  evidence_history: AtlasEngineeringEvidence[]
 }
 
 export interface AtlasProjectEvent {
@@ -852,6 +1102,23 @@ export interface ProjectStepMutationResponse {
   project: AtlasProject
   step: AtlasProjectStep
   active_next_task: AtlasTask | null
+}
+
+export interface ProjectBlockersResponse {
+  blockers: AtlasProjectBlocker[]
+  summary: {
+    open_count: number
+    resolved_count: number
+    cancelled_count: number
+  }
+  generated_at: string
+}
+
+export interface ProjectBlockerMutationResponse {
+  project: AtlasProject
+  blocker: AtlasProjectBlocker
+  unblock_task: AtlasTask | null
+  health: NonNullable<AtlasProject['execution_health']>
 }
 
 export interface CalendarBlocksResponse {
@@ -1670,6 +1937,8 @@ export interface AiObservabilityResponse {
       created_at: string | null
     }>
   }
+  metrics?: AtlasAiTelemetryScorecard
+  metrics_health?: AtlasAiTelemetryHealth
   actions: {
     available: boolean
     by_status?: Record<string, number>
@@ -1685,6 +1954,156 @@ export interface AiObservabilityResponse {
       created_at: string | null
     }>
   }
+}
+
+export interface AtlasAiTelemetryScorecard {
+  available: boolean
+  window?: {
+    since: string
+    until: string
+  }
+  totals?: {
+    traces: number
+    final_quality_avg: number | null
+    final_efficiency_avg: number | null
+    context_efficiency_avg: number | null
+    total_latency_avg_ms: number | null
+    app_visible_avg_ms: number | null
+    cost_microusd_sum: number
+    unknown_cost_count: number
+    estimated_cost_count?: number
+    actual_cost_count?: number
+    operational_estimate_cost_count?: number
+    first_pass_success_rate: number | null
+    needed_remediation_rate: number | null
+    backgrounded_during_run_rate: number | null
+    recovered_from_pending_count: number
+    reask_detected_count: number
+  }
+  by_surface?: AtlasAiTelemetryScorecardBucket[]
+  by_provider?: AtlasAiTelemetryScorecardBucket[]
+  by_task_type?: AtlasAiTelemetryScorecardBucket[]
+  risks?: Record<string, number>
+  recent_low_score?: Array<Record<string, unknown>>
+}
+
+export interface AtlasAiTelemetryScorecardBucket {
+  bucket: string
+  traces: number
+  quality_avg: number | null
+  efficiency_avg: number | null
+  latency_avg_ms: number | null
+  cost_microusd_sum: number
+  unknown_cost_count?: number
+  estimated_cost_count?: number
+  first_pass_success_rate: number | null
+  needed_remediation_rate: number | null
+}
+
+export interface AtlasAiTelemetryHealthIssue {
+  key: string
+  severity: 'watch' | 'warning' | 'critical' | string
+  value: unknown
+  threshold: unknown
+  summary: string
+}
+
+export interface AtlasAiMissingCostRate {
+  provider: string | null
+  model: string | null
+  reason: string
+  can_import_rate: boolean
+  traces: number
+  latest_computed_at: string | null
+  rate_template?: Record<string, unknown> | null
+}
+
+export interface AtlasAiTelemetryHealth {
+  available: boolean
+  status: 'healthy' | 'watch' | 'warning' | 'critical' | 'unknown' | string
+  health_score: number | null
+  window?: {
+    since: string
+    until: string
+  }
+  thresholds?: Record<string, unknown>
+  issues: AtlasAiTelemetryHealthIssue[]
+  evidence?: {
+    missing_cost_rates?: AtlasAiMissingCostRate[]
+    [key: string]: unknown
+  }
+  actions: string[]
+  scorecard?: AtlasAiTelemetryScorecard
+}
+
+export interface AtlasAiTelemetryEventInput {
+  event_key?: string
+  correlation_id?: string
+  trace_id?: string | null
+  thread_id?: string | null
+  session_id?: string | null
+  ai_job_id?: string | null
+  ai_job_attempt_id?: string | null
+  client_id?: string | null
+  surface: 'mobile' | 'cli' | 'server' | 'worker' | 'scheduler' | 'eval'
+  runtime?: 'ios' | 'android' | 'mac_cli' | 'laravel' | 'worker' | 'scheduler' | 'test' | null
+  app_version?: string | null
+  cli_version?: string | null
+  provider?: string | null
+  model?: string | null
+  agent_slug?: string | null
+  event_name: string
+  event_phase?: string | null
+  occurred_at_client?: string | null
+  duration_ms?: number | null
+  numeric_value?: number | null
+  unit?: string | null
+  metadata?: Record<string, unknown>
+  privacy?: Record<string, unknown>
+  schema_version?: number
+}
+
+export interface AtlasAiTelemetryBatchResponse {
+  accepted: number
+  duplicates: number
+  rejected: number
+  events: Array<{ id: string; event_key: string; duplicate: boolean }>
+  errors: Array<{ index: number; message: string }>
+}
+
+export interface AtlasAiTelemetryScorecardResponse {
+  scorecard: AtlasAiTelemetryScorecard
+  health?: AtlasAiTelemetryHealth
+  recomputed: number | null
+}
+
+export interface AtlasAiProviderCostRate {
+  id: string
+  provider: string
+  model: string
+  input_microusd_per_1k: number
+  output_microusd_per_1k: number
+  currency: string
+  effective_from: string | null
+  effective_until: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface AtlasAiOutcomeLink {
+  id: string
+  trace_id: string | null
+  thread_id: string | null
+  session_id: string | null
+  outcome_type: string
+  target_type: string | null
+  target_id: string | null
+  value_score: number | null
+  confidence: number | null
+  source: string
+  occurred_at: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
 }
 
 export interface AiThreadsResponse {
@@ -2061,10 +2480,21 @@ export async function updateMobilePushToken(input: {
   return mobileApiPost<{ device: AtlasMobileDevice }>('/v1/mobile/devices/push-token', input)
 }
 
+export async function revokeMobileDevice(deviceId: string): Promise<{ device: AtlasMobileDevice }> {
+  const response = await mobileApiDelete<{ device: AtlasMobileDevice }>(`/v1/mobile/devices/${encodeURIComponent(deviceId)}`)
+  if (cachedMobileDeviceId === deviceId) {
+    await clearMobileDeviceSession()
+  }
+
+  return response
+}
+
 export async function listMobileInbox(params: {
-  status?: 'unread' | 'read' | 'actioned' | 'resolved' | 'dismissed' | 'expired' | 'snoozed' | 'all'
+  status?: 'unread' | 'read' | 'actioned' | 'resolved' | 'dismissed' | 'expired' | 'snoozed' | 'active' | 'all'
   type?: AtlasOperationalInboxType
+  severity?: 'debug' | 'info' | 'warning' | 'critical'
   limit?: number
+  cursor?: string | null
 } = {}): Promise<MobileInboxResponse> {
   return mobileApiGet<MobileInboxResponse>(`/v1/mobile/inbox${queryString(params)}`)
 }
@@ -2121,8 +2551,27 @@ export async function createThreadFromMobileInbox(id: string): Promise<{
   })
 }
 
-export async function getMobileAiThread(id: string): Promise<{ thread: AtlasAiThread }> {
-  return mobileApiGet<{ thread: AtlasAiThread }>(`/v1/mobile/threads/${encodeURIComponent(id)}`)
+export async function getMobileAiThread(id: string): Promise<{ thread: AtlasAiThread; traces: AtlasAiTrace[] }> {
+  return mobileApiGet<{ thread: AtlasAiThread; traces: AtlasAiTrace[] }>(`/v1/mobile/threads/${encodeURIComponent(id)}`)
+}
+
+export async function replyMobileAiThread(
+  id: string,
+  input: {
+    input_text: string
+    client_id?: string
+    agent_slug?: string
+    provider?: AtlasAiProvider
+    include_semantic_context?: boolean
+    context_note_limit?: number
+    payload?: Record<string, unknown>
+  },
+): Promise<{ trace: AtlasAiTrace; thread: AtlasAiThread }> {
+  return mobileApiPost<{ trace: AtlasAiTrace; thread: AtlasAiThread }>(
+    `/v1/mobile/threads/${encodeURIComponent(id)}/reply`,
+    input,
+    { idempotencyKey: input.client_id ? `mobile-thread-reply-${input.client_id}` : undefined },
+  )
 }
 
 export async function bulkTriageCaptures(input: {
@@ -2779,6 +3228,65 @@ export async function activateProjectStep(
   )
 }
 
+export async function listProjectBlockers(
+  projectId: string,
+  params: { status?: AtlasProjectBlockerStatus | string; limit?: number } = {},
+): Promise<ProjectBlockersResponse> {
+  return apiGet<ProjectBlockersResponse>(`/projects/${encodeURIComponent(projectId)}/blockers${queryString(params)}`)
+}
+
+export async function createProjectBlocker(
+  projectId: string,
+  input: {
+    task_id?: string | null
+    project_step_id?: string | null
+    severity?: AtlasProjectBlockerSeverity | null
+    reason_code?: AtlasProjectBlockerReasonCode | null
+    blocker_reason_code?: AtlasProjectBlockerReasonCode | null
+    description?: string | null
+    blocker?: string | null
+    reason?: string | null
+    note?: string | null
+    unblock_next_action?: string | null
+    next_hint?: string | null
+    waiting_on?: string | null
+    due_at?: string | null
+    metadata?: Record<string, unknown>
+  },
+): Promise<ProjectBlockerMutationResponse> {
+  return apiPost<ProjectBlockerMutationResponse>(`/projects/${encodeURIComponent(projectId)}/blockers`, input)
+}
+
+export async function resolveProjectBlocker(
+  projectId: string,
+  blockerId: string,
+  input: { resolution_note?: string | null; note?: string | null } = {},
+): Promise<ProjectBlockerMutationResponse> {
+  return apiPost<ProjectBlockerMutationResponse>(
+    `/projects/${encodeURIComponent(projectId)}/blockers/${encodeURIComponent(blockerId)}/resolve`,
+    input,
+  )
+}
+
+export async function convertProjectBlockerToTask(
+  projectId: string,
+  blockerId: string,
+  input: {
+    title?: string | null
+    description?: string | null
+    priority?: 'low' | 'normal' | 'high' | 'urgent' | null
+    estimated_minutes?: number | null
+    energy_required?: 'low' | 'medium' | 'high' | null
+    starter_step?: string | null
+    minimum_viable_action?: string | null
+  } = {},
+): Promise<ProjectBlockerMutationResponse> {
+  return apiPost<ProjectBlockerMutationResponse>(
+    `/projects/${encodeURIComponent(projectId)}/blockers/${encodeURIComponent(blockerId)}/task`,
+    input,
+  )
+}
+
 export async function patchTask(
   id: string,
   patch: Partial<Pick<AtlasTask,
@@ -2854,6 +3362,10 @@ export async function completeTask(
     outcome?: string | null
     evidence?: string | null
     blocker?: string | null
+    blocker_reason_code?: AtlasProjectBlockerReasonCode | null
+    blocker_severity?: AtlasProjectBlockerSeverity | null
+    unblock_next_action?: string | null
+    waiting_on?: string | null
     next_hint?: string | null
   } = {},
 ): Promise<AtlasTask> {
@@ -2862,6 +3374,24 @@ export async function completeTask(
 
 export async function listTaskEvents(id: string, params: { limit?: number } = {}): Promise<TaskEventsResponse> {
   return apiGet<TaskEventsResponse>(`/tasks/${encodeURIComponent(id)}/events${queryString(params)}`)
+}
+
+export async function fetchTaskEngineering(
+  id: string,
+  params: { limit?: number } = {},
+): Promise<AtlasEngineeringPackageResponse> {
+  return apiGet<AtlasEngineeringPackageResponse>(`/tasks/${encodeURIComponent(id)}/engineering${queryString(params)}`)
+}
+
+export async function freezeTaskEngineeringBlueprint(id: string): Promise<AtlasEngineeringPackageResponse> {
+  return apiPost<AtlasEngineeringPackageResponse>(`/tasks/${encodeURIComponent(id)}/engineering/blueprint/freeze`, {})
+}
+
+export async function recordTaskEngineeringEvidence(
+  id: string,
+  input: AtlasEngineeringEvidenceInput,
+): Promise<AtlasEngineeringEvidenceResponse> {
+  return apiPost<AtlasEngineeringEvidenceResponse>(`/tasks/${encodeURIComponent(id)}/engineering/evidence`, input)
 }
 
 export async function listProjectEvents(id: string, params: { limit?: number } = {}): Promise<ProjectEventsResponse> {
@@ -3176,6 +3706,86 @@ export async function getAiObservability(params: {
   return apiGet<AiObservabilityResponse>(`/ai/observability${queryString(params)}`)
 }
 
+export async function postAiTelemetryEvents(
+  events: AtlasAiTelemetryEventInput[],
+): Promise<AtlasAiTelemetryBatchResponse> {
+  await hydrateApiConfig()
+  const payload = { events }
+
+  return getMobileDeviceSession()
+    ? mobileApiPost<AtlasAiTelemetryBatchResponse>('/v1/mobile/telemetry/events', payload)
+    : apiPost<AtlasAiTelemetryBatchResponse>('/ai/telemetry/events', payload)
+}
+
+export async function getAiTelemetryScorecard(params: {
+  hours?: number
+  recompute?: boolean
+} = {}): Promise<AtlasAiTelemetryScorecardResponse> {
+  return apiGet<AtlasAiTelemetryScorecardResponse>(`/ai/telemetry/scorecard${queryString(params)}`)
+}
+
+export async function getAiTelemetryHealth(params: {
+  hours?: number
+  recompute?: boolean
+  emit?: boolean
+} = {}): Promise<{ health: AtlasAiTelemetryHealth; insight: { emitted: boolean; item_id: string | null; reason: string }; recomputed: number | null }> {
+  return apiGet<{ health: AtlasAiTelemetryHealth; insight: { emitted: boolean; item_id: string | null; reason: string }; recomputed: number | null }>(`/ai/telemetry/health${queryString(params)}`)
+}
+
+export async function listAiProviderCostRates(params: {
+  provider?: string
+  model?: string
+  active?: boolean
+  limit?: number
+} = {}): Promise<{ available: boolean; rates: AtlasAiProviderCostRate[] }> {
+  return apiGet<{ available: boolean; rates: AtlasAiProviderCostRate[] }>(`/ai/telemetry/cost-rates${queryString(params)}`)
+}
+
+export async function listMissingAiProviderCostRates(params: {
+  hours?: number
+  limit?: number
+} = {}): Promise<{ available: boolean; missing_rates: AtlasAiMissingCostRate[] }> {
+  return apiGet<{ available: boolean; missing_rates: AtlasAiMissingCostRate[] }>(`/ai/telemetry/cost-rates/missing${queryString(params)}`)
+}
+
+export async function upsertAiProviderCostRate(input: {
+  provider: string
+  model: string
+  input_microusd_per_1k: number
+  output_microusd_per_1k: number
+  currency?: string
+  effective_from?: string
+  effective_until?: string
+  metadata?: Record<string, unknown>
+}): Promise<{ rate: AtlasAiProviderCostRate }> {
+  return apiPost<{ rate: AtlasAiProviderCostRate }>('/ai/telemetry/cost-rates', input)
+}
+
+export async function recordAiOutcome(input: {
+  trace_id?: string | null
+  thread_id?: string | null
+  session_id?: string | null
+  outcome_type: string
+  target_type?: string | null
+  target_id?: string | null
+  value_score?: number | null
+  confidence?: number | null
+  source?: string
+  occurred_at?: string
+  metadata?: Record<string, unknown>
+}): Promise<{ outcome: AtlasAiOutcomeLink | null }> {
+  return apiPost<{ outcome: AtlasAiOutcomeLink | null }>('/ai/telemetry/outcomes', input)
+}
+
+export async function listAiOutcomes(params: {
+  trace_id?: string
+  thread_id?: string
+  outcome_type?: string
+  limit?: number
+} = {}): Promise<{ available: boolean; outcomes: AtlasAiOutcomeLink[] }> {
+  return apiGet<{ available: boolean; outcomes: AtlasAiOutcomeLink[] }>(`/ai/telemetry/outcomes${queryString(params)}`)
+}
+
 export async function listAiQualityActions(params: {
   status?: AtlasAiQualityActionStatus
   action_type?: string
@@ -3223,6 +3833,10 @@ export async function mobileApiPost<T>(
     },
     body: JSON.stringify(body),
   })
+}
+
+export async function mobileApiDelete<T>(path: string): Promise<T> {
+  return mobileApiRequest<T>(path, { method: 'DELETE' })
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
@@ -3540,6 +4154,20 @@ function parsePayload(text: string): unknown {
 function errorMessage(path: string, status: number, payload: unknown): string {
   if (payload && typeof payload === 'object' && 'message' in payload) {
     return String((payload as { message: unknown }).message)
+  }
+  if (payload && typeof payload === 'object' && 'error' in payload) {
+    const error = (payload as { error: unknown }).error
+    if (error && typeof error === 'object' && 'message' in error) {
+      return String((error as { message: unknown }).message)
+    }
+  }
+  if (payload && typeof payload === 'object' && 'errors' in payload) {
+    const errors = (payload as { errors: unknown }).errors
+    if (errors && typeof errors === 'object') {
+      const first = Object.values(errors as Record<string, unknown>)[0]
+      if (Array.isArray(first) && first[0]) return String(first[0])
+      if (typeof first === 'string') return first
+    }
   }
 
   return `Atlas API ${status} em ${path}`

@@ -8,6 +8,7 @@ import {
   mergeAtlasTrace,
   pollIntervalForAtlasAi,
   sortAtlasTraces,
+  traceDisplayKey,
   traceMatchesClientId,
   traceMatchesTurnFilter,
   type AtlasAiTurnFilter,
@@ -74,6 +75,7 @@ function action(input: Partial<AtlasAiQualityAction> = {}): AtlasAiQualityAction
 
 {
   assert.equal(isAtlasTraceActive(trace({ id: 'queued', status: 'queued' })), true)
+  assert.equal(isAtlasTraceActive(trace({ id: 'processing', status: 'processing' })), true)
   assert.equal(isAtlasTraceActive(trace({ id: 'done', status: 'succeeded' })), false)
 }
 
@@ -105,6 +107,8 @@ function action(input: Partial<AtlasAiQualityAction> = {}): AtlasAiQualityAction
   assert.equal(traceMatchesClientId(matched, 'client-1'), true)
   assert.equal(traceMatchesClientId(matched, 'client-2'), true)
   assert.equal(traceMatchesClientId(matched, 'missing'), false)
+  assert.equal(traceDisplayKey(matched), 'client-1')
+  assert.equal(traceDisplayKey(trace({ id: 'without-client', trace_key: 'trace-key-1' })), 'trace-key-1')
 }
 
 {

@@ -35,11 +35,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
-        "com.apple.developer.healthkit": true,
-        "com.apple.developer.family-controls": true,
-        "com.apple.security.application-groups": [
-          "group.com.vitor.atlas.shared"
-        ]
+        "com.apple.developer.healthkit": true
       }
     },
     "android": {
@@ -99,7 +95,13 @@
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "sounds": ["./assets/sounds/atlas-bronze.wav"]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

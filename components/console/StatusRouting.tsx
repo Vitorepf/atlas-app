@@ -24,23 +24,29 @@ export const ROUTING_DEFAULT: RoutingState = {
 interface Props {
   state: RoutingState
   onPress: () => void
+  locked?: boolean
 }
 
 // The editorial routing line. A single sentence in Fraunces italic just above
 // the input. Reads in prose: "codex pensa em planejar para blackink · trocar".
 // Tap anywhere opens the routing sheet. Always present, never dominant.
 // Substitutes the panel of stacked chips that violated luxo silencioso.
-export function StatusRouting({ state, onPress }: Props) {
+export function StatusRouting({ state, onPress, locked = false }: Props) {
   const c = usePalette()
   const overridden = isOverridden(state)
   const opacity = overridden ? 0.55 : 0.4
+  const suffix = locked ? '· aguardando' : '· trocar'
 
   return (
     <Pressable
       onPress={onPress}
       hitSlop={10}
       accessibilityRole="button"
-      accessibilityLabel={`rota atual: ${routingPhrase(state)}. tocar para trocar.`}
+      accessibilityLabel={
+        locked
+          ? `rota atual: ${routingPhrase(state)}. aguardando resposta atual.`
+          : `rota atual: ${routingPhrase(state)}. tocar para trocar.`
+      }
       style={({ pressed }) => [
         styles.row,
         { opacity: pressed ? 0.65 : 1 },
@@ -51,7 +57,7 @@ export function StatusRouting({ state, onPress }: Props) {
           {routingPhrase(state)}
         </Frau>
         <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: opacity * 0.7, marginLeft: 8 }}>
-          · trocar
+          {suffix}
         </Frau>
       </View>
     </Pressable>
@@ -64,7 +70,7 @@ export function routingPhrase(state: RoutingState): string {
   const subject = executorVerb(state.executor)
   const taskClause = state.task === 'direct' ? '' : ` em ${taskWord(state.task)}`
   const domainClause = state.domain === 'auto' ? '' : ` para ${domainWord(state.domain)}`
-  const styleClause = state.style === 'clear' ? ' · claro' : ` · ${styleWord(state.style)}`
+  const styleClause = state.style === 'clear' ? '' : ` · ${styleWord(state.style)}`
   return `${subject}${taskClause}${domainClause}${styleClause}`
 }
 

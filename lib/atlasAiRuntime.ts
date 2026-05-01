@@ -44,9 +44,25 @@ export function pollIntervalForAtlasAi(input: {
 }
 
 export function traceMatchesClientId(trace: AtlasAiTrace, clientId: string): boolean {
-  if (trace.job?.client_id === clientId) return true
-  if ((trace.jobs ?? []).some((job) => job.client_id === clientId)) return true
-  return trace.metadata?.client_id === clientId
+  return traceClientIds(trace).includes(clientId)
+}
+
+export function traceDisplayKey(trace: AtlasAiTrace): string {
+  return traceClientIds(trace)[0] ?? trace.trace_key ?? trace.id
+}
+
+function traceClientIds(trace: AtlasAiTrace): string[] {
+  const ids = [
+    trace.metadata?.client_id,
+    trace.job?.client_id,
+    ...(trace.jobs ?? []).map((job) => job.client_id),
+  ]
+
+  return uniqueTrimmed(
+    ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0),
+    4,
+    80,
+  )
 }
 
 export function sortAtlasTraces(traces: AtlasAiTrace[]): AtlasAiTrace[] {

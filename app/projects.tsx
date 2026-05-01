@@ -11,10 +11,14 @@ import { domainColor, domainLabel, type DomainKey } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
 import {
   completeTask,
+  convertProjectBlockerToTask,
   createProject,
   createProjectNextAction,
   deferTask,
+  fetchTaskEngineering,
+  freezeTaskEngineeringBlueprint,
   listProjectEvents,
+  listProjectBlockers,
   listProjects,
   listProjectReviewQueue,
   listProjectSteps,
@@ -23,10 +27,20 @@ import {
   patchProject,
   rebuildProjectPlan,
   recoverProjectExecution,
+  recordTaskEngineeringEvidence,
+  resolveProjectBlocker,
   reviewProject,
   scheduleTask,
   startProjectExecution,
+  type AtlasEngineeringEvidenceInput,
+  type AtlasEngineeringEvidenceResponse,
+  type AtlasEngineeringEvidenceStatus,
+  type AtlasEngineeringEvidenceType,
+  type AtlasEngineeringPackageResponse,
   type AtlasProject,
+  type AtlasProjectBlocker,
+  type AtlasProjectBlockerReasonCode,
+  type AtlasProjectBlockerSeverity,
   type AtlasProjectEvent,
   type AtlasProjectStep,
   type AtlasProjectType,
@@ -45,6 +59,9 @@ type CompletionDraft = {
   outcome: string
   evidence: string
   nextHint: string
+  blockerReasonCode: AtlasProjectBlockerReasonCode
+  blockerSeverity: AtlasProjectBlockerSeverity
+  waitingOn: string
 }
 type ProjectCompletionDraft = {
   outcome: string
@@ -62,6 +79,19 @@ type ProjectCompletionInfo = {
   outcome: string
   evidence: string | null
   force: boolean
+}
+type EngineeringEvidenceDraft = {
+  targetId: string
+  evidenceType: AtlasEngineeringEvidenceType
+  status: AtlasEngineeringEvidenceStatus
+  confidence: string
+  summary: string
+}
+type EngineeringEvidenceTarget = {
+  id: string
+  label: string
+  evidenceType: AtlasEngineeringEvidenceType
+  status: string
 }
 type ProjectAcceptedPlanSummary = {
   proposalId: string | null
@@ -132,6 +162,28 @@ const COMPLETION_QUALITIES: Array<{ key: CompletionQuality; label: string; hint:
   { key: 'blocked', label: 'Bloqueou', hint: 'Existe atrito real; a etapa fica bloqueada para destravar depois.' },
 ]
 
+const BLOCKER_REASONS: Array<{ key: AtlasProjectBlockerReasonCode; label: string }> = [
+  { key: 'unclear', label: 'sem clareza' },
+  { key: 'too_large', label: 'grande demais' },
+  { key: 'boring', label: 'chato' },
+  { key: 'energy', label: 'energia' },
+  { key: 'waiting_external', label: 'depende de alguém' },
+  { key: 'technical_unknown', label: 'dúvida técnica' },
+]
+
+const BLOCKER_SEVERITIES: Array<{ key: AtlasProjectBlockerSeverity; label: string }> = [
+  { key: 'medium', label: 'normal' },
+  { key: 'high', label: 'alta' },
+  { key: 'low', label: 'baixa' },
+]
+
+const ENGINEERING_EVIDENCE_STATUSES: Array<{ key: AtlasEngineeringEvidenceStatus; label: string }> = [
+  { key: 'passed', label: 'passou' },
+  { key: 'needs_review', label: 'revisar' },
+  { key: 'failed', label: 'falhou' },
+  { key: 'not_applicable', label: 'n/a' },
+]
+
 const ENERGY_AFTER_OPTIONS = [1, 2, 3, 4, 5] as const
 
 export default function ProjectsScreen() {
@@ -146,6 +198,9 @@ export default function ProjectsScreen() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [steps, setSteps] = useState<AtlasProjectStep[]>([])
   const [events, setEvents] = useState<AtlasProjectEvent[]>([])
+  const [blockers, setBlockers] = useState<AtlasProjectBlocker[]>([])
+  const [engineeringPackage, setEngineeringPackage] = useState<AtlasEngineeringPackageResponse | null>(null)
+  const [engineeringLoading, setEngineeringLoading] = useState(false)
   const [reviewItems, setReviewItems] = useState<ProjectReviewItem[]>([])
   const [reviewLoading, setReviewLoading] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -164,6 +219,7 @@ export default function ProjectsScreen() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   )
+  const selectedTaskId = selectedProject?.active_next_task?.id ?? null
   const preferredProjectId = useMemo(() => {
     const value = searchParams.projectId
     if (typeof value === 'string') return value
@@ -188,15 +244,18 @@ export default function ProjectsScreen() {
   const loadProjectDetails = useCallback(async (projectId: string) => {
     setDetailLoading(true)
     try {
-      const [stepResponse, eventResponse] = await Promise.all([
+      const [stepResponse, eventResponse, blockerResponse] = await Promise.all([
         listProjectSteps(projectId),
         listProjectEvents(projectId, { limit: 12 }),
+        listProjectBlockers(projectId, { limit: 30 }),
       ])
       setSteps(stepResponse.steps)
       setEvents(eventResponse.events)
+      setBlockers(blockerResponse.blockers)
     } catch {
       setSteps([])
       setEvents([])
+      setBlockers([])
     } finally {
       setDetailLoading(false)
     }
@@ -249,6 +308,7 @@ export default function ProjectsScreen() {
     if (!selectedProjectId) {
       setSteps([])
       setEvents([])
+      setBlockers([])
       return
     }
 
@@ -256,8 +316,61 @@ export default function ProjectsScreen() {
   }, [loadProjectDetails, selectedProjectId])
 
   useEffect(() => {
+    let cancelled = false
+
+    if (!selectedTaskId) {
+      setEngineeringPackage(null)
+      setEngineeringLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setEngineeringLoading(true)
+    void fetchTaskEngineering(selectedTaskId, { limit: 6 })
+      .then((response) => {
+        if (!cancelled) setEngineeringPackage(response)
+      })
+      .catch(() => {
+        if (!cancelled) setEngineeringPackage(null)
+      })
+      .finally(() => {
+        if (!cancelled) setEngineeringLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTaskId])
+
+  useEffect(() => {
     setNextActionText(selectedProject?.next_action ?? '')
   }, [selectedProject?.id, selectedProject?.next_action])
+
+  const applyEngineeringEvidenceResponse = useCallback((response: AtlasEngineeringEvidenceResponse) => {
+    setEngineeringPackage((current) => {
+      if (!current || current.task_id !== response.task_id) return current
+
+      return {
+        ...current,
+        contract: response.contract,
+        blueprint: response.blueprint,
+        blueprint_snapshot: response.blueprint_snapshot,
+        status_snapshot: response.status_snapshot,
+        latest_run: response.latest_run,
+        latest_evidence: response.evidence,
+        evidence_history: response.evidence_history,
+      }
+    })
+  }, [])
+
+  const applyEngineeringPackageResponse = useCallback((response: AtlasEngineeringPackageResponse) => {
+    setEngineeringPackage((current) => {
+      if (!current || current.task_id !== response.task_id) return current
+
+      return response
+    })
+  }, [])
 
   const reloadProject = async (projectId: string) => {
     await loadProjects(projectId)
@@ -342,6 +455,10 @@ export default function ProjectsScreen() {
         outcome: outcome || null,
         evidence: evidence || null,
         blocker: completionDraft.quality === 'blocked' ? outcome || nextHint || null : null,
+        blocker_reason_code: completionDraft.quality === 'blocked' ? completionDraft.blockerReasonCode : null,
+        blocker_severity: completionDraft.quality === 'blocked' ? completionDraft.blockerSeverity : null,
+        unblock_next_action: completionDraft.quality === 'blocked' ? nextHint || null : null,
+        waiting_on: completionDraft.quality === 'blocked' ? completionDraft.waitingOn.trim() || null : null,
         next_hint: nextHint || null,
       })
       setCompletionProjectId(null)
@@ -552,6 +669,40 @@ export default function ProjectsScreen() {
     }
   }
 
+  const makeBlockerTask = async (project: AtlasProject, blocker: AtlasProjectBlocker) => {
+    if (busyAction) return
+
+    setBusyAction(`blocker-task:${blocker.id}`)
+    try {
+      await convertProjectBlockerToTask(project.id, blocker.id, {
+        priority: blocker.severity === 'high' ? 'high' : normalizePriority(project.priority),
+      })
+      showToast('Tarefa de desbloqueio criada', { variant: 'checkin' })
+      await reloadProject(project.id)
+    } catch {
+      showToast('Não consegui criar a tarefa de desbloqueio')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const resolveBlocker = async (project: AtlasProject, blocker: AtlasProjectBlocker) => {
+    if (busyAction) return
+
+    setBusyAction(`blocker-resolve:${blocker.id}`)
+    try {
+      await resolveProjectBlocker(project.id, blocker.id, {
+        resolution_note: 'Resolvido pela tela de Projetos.',
+      })
+      showToast('Bloqueio resolvido', { variant: 'checkin' })
+      await reloadProject(project.id)
+    } catch {
+      showToast('Não consegui resolver o bloqueio')
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
   return (
     <Screen
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProjects(selectedProjectId) }} />}
@@ -699,6 +850,9 @@ export default function ProjectsScreen() {
             selected={selectedProjectId === project.id}
             steps={selectedProjectId === project.id ? steps : []}
             events={selectedProjectId === project.id ? events : []}
+            blockers={selectedProjectId === project.id ? blockers : []}
+            engineeringPackage={selectedProjectId === project.id ? engineeringPackage : null}
+            engineeringLoading={selectedProjectId === project.id ? engineeringLoading : false}
             detailLoading={detailLoading && selectedProjectId === project.id}
             nextActionText={selectedProjectId === project.id ? nextActionText : project.next_action ?? ''}
             executionPacket={selectedProjectId === project.id ? executionPackets[project.id] ?? null : null}
@@ -724,6 +878,10 @@ export default function ProjectsScreen() {
             onResume={() => { void changeProjectStatus(project, 'active') }}
             onCompleteProject={() => { void completeProject(project) }}
             onStepStatusChange={(step, status) => { void changeStepStatus(project, step, status) }}
+            onMakeBlockerTask={(blocker) => { void makeBlockerTask(project, blocker) }}
+            onResolveBlocker={(blocker) => { void resolveBlocker(project, blocker) }}
+            onEngineeringEvidenceRecorded={applyEngineeringEvidenceResponse}
+            onEngineeringBlueprintFrozen={applyEngineeringPackageResponse}
           />
         ))}
       </View>
@@ -736,6 +894,9 @@ function ProjectCard({
   selected,
   steps,
   events,
+  blockers,
+  engineeringPackage,
+  engineeringLoading,
   detailLoading,
   nextActionText,
   executionPacket,
@@ -761,11 +922,18 @@ function ProjectCard({
   onResume,
   onCompleteProject,
   onStepStatusChange,
+  onMakeBlockerTask,
+  onResolveBlocker,
+  onEngineeringEvidenceRecorded,
+  onEngineeringBlueprintFrozen,
 }: {
   project: AtlasProject
   selected: boolean
   steps: AtlasProjectStep[]
   events: AtlasProjectEvent[]
+  blockers: AtlasProjectBlocker[]
+  engineeringPackage: AtlasEngineeringPackageResponse | null
+  engineeringLoading: boolean
   detailLoading: boolean
   nextActionText: string
   executionPacket: ProjectExecutionPacket | null
@@ -791,6 +959,10 @@ function ProjectCard({
   onResume: () => void
   onCompleteProject: () => void
   onStepStatusChange: (step: AtlasProjectStep, status: AtlasProjectStep['status']) => void
+  onMakeBlockerTask: (blocker: AtlasProjectBlocker) => void
+  onResolveBlocker: (blocker: AtlasProjectBlocker) => void
+  onEngineeringEvidenceRecorded: (response: AtlasEngineeringEvidenceResponse) => void
+  onEngineeringBlueprintFrozen: (response: AtlasEngineeringPackageResponse) => void
 }) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
@@ -798,12 +970,14 @@ function ProjectCard({
     ? Math.round((steps.filter((step) => step.status === 'done').length / steps.length) * 100)
     : null
   const accent = domainColor(project.domain, c, domains)
-  const canActOnTask = project.status === 'active' && Boolean(project.active_next_task?.id)
+  const activeTaskRole = stringValue(project.active_next_task?.metadata.role)
+  const canActOnTask = Boolean(project.active_next_task?.id) && (project.status === 'active' || activeTaskRole === 'unblock_action')
   const learning = projectExecutionLearning(project)
   const activeCalibration = taskEstimateCalibration(project.active_next_task ?? null)
   const deferInfo = taskDeferInfo(project.active_next_task ?? null)
   const completionInfo = projectCompletionInfo(project)
   const acceptedPlan = projectAcceptedPlanSummary(project)
+  const openBlockers = blockers.filter((blocker) => blocker.status === 'open')
 
   return (
     <Pressable
@@ -840,6 +1014,11 @@ function ProjectCard({
           <Sans weight="sb" size={12.5} lineHeight={17} color={c.bronze}>
             {executionHealthLabel(project)}
           </Sans>
+          {(project.execution_health.open_blockers_count ?? project.open_blockers_count ?? 0) > 0 ? (
+            <Sans size={11.5} lineHeight={16} color={c.ink2}>
+              {project.execution_health.open_blockers_count ?? project.open_blockers_count} bloqueio(s) aberto(s)
+            </Sans>
+          ) : null}
         </View>
       ) : null}
 
@@ -892,7 +1071,7 @@ function ProjectCard({
 
       {project.active_next_task ? (
         <View style={[styles.activeTaskBox, { borderTopColor: c.border }]}>
-          <Label>Próxima ação</Label>
+          <Label>{activeTaskRole === 'unblock_action' ? 'Ação de desbloqueio' : 'Próxima ação'}</Label>
           <Sans weight="sb" size={13.5} lineHeight={18} color={c.ink}>
             {project.active_next_task.title}
           </Sans>
@@ -1016,6 +1195,15 @@ function ProjectCard({
                 <ExecutionPacketView packet={executionPacket} />
               ) : null}
 
+              {project.active_next_task ? (
+                <EngineeringPanel
+                  packet={engineeringPackage}
+                  loading={engineeringLoading}
+                  onRecorded={onEngineeringEvidenceRecorded}
+                  onBlueprintFrozen={onEngineeringBlueprintFrozen}
+                />
+              ) : null}
+
               <View style={[styles.nextEditor, { borderColor: c.border }]}>
                 <TextInput
                   value={nextActionText}
@@ -1026,6 +1214,13 @@ function ProjectCard({
                 />
                 <SmallAction label="Salvar próxima ação" disabled={!nextActionText.trim() || busyAction != null} onPress={onSaveNextAction} wide />
               </View>
+
+              <ProjectBlockersPanel
+                blockers={openBlockers}
+                busyAction={busyAction}
+                onMakeTask={onMakeBlockerTask}
+                onResolve={onResolveBlocker}
+              />
 
               <StepTimeline
                 steps={steps}
@@ -1048,6 +1243,69 @@ function ProjectCard({
         </View>
       ) : null}
     </Pressable>
+  )
+}
+
+function ProjectBlockersPanel({
+  blockers,
+  busyAction,
+  onMakeTask,
+  onResolve,
+}: {
+  blockers: AtlasProjectBlocker[]
+  busyAction: string | null
+  onMakeTask: (blocker: AtlasProjectBlocker) => void
+  onResolve: (blocker: AtlasProjectBlocker) => void
+}) {
+  const c = usePalette()
+  if (blockers.length === 0) return null
+
+  return (
+    <View style={[styles.blockerPanel, { borderColor: c.border, backgroundColor: c.bg }]}>
+      <View style={styles.executionTop}>
+        <Label>Bloqueios abertos</Label>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.recRed}>
+          {blockers.length}
+        </Mono>
+      </View>
+      {blockers.slice(0, 3).map((blocker) => (
+        <View key={blocker.id} style={[styles.blockerItem, { borderTopColor: c.border }]}>
+          <View style={styles.executionTop}>
+            <Sans weight="sb" size={13} lineHeight={18} color={c.ink} style={{ flex: 1, minWidth: 0 }}>
+              {blockerReasonLabel(blocker.reason_code)} · {blockerSeverityLabel(blocker.severity)}
+            </Sans>
+            <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.ink2}>
+              {dateLabel(blocker.updated_at)}
+            </Mono>
+          </View>
+          <Sans size={11.5} lineHeight={16} color={c.ink2} numberOfLines={2}>
+            {blocker.description}
+          </Sans>
+          {blocker.unblock_next_action ? (
+            <Sans weight="sb" size={11.5} lineHeight={16} color={c.prussian}>
+              Próximo: {blocker.unblock_next_action}
+            </Sans>
+          ) : null}
+          {blocker.unblock_task ? (
+            <Sans size={11.5} lineHeight={16} color={c.ink2}>
+              Tarefa criada: {blocker.unblock_task.title}
+            </Sans>
+          ) : null}
+          <View style={styles.actionRow}>
+            <SmallAction
+              label={busyAction === `blocker-task:${blocker.id}` ? 'Criando' : blocker.unblock_task ? 'Atualizar tarefa' : 'Virar tarefa'}
+              disabled={busyAction != null}
+              onPress={() => onMakeTask(blocker)}
+            />
+            <SmallAction
+              label={busyAction === `blocker-resolve:${blocker.id}` ? 'Resolvendo' : 'Resolvido'}
+              disabled={busyAction != null}
+              onPress={() => onResolve(blocker)}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
   )
 }
 
@@ -1096,6 +1354,263 @@ function ExecutionPacketView({ packet }: { packet: ProjectExecutionPacket }) {
   )
 }
 
+function EngineeringPanel({
+  packet,
+  loading,
+  onRecorded,
+  onBlueprintFrozen,
+}: {
+  packet: AtlasEngineeringPackageResponse | null
+  loading: boolean
+  onRecorded: (response: AtlasEngineeringEvidenceResponse) => void
+  onBlueprintFrozen: (response: AtlasEngineeringPackageResponse) => void
+}) {
+  const c = usePalette()
+  const { showToast } = useShell()
+  const [formOpen, setFormOpen] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [freezingBlueprint, setFreezingBlueprint] = useState(false)
+  const [draft, setDraft] = useState<EngineeringEvidenceDraft>(() => defaultEngineeringEvidenceDraft())
+
+  const targetOptions = useMemo(() => packet ? engineeringEvidenceTargets(packet) : [], [packet])
+
+  useEffect(() => {
+    setDraft(defaultEngineeringEvidenceDraft(packet))
+    setFormOpen(false)
+  }, [packet?.task_id])
+
+  const selectedTarget = targetOptions.find((target) => target.id === draft.targetId) ?? targetOptions[0] ?? null
+
+  const freezeBlueprint = async () => {
+    if (!packet || freezingBlueprint) return
+
+    setFreezingBlueprint(true)
+    try {
+      const response = await freezeTaskEngineeringBlueprint(packet.task_id)
+      onBlueprintFrozen(response)
+      showToast('Blueprint fixado', { variant: 'checkin' })
+    } catch {
+      showToast('Não consegui fixar o blueprint')
+    } finally {
+      setFreezingBlueprint(false)
+    }
+  }
+
+  const submitEvidence = async () => {
+    if (!packet || recording) return
+    const summary = draft.summary.trim()
+    if (!summary) {
+      showToast('Descreva a evidência')
+      return
+    }
+
+    setRecording(true)
+    try {
+      const input: AtlasEngineeringEvidenceInput = {
+        evidence_type: selectedTarget?.evidenceType ?? draft.evidenceType,
+        target_id: (selectedTarget?.id ?? draft.targetId) || null,
+        status: draft.status,
+        confidence: parsedEngineeringConfidence(draft.confidence),
+        summary,
+      }
+      const response = await recordTaskEngineeringEvidence(packet.task_id, input)
+      onRecorded(response)
+      setDraft(defaultEngineeringEvidenceDraft({
+        ...packet,
+        contract: response.contract,
+        blueprint: response.blueprint,
+        blueprint_snapshot: response.blueprint_snapshot,
+        status_snapshot: response.status_snapshot,
+        latest_run: response.latest_run,
+        latest_evidence: response.evidence,
+        evidence_history: response.evidence_history,
+      }))
+      setFormOpen(false)
+      showToast('Evidência registrada', { variant: 'checkin' })
+    } catch {
+      showToast('Não consegui registrar a evidência')
+    } finally {
+      setRecording(false)
+    }
+  }
+
+  if (loading && !packet) {
+    return (
+      <View style={[styles.engineeringBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+        <Label>Engenharia</Label>
+        <Sans size={12.5} lineHeight={18} color={c.ink2}>
+          Carregando pacote técnico...
+        </Sans>
+      </View>
+    )
+  }
+
+  if (!packet) return null
+
+  const gates = packet.status_snapshot.review_gates
+  const openGateCount = gates.filter((gate) => engineeringGateNeedsAttention(gate.status)).length
+  const latestEvidence = packet.latest_evidence
+  const firstAcceptance = packet.status_snapshot.acceptance_checklist[0] ?? null
+  const latestDecision = packet.status_snapshot.decision.status
+
+  return (
+    <View style={[styles.engineeringBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+      <View style={styles.executionTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Engenharia</Label>
+          <Sans weight="sb" size={13} lineHeight={18} color={c.ink} numberOfLines={2}>
+            {packet.contract.goal}
+          </Sans>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={engineeringStatusColor(String(latestDecision), c)}>
+          {engineeringStatusLabel(String(latestDecision))}
+        </Mono>
+      </View>
+
+      <View style={styles.cardFacts}>
+        <Fact label="aceites" value={String(packet.blueprint.acceptance_matrix.length)} />
+        <Fact label="gates abertos" value={String(openGateCount)} />
+        <Fact label="evidências" value={String(packet.evidence_history.length)} />
+      </View>
+
+      {packet.blueprint_snapshot ? (
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={packet.blueprint_snapshot.matches_current_content ? c.ink2 : c.bronze}>
+          blueprint v{packet.blueprint_snapshot.version} · {packet.blueprint_snapshot.matches_current_content ? 'fixado' : 'desatualizado'} · {dateLabel(packet.blueprint_snapshot.frozen_at)}
+        </Mono>
+      ) : (
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.bronze}>
+          blueprint ainda não fixado
+        </Mono>
+      )}
+
+      {firstAcceptance ? (
+        <Sans size={11.5} lineHeight={16} color={c.ink2} numberOfLines={2}>
+          Aceite: {firstAcceptance.criterion}
+        </Sans>
+      ) : null}
+
+      {gates.length > 0 ? (
+        <View style={styles.engineeringGateList}>
+          {gates.slice(0, 4).map((gate) => (
+            <View key={gate.id} style={styles.engineeringGateRow}>
+              <Sans size={11.5} lineHeight={16} color={c.ink2} numberOfLines={1} style={{ flex: 1 }}>
+                {gate.title}
+              </Sans>
+              <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={engineeringStatusColor(gate.status, c)}>
+                {engineeringStatusLabel(gate.status)}
+              </Mono>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {latestEvidence ? (
+        <View style={styles.engineeringEvidence}>
+          <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={engineeringStatusColor(latestEvidence.status, c)}>
+            {engineeringStatusLabel(latestEvidence.status)} · {latestEvidence.evidence_type} · {dateLabel(latestEvidence.recorded_at)}
+          </Mono>
+          <Sans size={11.5} lineHeight={16} color={c.ink2} numberOfLines={2}>
+            {latestEvidence.summary}
+          </Sans>
+        </View>
+      ) : null}
+
+      <View style={styles.actionRow}>
+        <SmallAction
+          label={freezingBlueprint ? 'Fixando' : packet.blueprint_snapshot?.matches_current_content ? 'Blueprint fixado' : 'Fixar blueprint'}
+          disabled={freezingBlueprint}
+          onPress={() => { void freezeBlueprint() }}
+        />
+        <SmallAction
+          label={formOpen ? 'Fechar evidência' : 'Registrar evidência'}
+          disabled={recording}
+          onPress={() => setFormOpen((open) => !open)}
+        />
+      </View>
+
+      {formOpen ? (
+        <View style={[styles.engineeringForm, { borderTopColor: c.border }]}>
+          {targetOptions.length > 0 ? (
+            <>
+              <Label>Alvo</Label>
+              <View style={styles.actionRow}>
+                {targetOptions.slice(0, 8).map((target) => (
+                  <FilterChip
+                    key={target.id}
+                    label={target.label}
+                    active={draft.targetId === target.id}
+                    accent={engineeringStatusColor(target.status, c)}
+                    onPress={() => setDraft({
+                      ...draft,
+                      targetId: target.id,
+                      evidenceType: target.evidenceType,
+                    })}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          <Label>Status</Label>
+          <View style={styles.actionRow}>
+            {ENGINEERING_EVIDENCE_STATUSES.map((status) => (
+              <FilterChip
+                key={status.key}
+                label={status.label}
+                active={draft.status === status.key}
+                accent={engineeringStatusColor(status.key, c)}
+                onPress={() => setDraft({ ...draft, status: status.key })}
+              />
+            ))}
+          </View>
+
+          <View style={styles.completionGrid}>
+            <View style={{ flex: 1, minWidth: 118, gap: 6 }}>
+              <Label>Confiança</Label>
+              <TextInput
+                value={draft.confidence}
+                onChangeText={(confidence) => setDraft({ ...draft, confidence: confidence.replace(/[^0-9.,]/g, '').slice(0, 4) })}
+                keyboardType="decimal-pad"
+                placeholder="0.86"
+                placeholderTextColor={c.ink3}
+                style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+            </View>
+            <View style={{ flex: 2, minWidth: 150, gap: 6 }}>
+              <Label>Tipo</Label>
+              <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.ink2}>
+                {selectedTarget?.evidenceType ?? draft.evidenceType}
+              </Mono>
+            </View>
+          </View>
+
+          <TextInput
+            value={draft.summary}
+            onChangeText={(summary) => setDraft({ ...draft, summary })}
+            placeholder="o que foi validado, comando executado, arquivo ou decisão observada"
+            placeholderTextColor={c.ink3}
+            multiline
+            style={[styles.input, styles.textArea, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+          />
+
+          <SmallAction
+            label={recording ? 'Registrando' : 'Salvar evidência'}
+            disabled={recording || !draft.summary.trim()}
+            onPress={() => { void submitEvidence() }}
+            wide
+          />
+        </View>
+      ) : null}
+
+      {loading ? (
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.ink2}>
+          atualizando...
+        </Mono>
+      ) : null}
+    </View>
+  )
+}
+
 function CompletionPanel({
   draft,
   estimatedMinutes,
@@ -1139,6 +1654,42 @@ function CompletionPanel({
           />
         ))}
       </View>
+
+      {draft.quality === 'blocked' ? (
+        <View style={styles.blockerReasonBox}>
+          <Label>Motivo do bloqueio</Label>
+          <View style={styles.chipRow}>
+            {BLOCKER_REASONS.map((option) => (
+              <FilterChip
+                key={option.key}
+                label={option.label}
+                active={draft.blockerReasonCode === option.key}
+                accent={c.recRed}
+                onPress={() => onChange({ ...draft, blockerReasonCode: option.key })}
+              />
+            ))}
+          </View>
+          <Label>Severidade</Label>
+          <View style={styles.actionRow}>
+            {BLOCKER_SEVERITIES.map((option) => (
+              <FilterChip
+                key={option.key}
+                label={option.label}
+                active={draft.blockerSeverity === option.key}
+                accent={option.key === 'high' ? c.recRed : c.bronze}
+                onPress={() => onChange({ ...draft, blockerSeverity: option.key })}
+              />
+            ))}
+          </View>
+          <TextInput
+            value={draft.waitingOn}
+            onChangeText={(waitingOn) => onChange({ ...draft, waitingOn })}
+            placeholder="depende de quem/do quê?"
+            placeholderTextColor={c.ink3}
+            style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+          />
+        </View>
+      ) : null}
 
       <View style={styles.completionGrid}>
         <View style={{ flex: 1, minWidth: 118, gap: 6 }}>
@@ -1594,6 +2145,22 @@ function defaultCompletionDraft(estimatedMinutes?: number | null): CompletionDra
     outcome: '',
     evidence: '',
     nextHint: '',
+    blockerReasonCode: 'unclear',
+    blockerSeverity: 'medium',
+    waitingOn: '',
+  }
+}
+
+function defaultEngineeringEvidenceDraft(packet?: AtlasEngineeringPackageResponse | null): EngineeringEvidenceDraft {
+  const targets = packet ? engineeringEvidenceTargets(packet) : []
+  const target = targets.find((item) => engineeringGateNeedsAttention(item.status)) ?? targets[0] ?? null
+
+  return {
+    targetId: target?.id ?? 'deep_code_review',
+    evidenceType: target?.evidenceType ?? 'deep_code_review',
+    status: 'passed',
+    confidence: '0.86',
+    summary: '',
   }
 }
 
@@ -1603,6 +2170,52 @@ function defaultProjectCompletionDraft(): ProjectCompletionDraft {
     evidence: '',
     note: '',
     force: false,
+  }
+}
+
+function engineeringEvidenceTargets(packet: AtlasEngineeringPackageResponse): EngineeringEvidenceTarget[] {
+  const acceptanceTargets = packet.status_snapshot.acceptance_checklist.map((item) => ({
+    id: item.id,
+    label: item.id,
+    evidenceType: 'acceptance',
+    status: item.status,
+  }))
+
+  const gateTargets = packet.status_snapshot.review_gates
+    .filter((gate) => gate.id !== 'acceptance_criteria')
+    .map((gate) => ({
+      id: gate.id,
+      label: engineeringGateShortLabel(gate.id, gate.title),
+      evidenceType: engineeringGateEvidenceType(gate.id),
+      status: gate.status,
+    }))
+
+  return [...acceptanceTargets, ...gateTargets].sort((left, right) => (
+    Number(engineeringGateNeedsAttention(right.status)) - Number(engineeringGateNeedsAttention(left.status))
+  ))
+}
+
+function engineeringGateEvidenceType(gateId: string): AtlasEngineeringEvidenceType {
+  switch (gateId) {
+    case 'validation_evidence':
+    case 'manual_qa':
+    case 'deep_code_review':
+    case 'database_review':
+      return gateId
+    case 'acceptance_criteria':
+    default:
+      return 'acceptance'
+  }
+}
+
+function engineeringGateShortLabel(gateId: string, title: string): string {
+  switch (gateId) {
+    case 'acceptance_criteria': return 'aceites'
+    case 'validation_evidence': return 'validação'
+    case 'manual_qa': return 'QA'
+    case 'deep_code_review': return 'review'
+    case 'database_review': return 'database'
+    default: return title.slice(0, 18)
   }
 }
 
@@ -1636,12 +2249,21 @@ function parsedCompletionMinutes(value: string): number | null {
   return Math.min(1440, Math.max(1, parsed))
 }
 
+function parsedEngineeringConfidence(value: string): number | null {
+  const parsed = Number.parseFloat(value.replace(',', '.'))
+  if (!Number.isFinite(parsed)) return null
+
+  return Math.min(1, Math.max(0, parsed))
+}
+
 function completionNote(draft: CompletionDraft): string {
   const parts = [
     completionQualityLabel(draft.quality),
+    draft.quality === 'blocked' ? `Motivo: ${blockerReasonLabel(draft.blockerReasonCode)}` : null,
     draft.outcome.trim() ? `Resultado: ${draft.outcome.trim()}` : null,
     draft.evidence.trim() ? `Evidência: ${draft.evidence.trim()}` : null,
     draft.nextHint.trim() ? `Próximo: ${draft.nextHint.trim()}` : null,
+    draft.waitingOn.trim() ? `Depende de: ${draft.waitingOn.trim()}` : null,
   ].filter(Boolean)
 
   return parts.join(' · ').slice(0, 500)
@@ -1785,6 +2407,14 @@ function deferReasonLabel(reasonCode: string): string {
     case 'not_now':
     default: return 'não agora'
   }
+}
+
+function blockerReasonLabel(reasonCode: string): string {
+  return BLOCKER_REASONS.find((reason) => reason.key === reasonCode)?.label ?? reasonCode.replace(/_/g, ' ')
+}
+
+function blockerSeverityLabel(severity: string): string {
+  return BLOCKER_SEVERITIES.find((item) => item.key === severity)?.label ?? severity
 }
 
 function deferActionLabel(action: string, minutes: number | null): string {
@@ -1982,6 +2612,51 @@ function stepStatusLabel(status: string): string {
   }
 }
 
+function engineeringGateNeedsAttention(status: string): boolean {
+  return [
+    'required',
+    'needs_review',
+    'manual_qa_required',
+    'database_review_required',
+    'failed',
+  ].includes(status)
+}
+
+function engineeringStatusLabel(status: string): string {
+  switch (status) {
+    case 'ready': return 'pronto'
+    case 'passed': return 'passou'
+    case 'evidence_recorded': return 'evidência'
+    case 'needs_human_review': return 'revisar'
+    case 'needs_review': return 'revisar'
+    case 'manual_qa_required': return 'QA'
+    case 'database_review_required': return 'DB'
+    case 'not_applicable': return 'n/a'
+    case 'required': return 'pendente'
+    case 'failed': return 'falhou'
+    default: return status.replace(/_/g, ' ')
+  }
+}
+
+function engineeringStatusColor(status: string, c: ReturnType<typeof usePalette>): string {
+  switch (status) {
+    case 'ready':
+    case 'passed':
+    case 'evidence_recorded':
+      return c.moss
+    case 'failed':
+      return c.recRed
+    case 'needs_human_review':
+    case 'needs_review':
+    case 'manual_qa_required':
+    case 'database_review_required':
+    case 'required':
+      return c.bronze
+    default:
+      return c.ink2
+  }
+}
+
 function eventLabel(eventType: string): string {
   switch (eventType) {
     case 'created': return 'criado'
@@ -2000,6 +2675,10 @@ function eventLabel(eventType: string): string {
     case 'execution_progress_recorded': return 'progresso registrado'
     case 'execution_blocked': return 'execução bloqueada'
     case 'execution_started': return 'execução iniciada'
+    case 'blocker_opened': return 'bloqueio aberto'
+    case 'blocker_updated': return 'bloqueio atualizado'
+    case 'blocker_converted_to_task': return 'bloqueio virou tarefa'
+    case 'blocker_resolved': return 'bloqueio resolvido'
     case 'completed': return 'projeto concluído'
     default: return eventType
   }
@@ -2215,6 +2894,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
   },
+  blockerPanel: {
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 11,
+    gap: 8,
+  },
+  blockerItem: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 9,
+    gap: 6,
+  },
   activeTaskBox: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 10,
@@ -2253,6 +2943,28 @@ const styles = StyleSheet.create({
     padding: 11,
     gap: 6,
   },
+  engineeringBox: {
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 11,
+    gap: 8,
+  },
+  engineeringGateList: {
+    gap: 5,
+  },
+  engineeringGateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  engineeringEvidence: {
+    gap: 3,
+  },
+  engineeringForm: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    gap: 8,
+  },
   executionTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2268,6 +2980,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     padding: 11,
     gap: 9,
+  },
+  blockerReasonBox: {
+    gap: 8,
   },
   completionGrid: {
     flexDirection: 'row',

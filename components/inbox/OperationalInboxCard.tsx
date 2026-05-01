@@ -6,16 +6,27 @@ import type { AtlasOperationalInboxItem } from '../../lib/api/client'
 interface Props {
   item: AtlasOperationalInboxItem
   busy?: boolean
+  onOpen?: () => void
   onAction: (actionId: string) => void
 }
 
-export function OperationalInboxCard({ item, busy, onAction }: Props) {
+export function OperationalInboxCard({ item, busy, onOpen, onAction }: Props) {
   const c = usePalette()
   const actions = item.available_actions.slice(0, 4)
 
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <View style={styles.body}>
+      <Pressable
+        disabled={!onOpen}
+        onPress={onOpen}
+        style={({ pressed }) => [
+          styles.body,
+          {
+            backgroundColor: pressed ? c.premium : 'transparent',
+            opacity: pressed ? 0.92 : 1,
+          },
+        ]}
+      >
         <View style={styles.metaRow}>
           <Mono size={11.5} lineHeight={15} letterSpacing={0.24} color={c.ink2}>
             {formatTime(item.created_at)}
@@ -36,7 +47,7 @@ export function OperationalInboxCard({ item, busy, onAction }: Props) {
             {item.summary ?? item.body}
           </Sans>
         ) : null}
-      </View>
+      </Pressable>
 
       {actions.length > 0 ? (
         <View style={[styles.actionRow, { borderTopColor: c.border }]}>

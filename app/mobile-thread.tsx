@@ -8,9 +8,8 @@ import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import {
-  createAiInteraction,
   getMobileAiThread,
-  listAiInteractions,
+  replyMobileAiThread,
   type AtlasAiMessage,
   type AtlasAiThread,
   type AtlasAiTrace,
@@ -31,7 +30,8 @@ export default function MobileThreadScreen() {
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const messages = useMemo(() => sortMessages(thread?.messages ?? []), [thread?.messages])
-  const canSubmit = Boolean(threadId && draft.trim().length > 0 && !submitting)
+  const activeTraces = useMemo(() => pendingTraces(traces), [traces])
+  const canSubmit = Boolean(threadId && draft.trim().length > 0 && !submitting && activeTraces.length === 0)
 
   const load = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!threadId) {
@@ -43,12 +43,9 @@ export default function MobileThreadScreen() {
     if (!silent) setLoading(true)
     setError(null)
     try {
-      const [threadResponse, traceResponse] = await Promise.all([
-        getMobileAiThread(threadId),
-        listAiInteractions({ thread_id: threadId, limit: 20 }).catch(() => ({ traces: [] })),
-      ])
+      const threadResponse = await getMobileAiThread(threadId)
       setThread(threadResponse.thread)
-      setTraces(traceResponse.traces)
+      setTraces(sortTraces(threadResponse.traces ?? []))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar thread contextual.')
     } finally {
@@ -63,20 +60,31 @@ export default function MobileThreadScreen() {
     }
   }, [load])
 
+  useEffect(() => {
+    if (!threadId || activeTraces.length === 0) return
+    const oldestActive = activeTraces.reduce<number | null>((oldest, trace) => {
+      const time = new Date(trace.created_at).getTime()
+      if (!Number.isFinite(time)) return oldest
+      return oldest == null ? time : Math.min(oldest, time)
+    }, null)
+    const ageMs = oldestActive == null ? 0 : Date.now() - oldestActive
+    const delay = ageMs < 30_000 ? 1800 : ageMs < 180_000 ? 3200 : 6000
+    const timer = setTimeout(() => void load({ silent: true }), delay)
+    return () => clearTimeout(timer)
+  }, [activeTraces, load, threadId])
+
   const submit = async () => {
     if (!threadId || !canSubmit) return
 
     const text = draft.trim()
+    const clientId = newClientId()
     setSubmitting(true)
     setError(null)
     setDraft('')
     try {
-      await createAiInteraction({
+      const response = await replyMobileAiThread(threadId, {
         input_text: text,
-        thread_id: threadId,
-        new_thread: false,
-        source_type: 'mobile_thread',
-        source_id: threadId,
+        client_id: clientId,
         include_semantic_context: true,
         context_note_limit: 5,
         payload: {
@@ -84,8 +92,13 @@ export default function MobileThreadScreen() {
           thread_source: 'mobile_gateway_inbox',
         },
       })
-      await load({ silent: true })
-      reloadTimer.current = setTimeout(() => void load({ silent: true }), 1800)
+      setThread(response.thread)
+      setTraces((current) => mergeTrace(response.trace, current))
+      if (reloadTimer.current) clearTimeout(reloadTimer.current)
+      reloadTimer.current = setTimeout(() => {
+        reloadTimer.current = null
+        void load({ silent: true })
+      }, 900)
       showToast('mensagem enviada')
     } catch (err) {
       setDraft(text)
@@ -149,13 +162,13 @@ export default function MobileThreadScreen() {
             ))
           )}
 
-          {pendingTraces(traces).length > 0 ? (
+          {activeTraces.length > 0 ? (
             <View style={[styles.pendingPanel, { borderColor: c.border, backgroundColor: c.surface }]}>
               <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
                 Atlas está processando
               </Sans>
               <Sans size={12} lineHeight={17} color={c.ink2} style={{ marginTop: 4 }}>
-                {pendingTraces(traces).length === 1 ? '1 execução ativa nesta thread.' : `${pendingTraces(traces).length} execuções ativas nesta thread.`}
+                {activeTraces.length === 1 ? '1 execução ativa nesta thread.' : `${activeTraces.length} execuções ativas nesta thread.`}
               </Sans>
             </View>
           ) : null}
@@ -171,7 +184,7 @@ export default function MobileThreadScreen() {
               style={[styles.input, { color: c.ink }]}
             />
             <PrimaryButton
-              label={submitting ? 'Enviando...' : 'Enviar'}
+              label={submitting ? 'Enviando...' : activeTraces.length > 0 ? 'Processando...' : 'Enviar'}
               onPress={canSubmit ? () => void submit() : undefined}
               style={!canSubmit ? { opacity: 0.55 } : undefined}
             />
@@ -222,11 +235,38 @@ function MessageBubble({ message }: { message: AtlasAiMessage }) {
 }
 
 function sortMessages(messages: AtlasAiMessage[]): AtlasAiMessage[] {
-  return [...messages].sort((a, b) => a.position - b.position)
+  return [...messages].sort((a, b) => safeNumber(a.position) - safeNumber(b.position))
 }
 
 function pendingTraces(traces: AtlasAiTrace[]): AtlasAiTrace[] {
-  return traces.filter((trace) => ['queued', 'running', 'blocked'].includes(trace.status))
+  return traces.filter((trace) => ['queued', 'processing'].includes(trace.status))
+}
+
+function sortTraces(traces: AtlasAiTrace[]): AtlasAiTrace[] {
+  return [...traces].sort((a, b) => {
+    const left = new Date(a.created_at).getTime()
+    const right = new Date(b.created_at).getTime()
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return a.id.localeCompare(b.id)
+    return left - right
+  })
+}
+
+function mergeTrace(trace: AtlasAiTrace, traces: AtlasAiTrace[]): AtlasAiTrace[] {
+  return sortTraces([trace, ...traces.filter((item) => item.id !== trace.id)]).slice(-20)
+}
+
+function safeNumber(value: number): number {
+  return Number.isFinite(value) ? value : 0
+}
+
+function newClientId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return uuid
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+    const rand = Math.floor(Math.random() * 16)
+    const value = char === 'x' ? rand : (rand & 0x3) | 0x8
+    return value.toString(16)
+  })
 }
 
 function roleLabel(role: string): string {

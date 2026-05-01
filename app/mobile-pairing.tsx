@@ -11,12 +11,14 @@ import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { registerAtlasPushNotifications, type AtlasPushRegistrationResult } from '../lib/pushNotifications'
 import {
+  AtlasApiError,
   clearMobileDeviceSession,
   confirmMobilePairing,
   getApiConfig,
   getMobileDeviceSession,
   hydrateApiConfig,
   listMobileDevices,
+  revokeMobileDevice,
   type AtlasMobileDevice,
   type MobileDeviceSession,
 } from '../lib/api/client'
@@ -27,7 +29,7 @@ export default function MobilePairingScreen() {
   const { showToast } = useShell()
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<'pair' | 'push' | 'clear' | null>(null)
+  const [busy, setBusy] = useState<'pair' | 'push' | 'revoke' | null>(null)
   const [session, setSession] = useState<MobileDeviceSession | null>(null)
   const [device, setDevice] = useState<AtlasMobileDevice | null>(null)
   const [serverLabel, setServerLabel] = useState('Atlas server')
@@ -114,17 +116,33 @@ export default function MobilePairingScreen() {
     }
   }
 
-  const clearPairing = async () => {
+  const revokePairing = async () => {
     if (busy) return
 
-    setBusy('clear')
+    setBusy('revoke')
     setError(null)
+    const currentSession = session
     try {
-      await clearMobileDeviceSession()
+      if (currentSession) {
+        await revokeMobileDevice(currentSession.deviceId)
+      } else {
+        await clearMobileDeviceSession()
+      }
       setSession(null)
       setDevice(null)
       setPushResult(null)
-      showToast('pareamento local removido')
+      showToast(currentSession ? 'device revogado' : 'pareamento local removido')
+    } catch (err) {
+      if (err instanceof AtlasApiError && err.status === 401) {
+        await clearMobileDeviceSession()
+        setSession(null)
+        setDevice(null)
+        setPushResult(null)
+        showToast('sessão local removida')
+        return
+      }
+
+      setError(err instanceof Error ? err.message : 'Falha ao revogar device mobile.')
     } finally {
       setBusy(null)
     }
@@ -213,9 +231,9 @@ export default function MobilePairingScreen() {
                 onPress={busy ? undefined : () => void registerPush()}
               />
               <PrimaryButton
-                label={busy === 'clear' ? 'Removendo...' : 'Remover pareamento local'}
+                label={busy === 'revoke' ? 'Revogando...' : 'Revogar este device'}
                 variant="ghost"
-                onPress={busy ? undefined : () => void clearPairing()}
+                onPress={busy ? undefined : () => void revokePairing()}
               />
               <PrimaryButton
                 label="Voltar para Inbox"

@@ -11,10 +11,16 @@ import {
   View,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import Animated, {
   Easing,
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  FadeOutUp,
   LayoutAnimationConfig,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -27,6 +33,7 @@ import { useTheme } from '../../design/theme'
 import { useShell } from '../AtlasShell'
 import { useOverlays } from '../../lib/overlays'
 import {
+  AtlasApiError,
   type AiObservabilityResponse,
   type AiProvidersStatusResponse,
   type AtlasAiCompaction,
@@ -84,22 +91,74 @@ import {
   mergeAtlasTrace,
   pollIntervalForAtlasAi,
   sortAtlasTraces,
+  traceDisplayKey,
   traceMatchesClientId,
   traceMatchesTurnFilter,
 } from '../../lib/atlasAiRuntime'
+import {
+  flushAtlasAiTelemetry,
+  newAtlasAiCorrelationId,
+  recordAtlasAiEvent,
+} from '../../lib/atlasAiTelemetry'
 
 const OPEN_ACTION_STATUSES = new Set(['queued', 'running', 'blocked', 'failed'])
 const CURRENT_THREAD_KEY = 'atlas-ai.current-thread-id'
+const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
 const ROUTING_KEY = 'atlas-ai.routing'
 const PINNED_TRACE_KEY_PREFIX = 'atlas-ai.pinned-traces.'
+const PENDING_SUBMISSION_RETRY_DELAY_MS = 8_000
+
+async function copyToClipboard(text: string, onSuccess?: () => void): Promise<void> {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  try {
+    await Clipboard.setStringAsync(trimmed)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    onSuccess?.()
+  } catch {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+  }
+}
+
+function formatConversationForCopy(traces: AtlasAiTrace[]): string {
+  const blocks: string[] = []
+  for (const trace of traces) {
+    const userText = trace.operator_input?.trim() ?? ''
+    if (userText) blocks.push(`você\n${userText}`)
+    const atlasText = pickResponseText(trace).trim()
+    if (atlasText) blocks.push(`atlas\n${atlasText}`)
+  }
+  return blocks.join('\n\n')
+}
 
 interface PendingTurn {
   clientId: string
+  correlationId: string
   text: string
   startedAt: number
   status: 'sending' | 'failed'
   errorMessage?: string
   executor: RoutingExecutor
+}
+
+interface PendingAiSubmission {
+  clientId: string
+  correlationId: string
+  input: string
+  threadId: string | null
+  routing: RoutingState
+  pinnedTraceIds: string[]
+  startedAt: number
+}
+
+interface SubmitTextOptions {
+  clientId?: string
+  correlationId?: string
+  threadId?: string | null
+  routingSnapshot?: RoutingState
+  pinnedTraceIdsSnapshot?: string[]
+  startedAt?: number
+  recovered?: boolean
 }
 
 type TurnBody =
@@ -171,11 +230,28 @@ export function AtlasAiSheet() {
   const [sessionMapOpen, setSessionMapOpen] = useState(false)
   const [continuityExpanded, setContinuityExpanded] = useState(false)
   const [turnFilter, setTurnFilter] = useState<AtlasAiTurnFilter>('all')
+  const [copyToast, setCopyToast] = useState<string | null>(null)
+  const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pinnedTraceIds, setPinnedTraceIds] = useState<string[]>([])
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null)
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null)
   const [refreshFailures, setRefreshFailures] = useState(0)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+
+  const flashCopyToast = useCallback((label: string) => {
+    setCopyToast(label)
+    if (copyToastTimer.current) clearTimeout(copyToastTimer.current)
+    copyToastTimer.current = setTimeout(() => setCopyToast(null), 1400)
+  }, [])
+
+  useEffect(() => () => {
+    if (copyToastTimer.current) clearTimeout(copyToastTimer.current)
+  }, [])
+
+  const recoveringPendingRef = useRef(false)
+  const threadViewVersionRef = useRef(0)
+  const activeTraceRef = useRef<AtlasAiTrace | null>(null)
+  const currentThreadIdRef = useRef<string | null>(currentThreadId)
 
   // Skip mount-in animations during the first ~360ms after the sheet opens
   // (otherwise every existing trace would dramatically animate on every open).
@@ -197,13 +273,20 @@ export function AtlasAiSheet() {
   const latestTrace = useMemo(() => traces[traces.length - 1] ?? null, [traces])
   const hasActiveTrace = activeTrace != null
   const isPendingSending = pending?.status === 'sending'
-  const canSubmit =
-    draft.trim().length > 0 && !submitting && !hasActiveTrace && !isPendingSending
+  const interactionLocked = submitting || hasActiveTrace || isPendingSending
   const activeTraceAgeMs = activeTrace ? Date.now() - new Date(activeTrace.created_at).getTime() : null
   const visibleTraces = useMemo(
     () => traces.filter((trace) => traceMatchesTurnFilter(trace, turnFilter, pinnedTraceIds)),
     [pinnedTraceIds, traces, turnFilter],
   )
+
+  useEffect(() => {
+    activeTraceRef.current = activeTrace
+  }, [activeTrace])
+
+  useEffect(() => {
+    currentThreadIdRef.current = currentThreadId
+  }, [currentThreadId])
 
   useEffect(() => {
     let cancelled = false
@@ -257,11 +340,19 @@ export function AtlasAiSheet() {
   }, [currentThreadId, pinnedTraceIds])
 
   const loadThreadData = useCallback(
-    async (threadId: string | null, { silent = false }: { silent?: boolean } = {}) => {
+    async (
+      threadId: string | null,
+      {
+        silent = false,
+        knownThreads = null,
+        skipThreadList = false,
+      }: { silent?: boolean; knownThreads?: AtlasAiThread[] | null; skipThreadList?: boolean } = {},
+    ) => {
       if (!silent) setLoading(true)
       setError(null)
 
       try {
+        let threadListError: unknown = null
         const [
           interactionsResponse,
           threadResponse,
@@ -282,16 +373,23 @@ export function AtlasAiSheet() {
           threadId
             ? listAiQualityActions({ thread_id: threadId, limit: 30 }).catch(() => null)
             : Promise.resolve(null),
-          listAiThreads({
-            status: 'active',
-            surface: 'atlas_ai_sheet',
-            limit: 20,
-          }).catch(() => null),
+          knownThreads
+            ? Promise.resolve({ threads: knownThreads })
+            : skipThreadList
+              ? Promise.resolve(null)
+              : listAiThreads({
+                  status: 'active',
+                  surface: 'atlas_ai_sheet',
+                  limit: 20,
+                }).catch((threadsError) => {
+                  threadListError = threadsError
+                  return null
+                }),
           threadId ? listAiThreadSnapshots(threadId, { limit: 12 }).catch(() => null) : Promise.resolve(null),
         ])
 
-        const threads = threadsResponse?.threads ?? []
-        const thread = threadResponse?.thread ?? threads.find((item) => item.id === threadId) ?? null
+        const threads = threadsResponse?.threads ?? null
+        const thread = threadResponse?.thread ?? threads?.find((item) => item.id === threadId) ?? null
 
         setTraces(sortAtlasTraces(interactionsResponse.traces))
         setCurrentThread(thread)
@@ -299,11 +397,18 @@ export function AtlasAiSheet() {
         setProviderStatus(providersResponse)
         setObservability(observabilityResponse)
         setQualityActions(actionsResponse?.actions ?? [])
-        setThreadList(threads)
+        if (threads) setThreadList(threads)
         setContextSnapshots(snapshotsResponse?.snapshots ?? [])
         setLastRefreshAt(Date.now())
-        setLastRefreshError(null)
-        setRefreshFailures(0)
+        if (threadListError) {
+          const message = humanAiError(threadListError, 'Falha ao carregar conversas.')
+          setLastRefreshError(message)
+          setRefreshFailures((count) => count + 1)
+          if (!silent) setError(message)
+        } else {
+          setLastRefreshError(null)
+          setRefreshFailures(0)
+        }
       } catch (refreshError) {
         const message = humanAiError(refreshError, 'Falha ao carregar Atlas.')
         setLastRefreshError(message)
@@ -332,31 +437,48 @@ export function AtlasAiSheet() {
       setError(null)
       try {
         let threadId = await AsyncStorage.getItem(CURRENT_THREAD_KEY)
+        let threadListError: unknown = null
 
         const threadsResponse = await listAiThreads({
           status: 'active',
           surface: 'atlas_ai_sheet',
           limit: 20,
-        }).catch(() => null)
+        }).catch((threadsError) => {
+          threadListError = threadsError
+          return null
+        })
         const activeThreads = threadsResponse?.threads ?? []
-        if (!cancelled) setThreadList(activeThreads)
+        if (!cancelled && threadsResponse) setThreadList(activeThreads)
 
-        if (threadId && !activeThreads.some((thread) => thread.id === threadId)) {
-          threadId = activeThreads[0]?.id ?? null
-        }
+        if (!threadListError) {
+          if (threadId && !activeThreads.some((thread) => thread.id === threadId)) {
+            threadId = activeThreads[0]?.id ?? null
+          }
 
-        if (!threadId) {
-          threadId = activeThreads[0]?.id ?? null
-          if (threadId) {
-            await AsyncStorage.setItem(CURRENT_THREAD_KEY, threadId)
-          } else {
-            await AsyncStorage.removeItem(CURRENT_THREAD_KEY)
+          if (!threadId) {
+            threadId = activeThreads[0]?.id ?? null
+            if (threadId) {
+              await AsyncStorage.setItem(CURRENT_THREAD_KEY, threadId)
+            } else {
+              await AsyncStorage.removeItem(CURRENT_THREAD_KEY)
+            }
           }
         }
 
         if (cancelled) return
         setCurrentThreadId(threadId)
-        await loadThreadData(threadId, { silent: true })
+        await loadThreadData(threadId, {
+          silent: true,
+          knownThreads: threadsResponse ? activeThreads : null,
+          skipThreadList: threadListError != null,
+        })
+
+        if (threadListError && !cancelled) {
+          const message = continuityThreadListError(threadListError)
+          setLastRefreshError(message)
+          setRefreshFailures((count) => count + 1)
+          setError(message)
+        }
       } catch (hydrateError) {
         if (!cancelled) setError(humanAiError(hydrateError, 'Falha ao carregar Atlas.'))
       } finally {
@@ -372,11 +494,42 @@ export function AtlasAiSheet() {
 
   useEffect(() => {
     if (!visible) return
+    void recordAtlasAiEvent({
+      eventName: 'atlas_ai_sheet_opened',
+      thread_id: currentThreadIdRef.current,
+      metadata: {
+        has_current_thread: currentThreadIdRef.current != null,
+      },
+    })
+    void flushAtlasAiTelemetry()
+  }, [visible])
+
+  useEffect(() => {
+    if (!visible) return
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       const previous = appStateRef.current
       appStateRef.current = nextState
+      if (previous === 'active' && nextState !== 'active') {
+        const trace = activeTraceRef.current
+        if (trace) {
+          const createdAt = new Date(trace.created_at).getTime()
+          void recordAtlasAiEvent({
+            eventName: 'app_backgrounded_during_trace',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? currentThreadIdRef.current,
+            provider: trace.provider,
+            agent_slug: trace.agent_slug,
+            duration_ms: Number.isFinite(createdAt) ? Math.max(0, Date.now() - createdAt) : null,
+            metadata: {
+              status: trace.status,
+              app_state: nextState,
+            },
+          })
+        }
+      }
       if (previous !== 'active' && nextState === 'active') {
+        void flushAtlasAiTelemetry()
         void refresh({ silent: true })
       }
     })
@@ -426,6 +579,7 @@ export function AtlasAiSheet() {
   // Reset transient state when the sheet closes.
   useEffect(() => {
     if (!visible) {
+      void flushAtlasAiTelemetry()
       setPending(null)
       setError(null)
     }
@@ -440,6 +594,14 @@ export function AtlasAiSheet() {
 
     const show = Keyboard.addListener(showEvent, (event) => {
       setKeyboardHeight(event.endCoordinates.height)
+      void recordAtlasAiEvent({
+        eventName: 'keyboard_opened',
+        thread_id: currentThreadIdRef.current,
+        trace_id: activeTraceRef.current?.id ?? null,
+        metadata: {
+          has_active_trace: activeTraceRef.current != null,
+        },
+      })
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80)
     })
     const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0))
@@ -457,51 +619,114 @@ export function AtlasAiSheet() {
   }, [traces.length, pending?.clientId, visible])
 
   const submitText = useCallback(
-    async (input: string) => {
+    async (input: string, options: SubmitTextOptions = {}) => {
       if (!input || submitting) return
       if (hasActiveTrace || isPendingSending) {
         showToast('Atlas ainda está pensando')
         return
       }
 
-      const clientId = newClientId()
+      const clientId = options.clientId ?? newClientId()
+      const correlationId = options.correlationId ?? newAtlasAiCorrelationId()
+      const threadId = options.threadId !== undefined ? options.threadId : currentThreadId
+      const routingSnapshot = options.routingSnapshot ?? routing
+      const pinnedTraceIdsSnapshot = options.pinnedTraceIdsSnapshot ?? pinnedTraceIds
+      const startedAt = options.startedAt ?? Date.now()
+      const threadViewVersion = threadViewVersionRef.current
+      const agent = effectiveAgent(routingSnapshot)
+      const telemetryRoute = {
+        executor: routingSnapshot.executor,
+        task: routingSnapshot.task,
+        style: routingSnapshot.style,
+        domain: routingSnapshot.domain,
+        recovered: options.recovered === true,
+        input_chars: input.length,
+      }
       const optimistic: PendingTurn = {
         clientId,
+        correlationId,
         text: input,
-        startedAt: Date.now(),
+        startedAt,
         status: 'sending',
-        executor: routing.executor,
+        executor: routingSnapshot.executor,
+      }
+      const pendingSubmission: PendingAiSubmission = {
+        clientId,
+        correlationId,
+        input,
+        threadId,
+        routing: routingSnapshot,
+        pinnedTraceIds: pinnedTraceIdsSnapshot.slice(0, 24),
+        startedAt,
       }
 
-      // Optimistic UI: clear input + push pending turn synchronously,
-      // then fire haptic + request in the background.
-      setDraft('')
-      setPending(optimistic)
       setError(null)
       setSubmitting(true)
+      await recordAtlasAiEvent({
+        eventName: 'message_send_pressed',
+        correlation_id: correlationId,
+        client_id: clientId,
+        thread_id: threadId,
+        agent_slug: agent,
+        numeric_value: input.length,
+        unit: 'chars',
+        metadata: telemetryRoute,
+      })
+      const pendingStored = await storePendingSubmission(pendingSubmission)
+      await recordAtlasAiEvent({
+        eventName: 'pending_submission_stored',
+        correlation_id: correlationId,
+        client_id: clientId,
+        thread_id: threadId,
+        agent_slug: agent,
+        numeric_value: pendingStored ? 1 : 0,
+        unit: 'boolean',
+        metadata: {
+          ...telemetryRoute,
+          stored: pendingStored,
+        },
+      })
+
+      // Optimistic UI after the local outbox is durable.
+      setDraft('')
+      setPending(optimistic)
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft)
 
       try {
-        const councilMode = routing.executor === 'claude_codex'
+        const requestStartedAt = Date.now()
+        const councilMode = routingSnapshot.executor === 'claude_codex'
         const provider: AtlasAiProvider | undefined =
-          routing.executor === 'auto'
+          routingSnapshot.executor === 'auto'
             ? undefined
-            : (routing.executor as AtlasAiProvider)
-        const agent = effectiveAgent(routing)
+            : (routingSnapshot.executor as AtlasAiProvider)
         const kind = councilMode
           ? 'council'
-          : routing.task === 'direct'
+          : routingSnapshot.task === 'direct'
             ? 'interaction'
             : 'analysis'
         const executionPolicy = councilMode ? 'dual_review' : 'single_provider'
-        const conversationContext = buildConversationContext(traces, currentThreadId, pinnedTraceIds)
-        const responsePolicy = responsePolicyFor(routing.style, routing.task)
+        const conversationContext = buildConversationContext(traces, threadId, pinnedTraceIdsSnapshot)
+        const responsePolicy = responsePolicyFor(routingSnapshot.style, routingSnapshot.task)
+
+        void recordAtlasAiEvent({
+          eventName: 'interaction_request_started',
+          correlation_id: correlationId,
+          client_id: clientId,
+          thread_id: threadId,
+          provider: provider ?? null,
+          agent_slug: agent,
+          metadata: {
+            ...telemetryRoute,
+            new_thread: threadId == null,
+            execution_policy: executionPolicy,
+          },
+        })
 
         const response = await createAiInteraction({
           input_text: input,
           client_id: clientId,
-          thread_id: currentThreadId ?? undefined,
-          new_thread: currentThreadId ? false : true,
+          thread_id: threadId ?? undefined,
+          new_thread: threadId ? false : true,
           agent_slug: agent,
           provider,
           kind,
@@ -510,12 +735,12 @@ export function AtlasAiSheet() {
           context_note_limit: 5,
           payload: {
             app_surface: 'atlas_ai_sheet',
-            atlas_workflow_mode: routing.task === 'debug' ? 'dev' : routing.task,
-            requested_agent: routing.domain,
-            requested_provider: routing.executor,
-            response_style: routing.style,
+            atlas_workflow_mode: routingSnapshot.task === 'debug' ? 'dev' : routingSnapshot.task,
+            requested_agent: routingSnapshot.domain,
+            requested_provider: routingSnapshot.executor,
+            response_style: routingSnapshot.style,
             response_policy: responsePolicy,
-            task_type: routing.task === 'debug' ? 'debug' : undefined,
+            task_type: routingSnapshot.task === 'debug' ? 'debug' : undefined,
             constraints: responsePolicy.constraints,
             execution_policy: executionPolicy,
             conversation_context: conversationContext,
@@ -526,24 +751,88 @@ export function AtlasAiSheet() {
           },
         })
 
-        if (response.trace.thread_id) {
+        const submissionStillSelected = threadViewVersionRef.current === threadViewVersion
+
+        void recordAtlasAiEvent({
+          eventName: 'interaction_accepted',
+          correlation_id: correlationId,
+          client_id: clientId,
+          trace_id: response.trace.id,
+          thread_id: response.trace.thread_id ?? threadId,
+          provider: response.trace.provider ?? provider ?? null,
+          agent_slug: response.trace.agent_slug ?? agent,
+          duration_ms: Date.now() - requestStartedAt,
+          metadata: {
+            ...telemetryRoute,
+            trace_status: response.trace.status,
+            visible_in_current_view: submissionStillSelected,
+          },
+        })
+
+        if (response.trace.thread_id && submissionStillSelected) {
           setCurrentThreadId(response.trace.thread_id)
           await AsyncStorage.setItem(CURRENT_THREAD_KEY, response.trace.thread_id)
         }
+        await clearPendingSubmission(clientId)
 
         // Real trace arrived. Add it and clear pending atomically (React
         // batches both updates). The Turn is keyed by clientId so the
         // existing QuoteCompact stays mounted across the swap (no flash).
-        setTraces((current) => mergeAtlasTrace(response.trace, current))
-        setPending((curr) => (curr?.clientId === clientId ? null : curr))
-        void loadThreadData(response.trace.thread_id ?? currentThreadId, { silent: true })
+        if (submissionStillSelected) {
+          setTraces((current) => mergeAtlasTrace(response.trace, current))
+          setPending((curr) => (curr?.clientId === clientId ? null : curr))
+          void recordAtlasAiEvent({
+            eventName: 'trace_visible_in_ui',
+            correlation_id: correlationId,
+            client_id: clientId,
+            trace_id: response.trace.id,
+            thread_id: response.trace.thread_id ?? threadId,
+            provider: response.trace.provider ?? provider ?? null,
+            agent_slug: response.trace.agent_slug ?? agent,
+            duration_ms: Date.now() - startedAt,
+            metadata: telemetryRoute,
+          })
+          void loadThreadData(response.trace.thread_id ?? threadId, { silent: true })
+        } else {
+          void recordAtlasAiEvent({
+            eventName: 'trace_not_visible_after_thread_change',
+            correlation_id: correlationId,
+            client_id: clientId,
+            trace_id: response.trace.id,
+            thread_id: response.trace.thread_id ?? threadId,
+            provider: response.trace.provider ?? provider ?? null,
+            agent_slug: response.trace.agent_slug ?? agent,
+            duration_ms: Date.now() - startedAt,
+            metadata: telemetryRoute,
+          })
+        }
       } catch (submitError) {
+        const keepPending = shouldKeepPendingSubmission(submitError)
+        void recordAtlasAiEvent({
+          eventName: 'interaction_request_failed',
+          correlation_id: correlationId,
+          client_id: clientId,
+          thread_id: threadId,
+          agent_slug: agent,
+          duration_ms: Date.now() - startedAt,
+          metadata: {
+            ...telemetryRoute,
+            keep_pending: keepPending,
+            error_type: submitError instanceof Error ? submitError.name : typeof submitError,
+            status: submitError instanceof AtlasApiError ? submitError.status : null,
+          },
+        })
+        if (!keepPending) {
+          void clearPendingSubmission(clientId)
+        }
         const message = humanAiError(submitError, 'falha no envio.')
-        setPending((curr) =>
-          curr?.clientId === clientId
-            ? { ...curr, status: 'failed', errorMessage: message }
-            : curr,
-        )
+        if (threadViewVersionRef.current === threadViewVersion) {
+          setPending((curr) =>
+            curr?.clientId === clientId
+              ? { ...curr, status: 'failed', errorMessage: message }
+              : curr,
+          )
+        }
       } finally {
         setSubmitting(false)
       }
@@ -561,23 +850,116 @@ export function AtlasAiSheet() {
     ],
   )
 
+  const recoverPendingSubmission = useCallback(async () => {
+    if (recoveringPendingRef.current || submitting || hasActiveTrace || isPendingSending) return
+
+    const pendingSubmission = await readPendingSubmission()
+    if (!pendingSubmission) return
+    if ((pendingSubmission.threadId ?? null) !== currentThreadId) return
+
+    const existingTrace = traces.find((trace) => traceMatchesClientId(trace, pendingSubmission.clientId))
+    if (existingTrace) {
+      void recordAtlasAiEvent({
+        eventName: 'pending_submission_matched_existing_trace',
+        correlation_id: pendingSubmission.correlationId,
+        client_id: pendingSubmission.clientId,
+        trace_id: existingTrace.id,
+        thread_id: existingTrace.thread_id ?? pendingSubmission.threadId,
+        provider: existingTrace.provider,
+        agent_slug: existingTrace.agent_slug,
+        duration_ms: Date.now() - pendingSubmission.startedAt,
+        metadata: {
+          recovered_from_local_outbox: true,
+        },
+      })
+      await clearPendingSubmission(pendingSubmission.clientId)
+      return
+    }
+
+    if (Date.now() - pendingSubmission.startedAt < PENDING_SUBMISSION_RETRY_DELAY_MS) return
+
+    recoveringPendingRef.current = true
+    try {
+      void recordAtlasAiEvent({
+        eventName: 'pending_submission_recovered',
+        correlation_id: pendingSubmission.correlationId,
+        client_id: pendingSubmission.clientId,
+        thread_id: pendingSubmission.threadId,
+        duration_ms: Date.now() - pendingSubmission.startedAt,
+        metadata: {
+          age_ms: Date.now() - pendingSubmission.startedAt,
+          executor: pendingSubmission.routing.executor,
+          task: pendingSubmission.routing.task,
+          style: pendingSubmission.routing.style,
+          domain: pendingSubmission.routing.domain,
+        },
+      })
+      showToast('Retomando envio pendente do Atlas')
+      await submitText(pendingSubmission.input, {
+        clientId: pendingSubmission.clientId,
+        correlationId: pendingSubmission.correlationId,
+        threadId: pendingSubmission.threadId,
+        routingSnapshot: pendingSubmission.routing,
+        pinnedTraceIdsSnapshot: pendingSubmission.pinnedTraceIds,
+        startedAt: pendingSubmission.startedAt,
+        recovered: true,
+      })
+    } finally {
+      recoveringPendingRef.current = false
+    }
+  }, [currentThreadId, hasActiveTrace, isPendingSending, showToast, submitText, submitting, traces])
+
+  useEffect(() => {
+    if (!visible) return
+    const timeout = setTimeout(() => {
+      void recoverPendingSubmission()
+    }, 1200)
+    return () => clearTimeout(timeout)
+  }, [recoverPendingSubmission, visible])
+
+  useEffect(() => {
+    if (!visible) return
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void recoverPendingSubmission()
+      }
+    })
+
+    return () => subscription.remove()
+  }, [recoverPendingSubmission, visible])
+
   const submit = useCallback(() => {
     void submitText(draft.trim())
   }, [submitText, draft])
 
+  const openRouting = useCallback(() => {
+    setRoutingOpen(true)
+  }, [])
+
   const retryPending = useCallback(() => {
     if (!pending || pending.status !== 'failed') return
     const text = pending.text
+    const correlationId = pending.correlationId
     setPending(null)
-    void submitText(text)
+    void submitText(text, { correlationId })
   }, [pending, submitText])
 
   const startNewThread = useCallback(() => {
-    if (hasActiveTrace || isPendingSending) {
-      showToast('Atlas ainda está pensando')
-      return
+    const trace = activeTraceRef.current
+    if (trace) {
+      void recordAtlasAiEvent({
+        eventName: 'thread_new_started_while_trace_active',
+        trace_id: trace.id,
+        thread_id: trace.thread_id ?? currentThreadIdRef.current,
+        provider: trace.provider,
+        agent_slug: trace.agent_slug,
+        metadata: {
+          status: trace.status,
+        },
+      })
     }
-
+    threadViewVersionRef.current += 1
     setCurrentThreadId(null)
     setCurrentThread(null)
     setSessionState(null)
@@ -590,23 +972,41 @@ export function AtlasAiSheet() {
     setThreadHistoryOpen(false)
     void AsyncStorage.removeItem(CURRENT_THREAD_KEY)
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }, [hasActiveTrace, isPendingSending, showToast])
+  }, [])
 
   const selectThread = useCallback(
     async (thread: AtlasAiThread) => {
-      if (hasActiveTrace || isPendingSending) {
-        showToast('Atlas ainda está pensando')
-        return
+      const switchingThreads = thread.id !== currentThreadId
+      if (switchingThreads) {
+        const trace = activeTraceRef.current
+        if (trace) {
+          void recordAtlasAiEvent({
+            eventName: 'thread_switched_while_trace_active',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? currentThreadId,
+            provider: trace.provider,
+            agent_slug: trace.agent_slug,
+            metadata: {
+              from_thread_id: currentThreadId,
+              to_thread_id: thread.id,
+              status: trace.status,
+            },
+          })
+        }
+        threadViewVersionRef.current += 1
       }
-
       setThreadHistoryOpen(false)
       setCurrentThreadId(thread.id)
       setCurrentThread(thread)
       setSessionState(thread.active_state ?? null)
+      if (switchingThreads) {
+        setPending(null)
+        setError(null)
+      }
       await AsyncStorage.setItem(CURRENT_THREAD_KEY, thread.id)
       await loadThreadData(thread.id, { silent: false })
     },
-    [hasActiveTrace, isPendingSending, loadThreadData, showToast],
+    [currentThreadId, loadThreadData],
   )
 
   const compactCurrentThread = useCallback(async () => {
@@ -614,7 +1014,7 @@ export function AtlasAiSheet() {
       showToast('Abra uma conversa antes de compactar')
       return
     }
-    if (hasActiveTrace || isPendingSending) {
+    if (interactionLocked) {
       showToast('Atlas ainda está pensando')
       return
     }
@@ -641,8 +1041,7 @@ export function AtlasAiSheet() {
   }, [
     currentThread?.last_provider,
     currentThreadId,
-    hasActiveTrace,
-    isPendingSending,
+    interactionLocked,
     routing,
     sessionState,
     showToast,
@@ -650,15 +1049,26 @@ export function AtlasAiSheet() {
 
   const switchProvider = useCallback(
     async (executor: Extract<RoutingExecutor, 'claude_cli' | 'codex_cli' | 'claude_codex'>) => {
-      const previousRouting = routing
       setRouting((current) => ({ ...current, executor }))
+      if (interactionLocked) {
+        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
+        return
+      }
+
+      const previousRouting = routing
       if (!currentThreadId) return
+
+      const currentProvider = currentThread?.last_provider ?? providerFromRouting(routing)
+      if (currentProvider === executor) {
+        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
+        return
+      }
 
       setOperationBusy(`provider:${executor}`)
       try {
         const response = await switchAiThreadProvider(currentThreadId, {
           to_provider: executor,
-          from_provider: currentThread?.last_provider ?? providerFromRouting(routing) ?? null,
+          from_provider: currentProvider ?? null,
           reason: 'operator_switch',
           metadata: {
             app_surface: 'atlas_ai_sheet',
@@ -682,23 +1092,29 @@ export function AtlasAiSheet() {
         setOperationBusy(null)
       }
     },
-    [currentThread?.last_provider, currentThreadId, routing, showToast],
+    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast],
   )
 
   const confirmRouting = useCallback(
     (next: RoutingState) => {
       const previousProvider = providerFromRouting(routing)
       const nextProvider = providerFromRouting(next)
+      const currentProvider = currentThread?.last_provider ?? previousProvider
       setRouting(next)
+
+      if (interactionLocked) {
+        showToast('Rota atualizada para a próxima mensagem')
+        return
+      }
 
       if (
         currentThreadId
         && nextProvider
-        && nextProvider !== previousProvider
+        && nextProvider !== currentProvider
       ) {
         void switchAiThreadProvider(currentThreadId, {
           to_provider: nextProvider,
-          from_provider: currentThread?.last_provider ?? previousProvider ?? null,
+          from_provider: currentProvider ?? null,
           reason: 'routing_sheet_switch',
           metadata: {
             app_surface: 'atlas_ai_sheet',
@@ -714,12 +1130,14 @@ export function AtlasAiSheet() {
                     latest_provider_handoff: response.handoff,
                   }
                 : thread,
-            )
+              )
           })
-          .catch(() => {})
+          .catch((providerError) => {
+            showToast(humanAiError(providerError, 'Falha ao registrar troca de provider.'))
+          })
       }
     },
-    [currentThread?.last_provider, currentThreadId, routing],
+    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast],
   )
 
   const submitFeedback = useCallback(
@@ -727,10 +1145,36 @@ export function AtlasAiSheet() {
       setOperationBusy(`feedback:${trace.id}`)
       try {
         const feedback = feedbackPayload(action)
+        void recordAtlasAiEvent({
+          eventName: 'feedback_submitted',
+          trace_id: trace.id,
+          thread_id: trace.thread_id,
+          provider: trace.provider,
+          model: trace.model,
+          agent_slug: trace.agent_slug,
+          numeric_value: feedback.feedback_score,
+          unit: 'score_1_5',
+          metadata: {
+            feedback_action: feedback.feedback_action,
+          },
+        })
         const response = await feedbackAiInteraction(trace.id, feedback)
         setTraces((current) => mergeAtlasTrace(response.trace, current))
         showToast(feedbackToast(action))
       } catch (feedbackError) {
+        void recordAtlasAiEvent({
+          eventName: 'feedback_submit_failed',
+          trace_id: trace.id,
+          thread_id: trace.thread_id,
+          provider: trace.provider,
+          model: trace.model,
+          agent_slug: trace.agent_slug,
+          metadata: {
+            feedback_action: action,
+            error_type: feedbackError instanceof Error ? feedbackError.name : typeof feedbackError,
+            status: feedbackError instanceof AtlasApiError ? feedbackError.status : null,
+          },
+        })
         showToast(humanAiError(feedbackError, 'Falha ao registrar feedback.'))
       } finally {
         setOperationBusy(null)
@@ -761,7 +1205,7 @@ export function AtlasAiSheet() {
 
   const archiveThread = useCallback(
     async (thread: AtlasAiThread) => {
-      if (thread.id === currentThreadId && (hasActiveTrace || isPendingSending)) {
+      if (thread.id === currentThreadId && interactionLocked) {
         showToast('Atlas ainda está pensando')
         return
       }
@@ -780,7 +1224,7 @@ export function AtlasAiSheet() {
         setOperationBusy(null)
       }
     },
-    [currentThreadId, hasActiveTrace, isPendingSending, showToast, startNewThread],
+    [currentThreadId, interactionLocked, showToast, startNewThread],
   )
 
   const retryJob = useCallback(
@@ -845,14 +1289,14 @@ export function AtlasAiSheet() {
   }, [])
 
   // Derive the unified list of display turns from traces + pending.
-  // Stable keys (trace_key for real, clientId for optimistic) keep React
-  // from remounting the QuoteCompact when an optimistic becomes real.
+  // Stable keys prefer clientId for both optimistic and real traces, so React
+  // keeps QuoteCompact mounted when the backend trace replaces the pending turn.
   const turns = useMemo<DisplayTurn[]>(() => {
     const seen = new Set<string>()
     const list: DisplayTurn[] = []
 
     for (const trace of visibleTraces) {
-      const key = trace.trace_key || trace.id
+      const key = traceDisplayKey(trace)
       if (seen.has(key)) continue
       seen.add(key)
       list.push({
@@ -915,11 +1359,10 @@ export function AtlasAiSheet() {
           <View style={[styles.headerSlot, styles.headerSlotRight, styles.headerActions]}>
             <Pressable
               onPress={() => setThreadHistoryOpen(true)}
-              disabled={hasActiveTrace || isPendingSending}
               hitSlop={10}
               style={({ pressed }) => [
                 styles.headerAction,
-                { opacity: pressed ? 0.55 : hasActiveTrace || isPendingSending ? 0.35 : 1 },
+                { opacity: pressed ? 0.55 : 1 },
               ]}
               accessibilityRole="button"
               accessibilityLabel="histórico de conversas"
@@ -930,11 +1373,10 @@ export function AtlasAiSheet() {
             </Pressable>
             <Pressable
               onPress={startNewThread}
-              disabled={hasActiveTrace || isPendingSending}
               hitSlop={10}
               style={({ pressed }) => [
                 styles.headerAction,
-                { opacity: pressed ? 0.55 : hasActiveTrace || isPendingSending ? 0.35 : 1 },
+                { opacity: pressed ? 0.55 : 1 },
               ]}
               accessibilityRole="button"
               accessibilityLabel="nova conversa"
@@ -965,6 +1407,7 @@ export function AtlasAiSheet() {
           contentContainerStyle={styles.threadContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={[0]}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
         >
           <ContinuityPanel
@@ -984,7 +1427,7 @@ export function AtlasAiSheet() {
             pinnedCount={pinnedTraceIds.length}
             turnFilter={turnFilter}
             busy={operationBusy}
-            disabled={hasActiveTrace || isPendingSending}
+            disabled={interactionLocked}
             onCompact={compactCurrentThread}
             onOpenThreads={() => setThreadHistoryOpen(true)}
             onOpenContext={() => setContextOpen(true)}
@@ -994,9 +1437,10 @@ export function AtlasAiSheet() {
             onOpenSearch={() => setSearchOpen(true)}
             onOpenMap={() => setSessionMapOpen(true)}
             onSetTurnFilter={setTurnFilter}
+            onCopyConversation={() => void copyToClipboard(formatConversationForCopy(traces), () => flashCopyToast('conversa'))}
             expanded={continuityExpanded}
             onToggleExpanded={() => setContinuityExpanded((value) => !value)}
-            hasTurns={turns.length > 0}
+            hasTurns={traces.length > 0}
           />
 
           {error && (
@@ -1022,9 +1466,21 @@ export function AtlasAiSheet() {
                   index < turns.length - 1 && styles.turnSeparator,
                 ]}
               >
-                <QuoteCompact text={turn.text} />
+                <Pressable
+                  onLongPress={() => void copyToClipboard(turn.text, () => flashCopyToast('mensagem'))}
+                  delayLongPress={380}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+                  accessibilityRole="button"
+                  accessibilityLabel="copiar sua mensagem"
+                  accessibilityHint="pressionar e segurar copia o texto da pergunta"
+                >
+                  <QuoteCompact text={turn.text} />
+                </Pressable>
                 <View style={styles.afterQuote}>
-                  <TurnBodyView body={turn.body} />
+                  <TurnBodyView
+                    body={turn.body}
+                    onCopyResponse={(text) => void copyToClipboard(text, () => flashCopyToast('resposta'))}
+                  />
                 </View>
               </View>
             ))}
@@ -1040,12 +1496,25 @@ export function AtlasAiSheet() {
             },
           ]}
         >
-          <StatusRouting state={routing} onPress={() => setRoutingOpen(true)} />
+          {copyToast && (
+            <Animated.View
+              key={copyToast}
+              pointerEvents="none"
+              entering={FadeIn.duration(180)}
+              exiting={FadeOut.duration(260)}
+              style={styles.copyToast}
+            >
+              <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.7 }}>
+                — copiado {copyToast}
+              </Frau>
+            </Animated.View>
+          )}
+          <StatusRouting state={routing} onPress={openRouting} locked={interactionLocked} />
           <FieldInline
             value={draft}
             onChangeText={setDraft}
             onSubmit={submit}
-            disabled={submitting || hasActiveTrace || isPendingSending}
+            disabled={interactionLocked}
             placeholder={turns.length === 0 ? 'diga ao atlas…' : 'continuar…'}
           />
         </View>
@@ -1158,7 +1627,7 @@ function FilteredEmpty({ filter, onReset }: { filter: AtlasAiTurnFilter; onReset
   )
 }
 
-function TurnBodyView({ body }: { body: TurnBody }) {
+function TurnBodyView({ body, onCopyResponse }: { body: TurnBody; onCopyResponse: (text: string) => void }) {
   if (body.kind === 'thinking') {
     return (
       <>
@@ -1181,7 +1650,16 @@ function TurnBodyView({ body }: { body: TurnBody }) {
   }
   return (
     <>
-      <PageResponse text={body.text} />
+      <Pressable
+        onLongPress={() => onCopyResponse(body.text)}
+        delayLongPress={380}
+        style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+        accessibilityRole="button"
+        accessibilityLabel="copiar resposta do atlas"
+        accessibilityHint="pressionar e segurar copia o texto da resposta"
+      >
+        <PageResponse text={body.text} />
+      </Pressable>
       <CaptionWhisper text={body.attribution} />
       <QualityBar
         trace={body.trace}
@@ -1277,6 +1755,7 @@ function ContinuityPanel({
   onOpenSearch,
   onOpenMap,
   onSetTurnFilter,
+  onCopyConversation,
   expanded,
   onToggleExpanded,
   hasTurns,
@@ -1309,6 +1788,7 @@ function ContinuityPanel({
   onOpenSearch: () => void
   onOpenMap: () => void
   onSetTurnFilter: (filter: AtlasAiTurnFilter) => void
+  onCopyConversation: () => void
   hasTurns: boolean
 }) {
   const { c } = useTheme()
@@ -1323,35 +1803,43 @@ function ContinuityPanel({
     : 'sem troca recente'
 
   return (
-    <View style={[styles.continuityPanel, expanded ? styles.continuityPanelOpen : null, { borderBottomColor: c.border }]}>
-      <View style={styles.continuityTop}>
-        <Pressable
-          onPress={onOpenThreads}
-          hitSlop={8}
-          style={({ pressed }) => [styles.continuityTitle, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
-            continuidade
-          </Frau>
-          <Sans weight="med" size={14} lineHeight={19} color={c.ink} numberOfLines={1}>
-            {thread?.title ?? 'nova conversa'}
-          </Sans>
-        </Pressable>
+    <Animated.View
+      layout={LinearTransition.springify().damping(22).stiffness(170).mass(0.9)}
+      style={[styles.continuityPanel, expanded ? styles.continuityPanelOpen : null, { borderBottomColor: c.border, backgroundColor: c.bg }]}
+    >
+      <View style={[styles.continuityTop, thread?.title ? null : styles.continuityTopEmpty]}>
+        {thread?.title ? (
+          <Pressable
+            onPress={onOpenThreads}
+            hitSlop={8}
+            style={({ pressed }) => [styles.continuityTitle, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
+              continuidade
+            </Frau>
+            <Sans weight="med" size={14} lineHeight={19} color={c.ink} numberOfLines={1}>
+              {thread.title}
+            </Sans>
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={onToggleExpanded}
           hitSlop={10}
-          style={({ pressed }) => [styles.continuityToggle, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [styles.continuityToggle, { opacity: pressed ? 0.55 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel={expanded ? 'recolher diagnóstico' : 'expandir diagnóstico'}
         >
-          <Frau italic size={12} lineHeight={16} color={c.ink} style={{ opacity: 0.4 }}>
+          <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.55 }}>
             · {expanded ? 'recolher' : 'expandir'}
           </Frau>
         </Pressable>
       </View>
 
       {expanded ? (
-        <>
+        <Animated.View
+          entering={FadeInDown.duration(360).springify().damping(22).stiffness(160).mass(0.85)}
+          exiting={FadeOutUp.duration(220).easing(Easing.out(Easing.cubic))}
+        >
           <View style={styles.continuityRows}>
             <MicroLine label="estado" value={topic} />
             <MicroLine label="memória" value={compactionLabel} />
@@ -1385,6 +1873,9 @@ function ContinuityPanel({
             <MicroAction label="buscar" onPress={onOpenSearch} />
             <MicroAction label="fila" onPress={onOpenOperations} />
             <MicroAction label="skills" onPress={onOpenSkills} />
+            {hasTurns && (
+              <MicroAction label="copiar" onPress={onCopyConversation} />
+            )}
             {latestTrace && (
               <MicroAction label="execução" onPress={() => onOpenExecution(latestTrace)} />
             )}
@@ -1402,9 +1893,9 @@ function ContinuityPanel({
               ))}
             </MicroSection>
           ) : null}
-        </>
+        </Animated.View>
       ) : null}
-    </View>
+    </Animated.View>
   )
 }
 
@@ -1946,6 +2437,11 @@ function OperationsSheet({
   const { c } = useTheme()
   const openActions = qualityActions.filter((action) => OPEN_ACTION_STATUSES.has(action.status))
   const providers = providerStatus?.providers ?? []
+  const metrics = observability?.metrics
+  const metricsHealth = observability?.metrics_health
+  const metricTotals = metrics?.available ? metrics.totals : null
+  const surfaceBuckets = metrics?.available ? metrics.by_surface ?? [] : []
+  const missingCostRates = metricsHealth?.evidence?.missing_cost_rates ?? []
 
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
@@ -1996,6 +2492,60 @@ function OperationsSheet({
             label="falhou"
             value={String(observability?.quality.by_status?.failed ?? 0)}
           />
+        </DataSection>
+
+        <DataSection title="health gate">
+          {!metricsHealth?.available ? (
+            <EmptyInline text="sem health gate carregado" />
+          ) : (
+            <>
+              <DataRow label="status" value={String(metricsHealth.status)} />
+              <DataRow label="score" value={metricsHealth.health_score != null ? `${metricsHealth.health_score}/100` : 'n/a'} />
+              <DataRow label="issues" value={String(metricsHealth.issues.length)} />
+              {missingCostRates.length > 0 && (
+                <DataList
+                  label="rates faltando"
+                  items={missingCostRates.map((rate) => {
+                    const provider = rate.provider ? providerWord(rate.provider) ?? rate.provider : 'provider?'
+                    const model = rate.model ?? 'model?'
+
+                    return `${provider}/${model} · ${rate.reason} · ${rate.traces} traces`
+                  })}
+                />
+              )}
+              {metricsHealth.issues.slice(0, 3).map((issue) => (
+                <DataRow key={issue.key} label={issue.key} value={`${issue.severity}: ${issue.summary}`} />
+              ))}
+            </>
+          )}
+        </DataSection>
+
+        <DataSection title="eficiência">
+          {!metrics?.available || !metricTotals ? (
+            <EmptyInline text="sem scorecard carregado" />
+          ) : (
+            <>
+              <DataRow label="traces 24h" value={String(metricTotals.traces)} />
+              <DataRow label="qualidade final" value={formatScore(metricTotals.final_quality_avg)} />
+              <DataRow label="eficiência final" value={formatScore(metricTotals.final_efficiency_avg)} />
+              <DataRow label="1a passagem" value={formatRate(metricTotals.first_pass_success_rate)} />
+              <DataRow label="remediação" value={formatRate(metricTotals.needed_remediation_rate)} />
+              <DataRow
+                label="visível app"
+                value={metricTotals.app_visible_avg_ms != null ? formatLatency(metricTotals.app_visible_avg_ms) : 'n/a'}
+              />
+              <DataRow label="custo incerto" value={String(metricTotals.unknown_cost_count)} />
+              <DataRow label="custo estimado" value={String(metricTotals.estimated_cost_count ?? 0)} />
+              <DataRow label="custo real" value={String(metricTotals.actual_cost_count ?? 0)} />
+              {surfaceBuckets.slice(0, 3).map((bucket) => (
+                <DataRow
+                  key={bucket.bucket}
+                  label={bucket.bucket}
+                  value={`q ${formatScore(bucket.quality_avg)} · e ${formatScore(bucket.efficiency_avg)}`}
+                />
+              ))}
+            </>
+          )}
         </DataSection>
 
         <DataSection title="ações abertas">
@@ -2340,7 +2890,7 @@ function FeedbackButton({
         },
       ]}
     >
-      <Frau italic size={11} lineHeight={15} color={active ? c.moss : c.ink3}>
+      <Frau italic size={13} lineHeight={18} color={active ? c.moss : c.ink2}>
         {label}
       </Frau>
     </Pressable>
@@ -2485,8 +3035,10 @@ function bestRemediationAction(trace: AtlasAiTrace): AtlasAiQualityAction | null
 }
 
 function qualityFlagCodes(evaluation?: AtlasAiQualityEvaluation | null): string[] {
-  return (evaluation?.flags ?? []).map((flag) => {
-    const code = flag.code
+  const flags = evaluation?.flags
+  if (!Array.isArray(flags)) return []
+  return flags.map((flag) => {
+    const code = (flag as { code?: unknown })?.code
     return typeof code === 'string' ? code : null
   }).filter((code): code is string => Boolean(code))
 }
@@ -2945,6 +3497,17 @@ function formatLatency(ms: number): string {
   return `${Math.round(seconds)} s`
 }
 
+function formatScore(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a'
+  const rounded = Math.round(value * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}/100`
+}
+
+function formatRate(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 'n/a'
+  return `${Math.round(value * 100)}%`
+}
+
 function formatRelative(value: string | null | undefined): string {
   if (!value) return 'sem data'
   const time = new Date(value).getTime()
@@ -3029,12 +3592,83 @@ function newClientId(): string {
   })
 }
 
+async function storePendingSubmission(submission: PendingAiSubmission): Promise<boolean> {
+  try {
+    await AsyncStorage.setItem(PENDING_SUBMISSION_KEY, JSON.stringify(submission))
+    return true
+  } catch {
+    // Best-effort recovery only; a storage failure should not block sending.
+    return false
+  }
+}
+
+async function readPendingSubmission(): Promise<PendingAiSubmission | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_SUBMISSION_KEY)
+    return parsePendingSubmission(raw)
+  } catch {
+    return null
+  }
+}
+
+async function clearPendingSubmission(clientId?: string): Promise<void> {
+  try {
+    if (clientId) {
+      const current = parsePendingSubmission(await AsyncStorage.getItem(PENDING_SUBMISSION_KEY))
+      if (current && current.clientId !== clientId) return
+    }
+    await AsyncStorage.removeItem(PENDING_SUBMISSION_KEY)
+  } catch {
+    // Nothing useful to do; the next recovery pass will re-check the payload.
+  }
+}
+
+function parsePendingSubmission(raw: string | null): PendingAiSubmission | null {
+  if (!raw) return null
+
+  try {
+    const value = JSON.parse(raw) as Partial<PendingAiSubmission>
+    if (typeof value.clientId !== 'string' || typeof value.input !== 'string' || value.input.trim() === '') {
+      return null
+    }
+
+    const startedAt = typeof value.startedAt === 'number' && Number.isFinite(value.startedAt)
+      ? value.startedAt
+      : Date.now()
+    const pinnedTraceIds = Array.isArray(value.pinnedTraceIds)
+      ? value.pinnedTraceIds.filter((id): id is string => typeof id === 'string')
+      : []
+
+    return {
+      clientId: value.clientId,
+      correlationId: typeof value.correlationId === 'string' ? value.correlationId : value.clientId,
+      input: value.input,
+      threadId: typeof value.threadId === 'string' ? value.threadId : null,
+      routing: normalizeStoredRouting(JSON.stringify(value.routing ?? ROUTING_DEFAULT)),
+      pinnedTraceIds,
+      startedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function shouldKeepPendingSubmission(error: unknown): boolean {
+  if (!(error instanceof AtlasApiError)) return true
+  return error.status === 408 || error.status === 429 || error.status >= 500
+}
+
 function humanAiError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback
   if (message.includes('route ai/') || message.includes('rota ai/')) {
     return 'Atlas AI não está carregado no servidor. Rebuild/restart o atlas-server e toque na marca para tentar de novo.'
   }
   return message
+}
+
+function continuityThreadListError(error: unknown): string {
+  const message = humanAiError(error, 'Falha ao carregar conversas.')
+  return `${message} Mantive a conversa salva para tentar continuar.`
 }
 
 export type { RoutingExecutor }
@@ -3094,6 +3728,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 16,
+  },
+  continuityTopEmpty: {
+    justifyContent: 'flex-end',
+    minHeight: 0,
   },
   continuityTitle: {
     flex: 1,
@@ -3317,9 +3955,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   feedbackButton: {
-    minHeight: 26,
-    paddingHorizontal: 10,
-    borderRadius: 13,
+    minHeight: 32,
+    paddingHorizontal: 14,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3327,5 +3965,12 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 28,
     paddingTop: 4,
+  },
+  copyToast: {
+    position: 'absolute',
+    top: -28,
+    left: 28,
+    right: 28,
+    alignItems: 'center',
   },
 })

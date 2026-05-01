@@ -46,14 +46,12 @@ export default function RootLayout() {
 
 function ThemedRoot() {
   const { c, name } = useTheme()
-  useAutoHealthKitSync()
-  useAtlasDeepLinks()
-  useAtlasPushNotifications()
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style={name === 'dark' ? 'light' : 'dark'} />
       <AtlasShell>
+        <AtlasRuntimeHooks />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -65,6 +63,7 @@ function ThemedRoot() {
           <Stack.Screen name="index" />
           <Stack.Screen name="inbox" />
           <Stack.Screen name="mobile-pairing" options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
+          <Stack.Screen name="mobile-inbox-item" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="mobile-thread" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="health"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="sleep"    options={{ animation: 'slide_from_right', animationDuration: 320 }} />
@@ -81,4 +80,12 @@ function ThemedRoot() {
       </AtlasShell>
     </View>
   )
+}
+
+function AtlasRuntimeHooks() {
+  useAutoHealthKitSync()
+  useAtlasDeepLinks()
+  useAtlasPushNotifications()
+
+  return null
 }
