@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Appearance } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from '../lib/storage'
 import { palettes, type AtlasPalette, type ThemeName } from './tokens'
 
 type ThemeMode = 'light' | 'dark' | 'auto'
@@ -35,15 +35,15 @@ interface AtlasThemeProviderProps {
 }
 
 export function AtlasThemeProvider({ children }: AtlasThemeProviderProps) {
-  const [mode, setModeState] = useState<ThemeMode>('dark')
-  const [name, setName] = useState<ThemeName>(resolveName('dark'))
+  const [mode, setModeState] = useState<ThemeMode>('light')
+  const [name, setName] = useState<ThemeName>(resolveName('light'))
 
   // Hydrate from disk on first render.
   useEffect(() => {
     let cancelled = false
-    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
+    atlasStorage.getItem(STORAGE_KEY).then((stored) => {
       if (cancelled) return
-      const m = (stored ?? 'dark') as ThemeMode
+      const m = (stored ?? 'light') as ThemeMode
       setModeState(m)
       setName(resolveName(m))
     })
@@ -60,7 +60,7 @@ export function AtlasThemeProvider({ children }: AtlasThemeProviderProps) {
   }, [mode])
 
   const setMode = useCallback((m: ThemeMode) => {
-    AsyncStorage.setItem(STORAGE_KEY, m).catch(() => {})
+    atlasStorage.setItem(STORAGE_KEY, m).catch(() => {})
     setModeState(m)
     setName(resolveName(m))
   }, [])

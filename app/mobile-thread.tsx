@@ -8,6 +8,7 @@ import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { useProviderChoice } from '../lib/hooks/useProviderChoice'
+import { copyToClipboard, COPY_LONG_PRESS_DELAY } from '../lib/clipboard'
 import {
   getMobileAiThread,
   replyMobileAiThread,
@@ -208,17 +209,22 @@ export default function MobileThreadScreen() {
 
 function MessageBubble({ message }: { message: AtlasAiMessage }) {
   const c = usePalette()
+  const { showToast } = useShell()
   const isAssistant = message.role === 'assistant'
   const isUser = message.role === 'user'
   const isSystem = message.role === 'system'
   return (
-    <View
-      style={[
+    <Pressable
+      onLongPress={() => void copyToClipboard(message.content, () => showToast('Copiado'))}
+      delayLongPress={COPY_LONG_PRESS_DELAY}
+      accessibilityHint="pressionar e segurar copia o texto da mensagem"
+      style={({ pressed }) => [
         styles.message,
         {
           borderColor: c.border,
           backgroundColor: isAssistant ? c.surface : isUser ? c.premium : 'transparent',
           alignSelf: isUser ? 'flex-end' : 'stretch',
+          opacity: pressed ? 0.75 : 1,
         },
       ]}
     >
@@ -233,7 +239,7 @@ function MessageBubble({ message }: { message: AtlasAiMessage }) {
       <Sans size={13.5} lineHeight={20} color={isSystem ? c.ink2 : c.ink}>
         {message.content}
       </Sans>
-    </View>
+    </Pressable>
   )
 }
 

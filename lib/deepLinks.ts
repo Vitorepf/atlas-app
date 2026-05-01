@@ -74,6 +74,11 @@ export function useAtlasDeepLinks(): void {
   const router = useRouter()
   const { showToast } = useShell()
   const open = useCallback((url: string) => {
+    // Ignore non-Atlas URLs entirely (Expo dev tunnel boot URL, Expo Go
+    // launch URL, OS background hand-off, etc.). Only treat malformed
+    // atlas://... URLs as actual invalid links.
+    if (!url.startsWith('atlas://')) return
+
     const handled = openAtlasDeepLink(url, router)
     if (!handled) {
       router.push('/inbox')

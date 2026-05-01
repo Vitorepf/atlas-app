@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { Keyboard, StyleSheet, View } from 'react-native'
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -85,16 +85,34 @@ export function AtlasShell({ children }: Props) {
     })
   }, [hydrate, sync])
 
-  // Initial sync whisper, then every 18s.
+  // Track keyboard via ref (not state) to avoid re-rendering the shell — and
+  // therefore the entire children tree — every time the keyboard toggles.
+  // Used to skip sync ticks while the user is typing, which prevents the
+  // re-render cascade that causes iOS to refocus multiline TextInputs.
+  const keyboardVisibleRef = useRef(false)
   useEffect(() => {
-    const t1 = setTimeout(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => {
+      keyboardVisibleRef.current = true
+    })
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      keyboardVisibleRef.current = false
+    })
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
+
+  // Initial sync whisper, then every 18s. Skip ticks while the keyboard is
+  // open to keep TextInputs stable.
+  useEffect(() => {
+    const tick = () => {
+      if (keyboardVisibleRef.current) return
       pulseSync(2200)
       void sync()
-    }, 800)
-    const t2 = setInterval(() => {
-      pulseSync(2200)
-      void sync()
-    }, 18000)
+    }
+    const t1 = setTimeout(tick, 800)
+    const t2 = setInterval(tick, 18000)
     return () => {
       clearTimeout(t1)
       clearInterval(t2)

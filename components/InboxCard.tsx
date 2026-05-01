@@ -3,6 +3,8 @@ import { Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { type DomainKey, domainColor, domainLabel } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
+import { copyToClipboard, COPY_LONG_PRESS_DELAY } from '../lib/clipboard'
+import { useShell } from './AtlasShell'
 
 export interface InboxItem {
   id: string
@@ -126,6 +128,7 @@ export function InboxCard({
 }: Props) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
+  const { showToast } = useShell()
   const isFailed =
     item.transcriptionStatus === 'failed' || item.fileIntegrity === 'missing'
   const isPending =
@@ -152,6 +155,9 @@ export function InboxCard({
     >
       <Pressable
         onPress={onPress}
+        onLongPress={() => void copyToClipboard(item.text, () => showToast('Copiado'))}
+        delayLongPress={COPY_LONG_PRESS_DELAY}
+        accessibilityHint="pressionar e segurar copia o texto"
         style={({ pressed }) => [
           styles.body,
           {

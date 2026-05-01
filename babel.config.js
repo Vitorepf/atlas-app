@@ -8,7 +8,7 @@ module.exports = function (api) {
         {
           components: ['tamagui'],
           config: './tamagui.config.ts',
-          logTimings: true,
+          logTimings: false,
         },
       ],
       // Reanimated 4 — must be last. Worklets plugin handles `'worklet'` directives.

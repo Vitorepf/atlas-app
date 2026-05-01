@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   AppState,
   type AppStateStatus,
+  FlatList,
   Keyboard,
   Platform,
   Pressable,
@@ -10,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from '../../lib/storage'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -102,7 +103,6 @@ import {
 } from '../../lib/atlasAiTelemetry'
 
 const OPEN_ACTION_STATUSES = new Set(['queued', 'running', 'blocked', 'failed'])
-const CURRENT_THREAD_KEY = 'atlas-ai.current-thread-id'
 const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
 const ROUTING_KEY = 'atlas-ai.routing'
 const PINNED_TRACE_KEY_PREFIX = 'atlas-ai.pinned-traces.'
@@ -198,7 +198,7 @@ export function AtlasAiSheet() {
   const { c } = useTheme()
   const insets = useSafeAreaInsets()
   const { showToast } = useShell()
-  const scrollRef = useRef<ScrollView>(null)
+  const scrollRef = useRef<FlatList<DisplayTurn>>(null)
 
   const [draft, setDraft] = useState('')
   const [traces, setTraces] = useState<AtlasAiTrace[]>([])
@@ -290,7 +290,7 @@ export function AtlasAiSheet() {
 
   useEffect(() => {
     let cancelled = false
-    AsyncStorage.getItem(ROUTING_KEY)
+    atlasStorage.getItem(ROUTING_KEY)
       .then((stored) => {
         if (cancelled) return
         setRouting(normalizeStoredRouting(stored))
@@ -306,7 +306,7 @@ export function AtlasAiSheet() {
 
   useEffect(() => {
     if (!routingHydrated) return
-    void AsyncStorage.setItem(ROUTING_KEY, JSON.stringify(routing))
+    void atlasStorage.setItem(ROUTING_KEY, JSON.stringify(routing))
   }, [routing, routingHydrated])
 
   useEffect(() => {
@@ -319,7 +319,7 @@ export function AtlasAiSheet() {
       }
 
       try {
-        const stored = await AsyncStorage.getItem(pinnedTraceStorageKey(currentThreadId))
+        const stored = await atlasStorage.getItem(pinnedTraceStorageKey(currentThreadId))
         if (cancelled) return
         const parsed = stored ? JSON.parse(stored) : []
         setPinnedTraceIds(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
@@ -336,7 +336,7 @@ export function AtlasAiSheet() {
 
   useEffect(() => {
     if (!currentThreadId) return
-    void AsyncStorage.setItem(pinnedTraceStorageKey(currentThreadId), JSON.stringify(pinnedTraceIds.slice(0, 24)))
+    void atlasStorage.setItem(pinnedTraceStorageKey(currentThreadId), JSON.stringify(pinnedTraceIds.slice(0, 24)))
   }, [currentThreadId, pinnedTraceIds])
 
   const loadThreadData = useCallback(
@@ -766,7 +766,6 @@ export function AtlasAiSheet() {
 
         if (response.trace.thread_id && submissionStillSelected) {
           setCurrentThreadId(response.trace.thread_id)
-          await AsyncStorage.setItem(CURRENT_THREAD_KEY, response.trace.thread_id)
         }
         await clearPendingSubmission(clientId)
 
@@ -965,7 +964,6 @@ export function AtlasAiSheet() {
     setDraft('')
     setError(null)
     setThreadHistoryOpen(false)
-    void AsyncStorage.removeItem(CURRENT_THREAD_KEY)
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }, [])
 
@@ -998,7 +996,6 @@ export function AtlasAiSheet() {
         setPending(null)
         setError(null)
       }
-      await AsyncStorage.setItem(CURRENT_THREAD_KEY, thread.id)
       await loadThreadData(thread.id, { silent: false })
     },
     [currentThreadId, loadThreadData],
@@ -1362,7 +1359,7 @@ export function AtlasAiSheet() {
               accessibilityRole="button"
               accessibilityLabel="histórico de conversas"
             >
-              <Sans size={18} lineHeight={22} color={c.ink2}>
+              <Sans size={24} lineHeight={28} color={c.ink2}>
                 ≡
               </Sans>
             </Pressable>
@@ -1376,7 +1373,7 @@ export function AtlasAiSheet() {
               accessibilityRole="button"
               accessibilityLabel="nova conversa"
             >
-              <Sans size={22} lineHeight={24} color={c.ink2}>
+              <Sans size={28} lineHeight={30} color={c.ink2}>
                 +
               </Sans>
             </Pressable>
@@ -1396,15 +1393,14 @@ export function AtlasAiSheet() {
           </View>
         </View>
 
-        <ScrollView
-          ref={scrollRef}
-          style={styles.thread}
-          contentContainerStyle={styles.threadContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          stickyHeaderIndices={[0]}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-        >
+        {/*
+          ContinuityPanel fica FORA do FlatList (não no ListHeaderComponent)
+          pra preservar o comportamento "sticky" do ScrollView original — o
+          painel sempre visível no topo, conversa rolando embaixo. Em FlatList,
+          stickyHeaderIndices se referiria ao primeiro item da lista, não ao
+          ListHeader, o que produziria sticky no turn errado.
+        */}
+        <View style={styles.threadHeader}>
           <ContinuityPanel
             thread={currentThread}
             state={sessionState}
@@ -1437,7 +1433,6 @@ export function AtlasAiSheet() {
             onToggleExpanded={() => setContinuityExpanded((value) => !value)}
             hasTurns={traces.length > 0}
           />
-
           {error && (
             <View style={styles.errorRow}>
               <Frau italic size={14} lineHeight={20} color={c.recRed}>
@@ -1445,17 +1440,30 @@ export function AtlasAiSheet() {
               </Frau>
             </View>
           )}
+        </View>
 
-          {turns.length === 0 && !error && (
-            turnFilter === 'all'
-              ? <EmptyPage />
-              : <FilteredEmpty filter={turnFilter} onReset={() => setTurnFilter('all')} />
-          )}
-
-          <LayoutAnimationConfig skipEntering={!animationsReady}>
-            {turns.map((turn, index) => (
+        <LayoutAnimationConfig skipEntering={!animationsReady}>
+          <FlatList<DisplayTurn>
+            ref={scrollRef}
+            data={turns}
+            keyExtractor={(turn) => turn.key}
+            style={styles.thread}
+            contentContainerStyle={styles.threadListContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            windowSize={7}
+            ListEmptyComponent={
+              !error
+                ? (turnFilter === 'all'
+                    ? <EmptyPage />
+                    : <FilteredEmpty filter={turnFilter} onReset={() => setTurnFilter('all')} />)
+                : null
+            }
+            renderItem={({ item: turn, index }) => (
               <View
-                key={turn.key}
                 style={[
                   styles.turn,
                   index < turns.length - 1 && styles.turnSeparator,
@@ -1478,9 +1486,9 @@ export function AtlasAiSheet() {
                   />
                 </View>
               </View>
-            ))}
-          </LayoutAnimationConfig>
-        </ScrollView>
+            )}
+          />
+        </LayoutAnimationConfig>
 
         <View
           style={[
@@ -2932,24 +2940,41 @@ function bodyFromTrace(
 
 function SyncDiamond({ pulsing }: { pulsing: boolean }) {
   const opacity = useSharedValue(1)
+  const scale = useSharedValue(1)
+  const rotate = useSharedValue(0)
 
   useEffect(() => {
     if (pulsing) {
       opacity.value = withRepeat(
-        withTiming(0.35, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.4, { duration: 700, easing: Easing.inOut(Easing.quad) }),
         -1,
         true,
       )
+      scale.value = withRepeat(
+        withTiming(1.28, { duration: 700, easing: Easing.inOut(Easing.quad) }),
+        -1,
+        true,
+      )
+      rotate.value = withRepeat(
+        withTiming(360, { duration: 4200, easing: Easing.linear }),
+        -1,
+        false,
+      )
     } else {
-      opacity.value = withTiming(1, { duration: 200 })
+      opacity.value = withTiming(1, { duration: 220 })
+      scale.value = withTiming(1, { duration: 220 })
+      rotate.value = withTiming(0, { duration: 220 })
     }
-  }, [pulsing, opacity])
+  }, [pulsing, opacity, scale, rotate])
 
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value }))
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }, { rotate: `${rotate.value}deg` }],
+  }))
 
   return (
     <Animated.View style={style}>
-      <BronzeDiamond size={14} opacity={0.7} />
+      <BronzeDiamond size={20} opacity={0.9} />
     </Animated.View>
   )
 }
@@ -3589,7 +3614,7 @@ function newClientId(): string {
 
 async function storePendingSubmission(submission: PendingAiSubmission): Promise<boolean> {
   try {
-    await AsyncStorage.setItem(PENDING_SUBMISSION_KEY, JSON.stringify(submission))
+    await atlasStorage.setItem(PENDING_SUBMISSION_KEY, JSON.stringify(submission))
     return true
   } catch {
     // Best-effort recovery only; a storage failure should not block sending.
@@ -3599,7 +3624,7 @@ async function storePendingSubmission(submission: PendingAiSubmission): Promise<
 
 async function readPendingSubmission(): Promise<PendingAiSubmission | null> {
   try {
-    const raw = await AsyncStorage.getItem(PENDING_SUBMISSION_KEY)
+    const raw = await atlasStorage.getItem(PENDING_SUBMISSION_KEY)
     return parsePendingSubmission(raw)
   } catch {
     return null
@@ -3609,10 +3634,10 @@ async function readPendingSubmission(): Promise<PendingAiSubmission | null> {
 async function clearPendingSubmission(clientId?: string): Promise<void> {
   try {
     if (clientId) {
-      const current = parsePendingSubmission(await AsyncStorage.getItem(PENDING_SUBMISSION_KEY))
+      const current = parsePendingSubmission(await atlasStorage.getItem(PENDING_SUBMISSION_KEY))
       if (current && current.clientId !== clientId) return
     }
-    await AsyncStorage.removeItem(PENDING_SUBMISSION_KEY)
+    await atlasStorage.removeItem(PENDING_SUBMISSION_KEY)
   } catch {
     // Nothing useful to do; the next recovery pass will re-check the payload.
   }
@@ -3661,11 +3686,6 @@ function humanAiError(error: unknown, fallback: string): string {
   return message
 }
 
-function continuityThreadListError(error: unknown): string {
-  const message = humanAiError(error, 'Falha ao carregar conversas.')
-  return `${message} Mantive a conversa salva para tentar continuar.`
-}
-
 export type { RoutingExecutor }
 
 const styles = StyleSheet.create({
@@ -3690,11 +3710,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 14,
+    gap: 18,
   },
   headerAction: {
-    width: 28,
-    height: 32,
+    width: 36,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3705,6 +3725,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingTop: 20,
     paddingBottom: 24,
+  },
+  threadHeader: {
+    paddingHorizontal: 28,
+    paddingTop: 20,
+  },
+  threadListContent: {
+    paddingHorizontal: 28,
+    paddingBottom: 24,
+    flexGrow: 1,
   },
   continuityPanel: {
     paddingBottom: 12,

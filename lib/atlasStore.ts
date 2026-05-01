@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from './storage'
 import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system/legacy'
 import { Platform } from 'react-native'
@@ -375,7 +375,7 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
     await hydrateApiConfig()
 
     const [raw, healthKit, screenTime] = await Promise.all([
-      AsyncStorage.getItem(STORAGE_KEY),
+      atlasStorage.getItem(STORAGE_KEY),
       getHealthKitLocalStatus(),
       getScreenTimeLocalStatus(),
     ])
@@ -2500,11 +2500,11 @@ function legacyHealthSignalTombstones(existingSignals: AtlasPassiveSignal[]): St
 }
 
 async function healthDataRepairPending(): Promise<boolean> {
-  return (await AsyncStorage.getItem(HEALTH_DATA_REPAIR_VERSION_KEY)) !== HEALTH_DATA_REPAIR_VERSION
+  return (await atlasStorage.getItem(HEALTH_DATA_REPAIR_VERSION_KEY)) !== HEALTH_DATA_REPAIR_VERSION
 }
 
 async function markHealthDataRepairApplied(): Promise<void> {
-  await AsyncStorage.setItem(HEALTH_DATA_REPAIR_VERSION_KEY, HEALTH_DATA_REPAIR_VERSION)
+  await atlasStorage.setItem(HEALTH_DATA_REPAIR_VERSION_KEY, HEALTH_DATA_REPAIR_VERSION)
 }
 
 function dateKeyForPassiveSignalInput(
@@ -3419,5 +3419,5 @@ async function persist(state: AtlasState): Promise<void> {
     screenTime: state.screenTime,
   }
 
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  await atlasStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
 }

@@ -45,30 +45,42 @@ export default function MemoryScreen() {
   const [notes, setNotes] = useState<AtlasSemanticNote[]>([])
   const [auditItems, setAuditItems] = useState<AtlasAuditItem[]>([])
   const [game, setGame] = useState<AtlasCognitiveGameRun | null>(null)
+  const [partialFailure, setPartialFailure] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
     setLoading(true)
-    try {
-      const [vaultHealth, activationPage, proposalPage, notePage, auditPage, todayGame] = await Promise.all([
-        getVaultHealth(),
-        listSemanticActivations({ limit: 8 }),
-        listSemanticCurationProposals({ limit: 8 }),
-        listSemanticNotes({ limit: 20 }),
-        listSuggestionAudit({ limit: 8 }),
-        getTodayCognitiveGame(),
-      ])
-      setHealth(vaultHealth)
-      setActivations(activationPage.activations)
-      setProposals(proposalPage.proposals)
-      setNotes(notePage.notes)
-      setAuditItems(auditPage.items)
-      setGame(todayGame.game)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar memória semântica.')
-    } finally {
-      setLoading(false)
+
+    // allSettled: uma falha (ex: jogo cognitivo offline) não descarta os
+    // outros 5 datasets que vieram OK. Cada seção atualiza ou mantém estado
+    // anterior. Falha global só se TUDO falhar; falha parcial mostra banner
+    // discreto pra usuário saber que algo não atualizou.
+    const results = await Promise.allSettled([
+      getVaultHealth(),
+      listSemanticActivations({ limit: 8 }),
+      listSemanticCurationProposals({ limit: 8 }),
+      listSemanticNotes({ limit: 20 }),
+      listSuggestionAudit({ limit: 8 }),
+      getTodayCognitiveGame(),
+    ])
+
+    if (results[0].status === 'fulfilled') setHealth(results[0].value)
+    if (results[1].status === 'fulfilled') setActivations(results[1].value.activations)
+    if (results[2].status === 'fulfilled') setProposals(results[2].value.proposals)
+    if (results[3].status === 'fulfilled') setNotes(results[3].value.notes)
+    if (results[4].status === 'fulfilled') setAuditItems(results[4].value.items)
+    if (results[5].status === 'fulfilled') setGame(results[5].value.game)
+
+    const failures = results.filter((r) => r.status === 'rejected')
+    if (failures.length === results.length) {
+      const reason = (failures[0] as PromiseRejectedResult).reason
+      setError(reason instanceof Error ? reason.message : 'Falha ao carregar memória semântica.')
+      setPartialFailure(false)
+    } else {
+      setPartialFailure(failures.length > 0)
     }
+
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -143,6 +155,12 @@ export default function MemoryScreen() {
         <View style={[styles.errorBox, { borderColor: c.recRed, backgroundColor: c.surface }]}>
           <Sans size={14} lineHeight={20} color={c.recRed}>
             {error}
+          </Sans>
+        </View>
+      ) : partialFailure ? (
+        <View style={[styles.errorBox, { borderColor: c.border, backgroundColor: c.surface }]}>
+          <Sans size={13} lineHeight={19} color={c.ink2}>
+            Algumas seções não atualizaram desta vez. Toque em recarregar para tentar de novo.
           </Sans>
         </View>
       ) : null}

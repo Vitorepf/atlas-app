@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react'
-import { Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native'
 import { SideSheet } from './SideSheet'
 import { Scrim } from './Scrim'
 import { Frau, Sans } from '../../design/Type'
@@ -8,6 +17,7 @@ import { useOverlays } from '../../lib/overlays'
 import { useShell } from '../AtlasShell'
 import { domainColor, type DomainKey } from '../../lib/domains'
 import { useAtlasStore } from '../../lib/atlasStore'
+import { useFocusSuppression } from '../../lib/hooks/useFocusSuppression'
 
 export function EditSheet() {
   const open = useOverlays((s) => s.open)
@@ -22,6 +32,28 @@ export function EditSheet() {
   const [draft, setDraft] = useState('')
   const [activeDomain, setActiveDomain] = useState<DomainKey>('blackink')
   const [tags, setTags] = useState<string[]>(['captura', 'ideia'])
+  const bodyScrollRef = useRef<ScrollView>(null)
+  const bodyInputRef = useRef<TextInput>(null)
+  const lastBodyHeightRef = useRef(0)
+  const { editable: bodyEditable, suppress: suppressBodyFocus } = useFocusSuppression()
+  const bodyInputStyle = useMemo(() => [styles.input, { color: c.ink }], [c.ink])
+  const onBodyContentSizeChange = useCallback(
+    (e: { nativeEvent: { contentSize: { height: number } } }) => {
+      const h = e.nativeEvent.contentSize.height
+      if (h > lastBodyHeightRef.current + 1) {
+        requestAnimationFrame(() =>
+          bodyScrollRef.current?.scrollToEnd({ animated: true }),
+        )
+      }
+      lastBodyHeightRef.current = h
+    },
+    [],
+  )
+  const onBodyScrollBeginDrag = useCallback(() => {
+    bodyInputRef.current?.blur()
+    Keyboard.dismiss()
+    suppressBodyFocus()
+  }, [suppressBodyFocus])
 
   useEffect(() => {
     if (item) {
@@ -36,6 +68,10 @@ export function EditSheet() {
          side sheets exigem botão Voltar. Mantemos só o sheet, sem scrim. */}
       <Scrim visible={false} />
       <SideSheet visible={visible}>
+        <KeyboardAvoidingView
+          style={styles.fill}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <View style={[styles.header, { borderBottomColor: c.border }]}>
           <Pressable onPress={close} style={({ pressed }) => [styles.headerSlot, { opacity: pressed ? 0.65 : 1 }]}>
             <Sans weight="med" size={15} color={c.ink}>← Voltar</Sans>
@@ -60,18 +96,30 @@ export function EditSheet() {
           </Pressable>
         </View>
 
-        <View style={styles.body}>
+        <ScrollView
+          ref={bodyScrollRef}
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          onScrollBeginDrag={onBodyScrollBeginDrag}
+        >
           <TextInput
+            ref={bodyInputRef}
             value={draft}
             onChangeText={setDraft}
             multiline
+            editable={bodyEditable}
+            scrollEnabled={false}
             textAlignVertical="top"
             placeholder="Escreva o que pensa…"
             placeholderTextColor={c.ink3}
-            style={[styles.input, { color: c.ink }]}
+            style={bodyInputStyle}
             selectionColor={c.prussian}
+            onContentSizeChange={onBodyContentSizeChange}
           />
-        </View>
+        </ScrollView>
 
         <View style={[styles.footer, { borderTopColor: c.border, backgroundColor: c.bg }]}>
           {domains.map((d) => {
@@ -125,6 +173,7 @@ export function EditSheet() {
             </Sans>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </SideSheet>
     </>
   )
@@ -141,9 +190,13 @@ const styles = StyleSheet.create({
   },
   headerSlot: { flex: 1 },
   headerRight: { alignItems: 'flex-end' },
+  fill: { flex: 1 },
   body: { flex: 1 },
+  bodyContent: {
+    flexGrow: 1,
+    paddingBottom: 32,
+  },
   input: {
-    flex: 1,
     fontFamily: 'Inter_400Regular',
     fontSize: 17,
     lineHeight: 26,

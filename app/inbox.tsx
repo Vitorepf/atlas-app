@@ -95,7 +95,8 @@ const ROMAN_MONTHS = [
 ]
 
 const OPERATIONAL_PAGE_SIZE = 25
-const OPERATIONAL_POLL_INTERVAL_MS = 60_000
+const OPERATIONAL_POLL_INTERVAL_MS = 90_000
+const OPERATIONAL_POLL_JITTER_MS = 4_000
 
 export default function InboxScreen() {
   const c = usePalette()
@@ -225,19 +226,28 @@ export default function InboxScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true
-      let pollTimer: ReturnType<typeof setInterval> | null = null
+      let pollTimer: ReturnType<typeof setTimeout> | null = null
 
-      const startPolling = () => {
-        if (pollTimer) return
-        pollTimer = setInterval(() => {
+      // setTimeout encadeado (não setInterval): evita empilhamento se o
+      // refresh demorar mais que o intervalo. Jitter ±4s espalha picos
+      // entre dispositivos. Pausa em background é tratada pelo AppState.
+      const scheduleNextPoll = () => {
+        if (pollTimer || !active) return
+        const jitter = Math.floor(Math.random() * OPERATIONAL_POLL_JITTER_MS) - OPERATIONAL_POLL_JITTER_MS / 2
+        pollTimer = setTimeout(async () => {
+          pollTimer = null
           if (!active || AppState.currentState !== 'active') return
-          void refreshOperationalInbox()
-        }, OPERATIONAL_POLL_INTERVAL_MS)
+          try {
+            await refreshOperationalInbox()
+          } finally {
+            if (active && AppState.currentState === 'active') scheduleNextPoll()
+          }
+        }, OPERATIONAL_POLL_INTERVAL_MS + jitter)
       }
 
       const stopPolling = () => {
         if (pollTimer) {
-          clearInterval(pollTimer)
+          clearTimeout(pollTimer)
           pollTimer = null
         }
       }
@@ -248,14 +258,14 @@ export default function InboxScreen() {
       void refreshOperationalInbox()
 
       if (AppState.currentState === 'active') {
-        startPolling()
+        scheduleNextPoll()
       }
 
       const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
         if (!active) return
         if (nextState === 'active') {
           void refreshOperationalInbox()
-          startPolling()
+          scheduleNextPoll()
         } else {
           stopPolling()
         }

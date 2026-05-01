@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from './storage'
 import { NativeModules, Platform } from 'react-native'
 import type {
   StoreDigitalActivitySnapshotInput,
@@ -564,7 +564,7 @@ async function appendDebugTrail(event: string): Promise<string[]> {
 
 async function readStatus(): Promise<ScreenTimeLocalStatus> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY)
+    const raw = await atlasStorage.getItem(STORAGE_KEY)
     if (!raw) return disabledStatus()
     const parsed = JSON.parse(raw) as Partial<ScreenTimeLocalStatus>
     return {
@@ -577,7 +577,7 @@ async function readStatus(): Promise<ScreenTimeLocalStatus> {
 }
 
 async function writeStatus(status: ScreenTimeLocalStatus): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(status))
+  await atlasStorage.setItem(STORAGE_KEY, JSON.stringify(status))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

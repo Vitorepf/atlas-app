@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import {
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -31,6 +33,7 @@ import { useShell } from '../components/AtlasShell'
 import { useOverlays, type CaptureMode, type CaptureSensitivity } from '../lib/overlays'
 import type { DomainKey } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
+import { useFocusSuppression } from '../lib/hooks/useFocusSuppression'
 
 export default function CaptureScreen() {
   const { c, name } = useTheme()
@@ -57,6 +60,28 @@ export default function CaptureScreen() {
   const [sensitivity, setSensitivity] = useState<CaptureSensitivity>('normal')
   const [text, setText] = useState('')
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null)
+  const textScrollRef = useRef<ScrollView>(null)
+  const textInputRef = useRef<TextInput>(null)
+  const lastTextHeightRef = useRef(0)
+  const { editable: textEditable, suppress: suppressTextFocus } = useFocusSuppression()
+  const textInputStyle = useMemo(() => [styles.textInput, { color: c.ink }], [c.ink])
+  const onTextContentSizeChange = useCallback(
+    (e: { nativeEvent: { contentSize: { height: number } } }) => {
+      const h = e.nativeEvent.contentSize.height
+      if (h > lastTextHeightRef.current + 1) {
+        requestAnimationFrame(() =>
+          textScrollRef.current?.scrollToEnd({ animated: true }),
+        )
+      }
+      lastTextHeightRef.current = h
+    },
+    [],
+  )
+  const onTextScrollBeginDrag = useCallback(() => {
+    textInputRef.current?.blur()
+    Keyboard.dismiss()
+    suppressTextFocus()
+  }, [suppressTextFocus])
   const [starting, setStarting] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +89,12 @@ export default function CaptureScreen() {
   useEffect(() => {
     void refreshDomains()
   }, [refreshDomains])
+
+  useEffect(() => {
+    if (mode !== 'text') return
+    const t = setTimeout(() => textInputRef.current?.focus(), 60)
+    return () => clearTimeout(t)
+  }, [mode])
 
   useEffect(() => {
     const selected = domains.find((d) => d.key === domain)
@@ -303,17 +334,30 @@ export default function CaptureScreen() {
                 <CaptureWave />
               </View>
             ) : mode === 'text' ? (
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="Escreva sem lapidar. A curadoria vem depois."
-                placeholderTextColor={c.ink3}
-                selectionColor={c.ink}
-                multiline
-                autoFocus
-                textAlignVertical="top"
-                style={[styles.textInput, { color: c.ink }]}
-              />
+              <ScrollView
+                ref={textScrollRef}
+                style={styles.fill}
+                contentContainerStyle={styles.textScrollContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={false}
+                onScrollBeginDrag={onTextScrollBeginDrag}
+              >
+                <TextInput
+                  ref={textInputRef}
+                  value={text}
+                  onChangeText={setText}
+                  placeholder="Escreva sem lapidar. A curadoria vem depois."
+                  placeholderTextColor={c.ink3}
+                  selectionColor={c.ink}
+                  multiline
+                  editable={textEditable}
+                  scrollEnabled={false}
+                  textAlignVertical="top"
+                  style={textInputStyle}
+                  onContentSizeChange={onTextContentSizeChange}
+                />
+              </ScrollView>
             ) : (
               <View style={styles.photoStage}>
                 {photo?.uri ? (
@@ -511,11 +555,15 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   textInput: {
-    flex: 1,
     fontFamily: fonts.sans,
     fontSize: 20,
     lineHeight: 30,
     padding: 0,
+    minHeight: 120,
+  },
+  textScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
   photoStage: {
     flex: 1,

@@ -11,6 +11,7 @@ import { domainColor, domainLabel } from '../../lib/domains'
 import type { InboxItem } from '../InboxCard'
 import { captureToInboxItem, useAtlasStore, visibleCaptures } from '../../lib/atlasStore'
 import { listSemanticNotes, type AtlasSemanticNote } from '../../lib/api/client'
+import { copyToClipboard, COPY_LONG_PRESS_DELAY } from '../../lib/clipboard'
 
 const WAVE_HEIGHTS = [4, 8, 14, 20, 26, 22, 16, 10, 6, 12, 18, 24, 28, 22, 16, 10, 6, 4, 8, 14, 20, 26, 30, 24, 18, 12, 8, 4, 10, 16, 22, 18, 12, 8, 6, 10, 14, 8, 4, 4]
 
@@ -225,9 +226,16 @@ function DetailContent({ item, onEdit, onMove, onDelete, onRetryTranscription, o
         </Sans>
       </View>
 
-      <Sans size={17} lineHeight={26} color={c.ink} style={{ marginBottom: 22 }}>
-        {item.text}
-      </Sans>
+      <Pressable
+        onLongPress={() => void copyToClipboard(item.text, () => showToast('Copiado'))}
+        delayLongPress={COPY_LONG_PRESS_DELAY}
+        accessibilityHint="pressionar e segurar copia o texto da captura"
+        style={({ pressed }) => [{ marginBottom: 22, opacity: pressed ? 0.7 : 1 }]}
+      >
+        <Sans size={17} lineHeight={26} color={c.ink}>
+          {item.text}
+        </Sans>
+      </Pressable>
 
       <View style={[styles.statusPanel, { borderColor: statusColor(item.statusTone, c), backgroundColor: c.surface }]}>
         <View style={[styles.statusDot, { backgroundColor: statusColor(item.statusTone, c) }]} />

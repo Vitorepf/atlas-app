@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from './storage'
 import { Platform } from 'react-native'
 import {
   postAiTelemetryEvents,
@@ -83,7 +83,7 @@ export async function flushAtlasAiTelemetry(): Promise<void> {
 }
 
 async function readTelemetryQueue(): Promise<AtlasAiTelemetryEventInput[]> {
-  const raw = await AsyncStorage.getItem(TELEMETRY_OUTBOX_KEY)
+  const raw = await atlasStorage.getItem(TELEMETRY_OUTBOX_KEY)
   if (!raw) return []
 
   try {
@@ -97,7 +97,7 @@ async function readTelemetryQueue(): Promise<AtlasAiTelemetryEventInput[]> {
 }
 
 async function writeTelemetryQueue(events: AtlasAiTelemetryEventInput[]): Promise<void> {
-  await AsyncStorage.setItem(TELEMETRY_OUTBOX_KEY, JSON.stringify(events.slice(-TELEMETRY_MAX_EVENTS)))
+  await atlasStorage.setItem(TELEMETRY_OUTBOX_KEY, JSON.stringify(events.slice(-TELEMETRY_MAX_EVENTS)))
 }
 
 function isTelemetryEvent(value: unknown): value is AtlasAiTelemetryEventInput {

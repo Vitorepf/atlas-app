@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage } from './storage'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 import type {
@@ -514,14 +514,14 @@ export async function getHealthKitLocalStatus(): Promise<HealthKitLocalStatus> {
     historyBackfilledAt,
     backgroundConfiguredAt,
   ] = await Promise.all([
-    AsyncStorage.getItem(HEALTHKIT_ENABLED_KEY),
-    AsyncStorage.getItem(HEALTHKIT_LAST_SYNC_KEY),
-    AsyncStorage.getItem(HEALTHKIT_LAST_ERROR_KEY),
-    AsyncStorage.getItem(HEALTHKIT_LAST_COUNT_KEY),
+    atlasStorage.getItem(HEALTHKIT_ENABLED_KEY),
+    atlasStorage.getItem(HEALTHKIT_LAST_SYNC_KEY),
+    atlasStorage.getItem(HEALTHKIT_LAST_ERROR_KEY),
+    atlasStorage.getItem(HEALTHKIT_LAST_COUNT_KEY),
     readHealthKitDebugTrail(),
-    AsyncStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_KEY),
-    AsyncStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_AT_KEY),
-    AsyncStorage.getItem(HEALTHKIT_BACKGROUND_CONFIGURED_AT_KEY),
+    atlasStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_KEY),
+    atlasStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_AT_KEY),
+    atlasStorage.getItem(HEALTHKIT_BACKGROUND_CONFIGURED_AT_KEY),
   ])
 
   return {
@@ -561,7 +561,7 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
   const medicationsGranted = false
   const enabled = requestProcessed || medicationsGranted
 
-  await AsyncStorage.multiSet([
+  await atlasStorage.multiSet([
     [HEALTHKIT_ENABLED_KEY, enabled ? 'true' : 'false'],
     [HEALTHKIT_LAST_ERROR_KEY, ''],
   ])
@@ -584,7 +584,7 @@ export async function requestAllHealthKitPermissions(): Promise<HealthKitPermiss
 }
 
 export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): Promise<HealthKitSyncResult> {
-  const historyBackfilled = (await AsyncStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_KEY)) === 'true'
+  const historyBackfilled = (await atlasStorage.getItem(HEALTHKIT_HISTORY_BACKFILLED_KEY)) === 'true'
   const queryLimit = historyBackfilled ? limit : HEALTHKIT_BACKFILL_SAMPLE_LIMIT
   const mode = historyBackfilled ? 'incremental' : 'historical-backfill'
   const backfillFilter = historyBackfilled ? undefined : recentSampleFilter(HEALTHKIT_SAMPLE_BACKFILL_DAYS)
@@ -798,14 +798,14 @@ export async function collectHealthKitSignals(limit = HEALTHKIT_SAMPLE_LIMIT): P
   signals.push(...await characteristicSignals(healthKit, errors))
 
   const syncedAt = new Date().toISOString()
-  await AsyncStorage.multiSet([
+  await atlasStorage.multiSet([
     [HEALTHKIT_LAST_SYNC_KEY, syncedAt],
     [HEALTHKIT_LAST_COUNT_KEY, String(signals.length)],
     [HEALTHKIT_LAST_ERROR_KEY, errors[0] ?? ''],
   ])
 
   if (!historyBackfilled) {
-    await AsyncStorage.multiSet([
+    await atlasStorage.multiSet([
       [HEALTHKIT_HISTORY_BACKFILLED_KEY, 'true'],
       [HEALTHKIT_HISTORY_BACKFILLED_AT_KEY, syncedAt],
     ])
@@ -863,7 +863,7 @@ export async function configureHealthKitBackgroundDelivery(): Promise<boolean> {
       }
     }
 
-    await AsyncStorage.setItem(HEALTHKIT_BACKGROUND_CONFIGURED_AT_KEY, new Date().toISOString())
+    await atlasStorage.setItem(HEALTHKIT_BACKGROUND_CONFIGURED_AT_KEY, new Date().toISOString())
     await logHealthKitDebug('background:configured', {
       readable: readableTypes.length,
       enabled: enabledCount,
@@ -2383,12 +2383,12 @@ function medicationText(value: unknown): string | null {
 }
 
 async function readAnchor(kind: string, identifier: string): Promise<string | undefined> {
-  return (await AsyncStorage.getItem(anchorKey(kind, identifier))) ?? undefined
+  return (await atlasStorage.getItem(anchorKey(kind, identifier))) ?? undefined
 }
 
 async function writeAnchor(kind: string, identifier: string, anchor: string | null | undefined): Promise<void> {
   if (!anchor) return
-  await AsyncStorage.setItem(anchorKey(kind, identifier), anchor)
+  await atlasStorage.setItem(anchorKey(kind, identifier), anchor)
 }
 
 function anchorKey(kind: string, identifier: string): string {
@@ -2409,7 +2409,7 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
 
 async function readHealthKitDebugTrail(): Promise<string[]> {
   try {
-    const raw = await AsyncStorage.getItem(HEALTHKIT_DEBUG_KEY)
+    const raw = await atlasStorage.getItem(HEALTHKIT_DEBUG_KEY)
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []
   } catch {
@@ -2425,7 +2425,7 @@ async function logHealthKitDebug(step: string, metadata: Record<string, unknown>
 
   try {
     const trail = await readHealthKitDebugTrail()
-    await AsyncStorage.setItem(HEALTHKIT_DEBUG_KEY, JSON.stringify([...trail, line].slice(-80)))
+    await atlasStorage.setItem(HEALTHKIT_DEBUG_KEY, JSON.stringify([...trail, line].slice(-80)))
   } catch {
     // Debug logging must never affect HealthKit reads.
   }

@@ -16,7 +16,24 @@ import { useAutoHealthKitSync } from '../lib/autoHealthSync'
 import { useAtlasDeepLinks } from '../lib/deepLinks'
 import { useAtlasPushNotifications } from '../lib/pushNotifications'
 
-const queryClient = new QueryClient()
+// Defaults conservadores para mobile: cache curto suficiente pra deduplicar
+// chamadas em telas que abrem em sequência, sem servir dados velhos demais.
+// Sem refetch on focus (mobile não tem "focus"), sem retry agressivo
+// (já fazemos retry no fetch helper com backoff).
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: 'always',
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+})
 
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
