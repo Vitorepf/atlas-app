@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { atlasStorage, ensureMigrationFromAsyncStorage } from '../storage'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import type { DomainKey } from '../domains'
@@ -1591,7 +1591,22 @@ export interface AtlasCognitiveGameRun {
 }
 
 export type AtlasAiProvider = 'claude_cli' | 'codex_cli' | 'claude_codex'
-export type AtlasAiStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled'
+export type AtlasAiStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'awaiting_user_choice'
+
+export type AtlasAiChoiceAction = 'switch_provider' | 'downgrade_model' | 'wait' | 'fail' | 'cancel' | 'retry_same'
+
+export interface AtlasAiChoiceOption {
+  id: string
+  label: string
+  description?: string
+  action: AtlasAiChoiceAction
+  provider?: string
+  model?: string | null
+  available_at_iso?: string
+  cli_command?: string
+  reason?: string
+}
+
 export type AtlasAiQualityStatus = 'passed' | 'needs_review' | 'failed' | string
 export type AtlasAiQualityActionStatus =
   | 'queued'
@@ -1627,6 +1642,12 @@ export interface AtlasAiJob {
   max_attempts: number
   timeout_seconds: number
   worker_id: string | null
+  awaiting_user_choice?: boolean
+  choice_options?: AtlasAiChoiceOption[]
+  provider_choice_state?: 'pending' | 'resolved' | null
+  provider_choice_error_code?: string | null
+  provider_reset_at?: string | null
+  reset_hint?: string | null
   metadata: Record<string, unknown>
   trace?: AtlasAiTrace
   attempt_history?: AtlasAiJobAttempt[]
@@ -2308,12 +2329,16 @@ export class AtlasApiError extends Error {
 export async function hydrateApiConfig(): Promise<void> {
   if (!hydratePromise) {
     hydratePromise = (async () => {
+      // Garante que valores legados em AsyncStorage estejam copiados pro
+      // MMKV antes de ler. Sem isso, usuários atualizando perderiam host
+      // customizado, device pairing, etc.
+      await ensureMigrationFromAsyncStorage()
       const [host, port, token, mobileToken, mobileDeviceId] = await Promise.all([
-        AsyncStorage.getItem(HOST_KEY),
-        AsyncStorage.getItem(PORT_KEY),
+        atlasStorage.getItem(HOST_KEY),
+        atlasStorage.getItem(PORT_KEY),
         readStoredToken(),
         readStoredMobileDeviceToken(),
-        AsyncStorage.getItem(MOBILE_DEVICE_ID_KEY),
+        atlasStorage.getItem(MOBILE_DEVICE_ID_KEY),
       ])
 
       if (host) cachedHost = host
@@ -2352,12 +2377,12 @@ export function getApiConfig(): ApiConfig {
 
 export async function setBackendHost(host: string): Promise<void> {
   cachedHost = host.trim() || DEFAULT_HOST
-  await AsyncStorage.setItem(HOST_KEY, cachedHost)
+  await atlasStorage.setItem(HOST_KEY, cachedHost)
 }
 
 export async function setBackendPort(port: number): Promise<void> {
   cachedPort = Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT
-  await AsyncStorage.setItem(PORT_KEY, String(cachedPort))
+  await atlasStorage.setItem(PORT_KEY, String(cachedPort))
 }
 
 export async function setBackendToken(token: string): Promise<void> {
@@ -2396,7 +2421,7 @@ export async function setMobileDeviceSession(session: MobileDeviceSession): Prom
   cachedMobileDeviceId = session.deviceId
   await Promise.all([
     writeStoredMobileDeviceToken(session.deviceToken),
-    AsyncStorage.setItem(MOBILE_DEVICE_ID_KEY, session.deviceId),
+    atlasStorage.setItem(MOBILE_DEVICE_ID_KEY, session.deviceId),
   ])
 }
 
@@ -2405,7 +2430,7 @@ export async function clearMobileDeviceSession(): Promise<void> {
   cachedMobileDeviceId = null
   await Promise.all([
     removeStoredMobileDeviceToken(),
-    AsyncStorage.removeItem(MOBILE_DEVICE_ID_KEY),
+    atlasStorage.removeItem(MOBILE_DEVICE_ID_KEY),
   ])
 }
 
@@ -3692,6 +3717,20 @@ export async function cancelAiJob(id: string): Promise<{ job: AtlasAiJob }> {
   return apiPost(`/ai/jobs/${encodeURIComponent(id)}/cancel`, {})
 }
 
+export async function resumeAiJobChoice(
+  jobId: string,
+  optionId: string,
+): Promise<{ job: AtlasAiJob }> {
+  return apiRequest<{ job: AtlasAiJob }>(
+    `/ai/jobs/${encodeURIComponent(jobId)}/resume-choice`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ option_id: optionId }),
+    },
+  )
+}
+
 export async function getAiProvidersStatus(): Promise<AiProvidersStatusResponse> {
   return apiGet<AiProvidersStatusResponse>('/ai/providers/status')
 }
@@ -4111,21 +4150,49 @@ async function executeFetch(
   const shouldRetry = options.retry ?? (safeMethods || hasIdempotencyKey)
   const maxAttempts = shouldRetry ? 3 : 1
 
+  // Se o caller passou um signal externo, encadeamos com o nosso de timeout:
+  // qualquer um dos dois aborta o fetch. Hoje nenhum caller usa, mas evita
+  // armadilha futura de signal silenciosamente sobrescrito.
+  const externalSignal = (init as RequestInit & { signal?: AbortSignal }).signal ?? null
+
   let lastError: unknown = null
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const onExternalAbort = () => controller.abort()
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort()
+      else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
+    }
     try {
       const response = await fetch(url, { ...init, signal: controller.signal })
       clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onExternalAbort)
       if (response.status >= 500 && response.status <= 599 && attempt < maxAttempts - 1) {
-        lastError = new AtlasApiError(`Atlas API ${response.status}`, response.status, url, null)
+        // Drena o body e preserva payload pro caso de TODAS as tentativas
+        // falharem — caller terá a mensagem real do servidor.
+        let errorPayload: unknown = null
+        try {
+          const text = await response.text()
+          if (text) {
+            try { errorPayload = JSON.parse(text) } catch { errorPayload = text }
+          }
+        } catch {
+          // body já consumido / stream falhou: nada a fazer.
+        }
+        lastError = new AtlasApiError(
+          errorMessage(url, response.status, errorPayload),
+          response.status,
+          url,
+          errorPayload,
+        )
         await delayMs(fetchBackoffMs(attempt))
         continue
       }
       return response
     } catch (error) {
       clearTimeout(timer)
+      externalSignal?.removeEventListener('abort', onExternalAbort)
       lastError = error
       if (attempt < maxAttempts - 1) {
         await delayMs(fetchBackoffMs(attempt))
@@ -4264,15 +4331,15 @@ async function readStoredToken(): Promise<string | null> {
     // SecureStore can be unavailable in a non-native runtime; legacy storage remains a fallback.
   }
 
-  return AsyncStorage.getItem(TOKEN_KEY)
+  return atlasStorage.getItem(TOKEN_KEY)
 }
 
 async function writeStoredToken(token: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(TOKEN_KEY, token)
-    await AsyncStorage.removeItem(TOKEN_KEY)
+    await atlasStorage.removeItem(TOKEN_KEY)
   } catch {
-    await AsyncStorage.setItem(TOKEN_KEY, token)
+    await atlasStorage.setItem(TOKEN_KEY, token)
   }
 }
 
@@ -4284,15 +4351,15 @@ async function readStoredMobileDeviceToken(): Promise<string | null> {
     // SecureStore can be unavailable in a non-native runtime; AsyncStorage remains a fallback.
   }
 
-  return AsyncStorage.getItem(MOBILE_TOKEN_KEY)
+  return atlasStorage.getItem(MOBILE_TOKEN_KEY)
 }
 
 async function writeStoredMobileDeviceToken(token: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(MOBILE_TOKEN_KEY, token)
-    await AsyncStorage.removeItem(MOBILE_TOKEN_KEY)
+    await atlasStorage.removeItem(MOBILE_TOKEN_KEY)
   } catch {
-    await AsyncStorage.setItem(MOBILE_TOKEN_KEY, token)
+    await atlasStorage.setItem(MOBILE_TOKEN_KEY, token)
   }
 }
 
@@ -4303,5 +4370,5 @@ async function removeStoredMobileDeviceToken(): Promise<void> {
     // Ignore SecureStore removal failures and still clear the fallback key.
   }
 
-  await AsyncStorage.removeItem(MOBILE_TOKEN_KEY)
+  await atlasStorage.removeItem(MOBILE_TOKEN_KEY)
 }
