@@ -432,65 +432,60 @@ export function AtlasAiSheet() {
     if (!visible) return
     let cancelled = false
 
-    async function hydrateThread() {
-      setLoading(true)
-      setError(null)
-      try {
-        let threadId = await AsyncStorage.getItem(CURRENT_THREAD_KEY)
-        let threadListError: unknown = null
+    // Tap no FAB sempre abre uma conversa NOVA. Conversas anteriores ficam
+    // acessíveis pela lista de histórico (lazy-loaded ao abrir o painel).
+    // Antes, restaurar a última thread fazia 8 requests em Promise.all e
+    // travava a UI por minutos quando o histórico era grande.
+    threadViewVersionRef.current += 1
+    setCurrentThreadId(null)
+    setCurrentThread(null)
+    setSessionState(null)
+    setTraces([])
+    setQualityActions([])
+    setContextSnapshots([])
+    setPending(null)
+    setError(null)
+    setLoading(false)
+    setLastRefreshError(null)
+    setRefreshFailures(0)
 
-        const threadsResponse = await listAiThreads({
-          status: 'active',
-          surface: 'atlas_ai_sheet',
-          limit: 20,
-        }).catch((threadsError) => {
-          threadListError = threadsError
-          return null
-        })
-        const activeThreads = threadsResponse?.threads ?? []
-        if (!cancelled && threadsResponse) setThreadList(activeThreads)
-
-        if (!threadListError) {
-          if (threadId && !activeThreads.some((thread) => thread.id === threadId)) {
-            threadId = activeThreads[0]?.id ?? null
-          }
-
-          if (!threadId) {
-            threadId = activeThreads[0]?.id ?? null
-            if (threadId) {
-              await AsyncStorage.setItem(CURRENT_THREAD_KEY, threadId)
-            } else {
-              await AsyncStorage.removeItem(CURRENT_THREAD_KEY)
-            }
-          }
-        }
-
+    // Background fetch silencioso da lista de threads para que o botão
+    // "Conversas anteriores" tenha dados prontos. Falhas são silenciosas —
+    // lista vazia só esconde a affordance, não bloqueia o chat.
+    void listAiThreads({
+      status: 'active',
+      surface: 'atlas_ai_sheet',
+      limit: 20,
+    })
+      .then((response) => {
         if (cancelled) return
-        setCurrentThreadId(threadId)
-        await loadThreadData(threadId, {
-          silent: true,
-          knownThreads: threadsResponse ? activeThreads : null,
-          skipThreadList: threadListError != null,
-        })
+        setThreadList(response?.threads ?? [])
+      })
+      .catch(() => {})
 
-        if (threadListError && !cancelled) {
-          const message = continuityThreadListError(threadListError)
-          setLastRefreshError(message)
-          setRefreshFailures((count) => count + 1)
-          setError(message)
-        }
-      } catch (hydrateError) {
-        if (!cancelled) setError(humanAiError(hydrateError, 'Falha ao carregar Atlas.'))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    void hydrateThread()
     return () => {
       cancelled = true
     }
-  }, [loadThreadData, visible])
+  }, [visible])
+
+  // Refresh silencioso da lista de threads quando o painel de histórico abre.
+  useEffect(() => {
+    if (!threadHistoryOpen) return
+    let cancelled = false
+    void listAiThreads({
+      status: 'active',
+      surface: 'atlas_ai_sheet',
+      limit: 20,
+    })
+      .then((response) => {
+        if (cancelled) return
+        setThreadList(response?.threads ?? [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [threadHistoryOpen])
 
   useEffect(() => {
     if (!visible) return

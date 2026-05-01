@@ -4086,10 +4086,61 @@ export interface StoreBehaviorLogInput {
   metadata?: Record<string, unknown>
 }
 
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000
+const UPLOAD_FETCH_TIMEOUT_MS = 60_000
+
+function fetchBackoffMs(attempt: number): number {
+  return Math.min(200 * 2 ** attempt, 1400)
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function executeFetch(
+  url: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers ?? {})
+  const method = (init.method ?? 'GET').toUpperCase()
+  const isUpload = init.body instanceof FormData
+  const timeoutMs = options.timeoutMs ?? (isUpload ? UPLOAD_FETCH_TIMEOUT_MS : DEFAULT_FETCH_TIMEOUT_MS)
+  const safeMethods = method === 'GET' || method === 'HEAD'
+  const hasIdempotencyKey = headers.has('Idempotency-Key')
+  const shouldRetry = options.retry ?? (safeMethods || hasIdempotencyKey)
+  const maxAttempts = shouldRetry ? 3 : 1
+
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal })
+      clearTimeout(timer)
+      if (response.status >= 500 && response.status <= 599 && attempt < maxAttempts - 1) {
+        lastError = new AtlasApiError(`Atlas API ${response.status}`, response.status, url, null)
+        await delayMs(fetchBackoffMs(attempt))
+        continue
+      }
+      return response
+    } catch (error) {
+      clearTimeout(timer)
+      lastError = error
+      if (attempt < maxAttempts - 1) {
+        await delayMs(fetchBackoffMs(attempt))
+        continue
+      }
+      throw error
+    }
+  }
+  throw lastError ?? new AtlasApiError('Atlas API request failed', 0, url, null)
+}
+
 async function apiRequest<T>(
   path: string,
   init: RequestInit,
-  opts: { auth?: boolean } = {},
+  opts: { auth?: boolean; timeoutMs?: number; retry?: boolean } = {},
 ): Promise<T> {
   await hydrateApiConfig()
 
@@ -4098,10 +4149,11 @@ async function apiRequest<T>(
     headers.set('X-Atlas-Token', getBackendToken())
   }
 
-  const response = await fetch(`${getApiBase()}${path}`, {
-    ...init,
-    headers,
-  })
+  const response = await executeFetch(
+    `${getApiBase()}${path}`,
+    { ...init, headers },
+    { timeoutMs: opts.timeoutMs, retry: opts.retry },
+  )
 
   const text = await response.text()
   const payload = text ? parsePayload(text) : null
@@ -4117,6 +4169,7 @@ async function apiRequest<T>(
 async function mobileApiRequest<T>(
   path: string,
   init: RequestInit,
+  opts: { timeoutMs?: number; retry?: boolean } = {},
 ): Promise<T> {
   await hydrateApiConfig()
 
@@ -4127,10 +4180,11 @@ async function mobileApiRequest<T>(
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${cachedMobileDeviceToken}`)
 
-  const response = await fetch(`${getApiBase()}${path}`, {
-    ...init,
-    headers,
-  })
+  const response = await executeFetch(
+    `${getApiBase()}${path}`,
+    { ...init, headers },
+    { timeoutMs: opts.timeoutMs, retry: opts.retry },
+  )
 
   const text = await response.text()
   const payload = text ? parsePayload(text) : null
