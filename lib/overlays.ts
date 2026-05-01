@@ -24,6 +24,7 @@ export type OverlayKey =
   | 'atlasAi'
   | 'inboxDomainFilter'
   | 'captureSettings'
+  | 'providerChoice'
 
 interface OverlayState {
   open: OverlayKey | null
@@ -56,6 +57,19 @@ interface OverlayState {
     onUpdate: (next: Partial<CaptureSettings>) => void,
   ) => void
   close: () => void
+
+  // Provider choice — job paused awaiting operator decision
+  providerChoiceJobId: string | null
+  providerChoiceErrorCode: string | null
+  providerChoiceResetHint: string | null
+  providerChoiceOptions: import('./api/client').AtlasAiChoiceOption[]
+  openProviderChoice: (input: {
+    jobId: string
+    errorCode: string | null
+    resetHint: string | null
+    options: import('./api/client').AtlasAiChoiceOption[]
+  }) => void
+  closeProviderChoice: () => void
 }
 
 export const useOverlays = create<OverlayState>((set) => ({
@@ -67,6 +81,10 @@ export const useOverlays = create<OverlayState>((set) => ({
   onPickInboxDomainFilter: null,
   captureSettings: null,
   onUpdateCaptureSettings: null,
+  providerChoiceJobId: null,
+  providerChoiceErrorCode: null,
+  providerChoiceResetHint: null,
+  providerChoiceOptions: [],
 
   openDetail: (item) => set({ open: 'detail', item }),
   openDomain: (cb) => set({ open: 'domain', onPickDomain: cb }),
@@ -94,5 +112,21 @@ export const useOverlays = create<OverlayState>((set) => ({
       onConfirmDelete: null,
       onPickInboxDomainFilter: null,
       onUpdateCaptureSettings: null,
+    }),
+  openProviderChoice: (input) =>
+    set({
+      open: 'providerChoice',
+      providerChoiceJobId: input.jobId,
+      providerChoiceErrorCode: input.errorCode,
+      providerChoiceResetHint: input.resetHint,
+      providerChoiceOptions: input.options,
+    }),
+  closeProviderChoice: () =>
+    set({
+      open: null,
+      providerChoiceJobId: null,
+      providerChoiceErrorCode: null,
+      providerChoiceResetHint: null,
+      providerChoiceOptions: [],
     }),
 }))
