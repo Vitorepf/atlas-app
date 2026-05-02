@@ -91,6 +91,7 @@ import {
   isRoutingDomainKey,
   sanitizeRoutingState,
   type RoutingExecutor,
+  type RoutingMode,
   type RoutingState,
   type RoutingStyle,
 } from '../console/StatusRouting'
@@ -116,10 +117,10 @@ import {
   recordAtlasAiEvent,
 } from '../../lib/atlasAiTelemetry'
 import {
-  ATLAS_AI_FOCI,
   atlasAiContextLabel,
   atlasAiFocusFromThread,
   atlasAiFocusLabel,
+  normalizeAtlasAiFocus,
   type AtlasAiFocus,
 } from '../../lib/atlasAiFocus'
 
@@ -288,6 +289,7 @@ export function AtlasAiSheet() {
   const [attachmentBusy, setAttachmentBusy] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<ComposerImageAttachment | null>(null)
   const [previewHistoricalAttachment, setPreviewHistoricalAttachment] = useState<AtlasAiAttachment | null>(null)
+  const [pendingThreadOrigin, setPendingThreadOrigin] = useState<Record<string, unknown> | null>(null)
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null)
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null)
   const [refreshFailures, setRefreshFailures] = useState(0)
@@ -335,6 +337,11 @@ export function AtlasAiSheet() {
     [pinnedTraceIds, traces, turnFilter],
   )
   const contextualIntro = useMemo(() => contextualThreadIntro(currentThread), [currentThread])
+  const operationalBootstrap = useMemo(
+    () => operationalBootstrapStatus(currentThread, traces),
+    [currentThread, traces],
+  )
+  const modeNotice = useMemo(() => threadModeNotice(currentThread), [currentThread])
 
   useEffect(() => {
     activeTraceRef.current = activeTrace
@@ -448,6 +455,7 @@ export function AtlasAiSheet() {
 
         setTraces(sortAtlasTraces(interactionsResponse.traces))
         setCurrentThread(thread)
+        if (thread) setRouting((current) => routingStateFromThread(thread, current))
         setSessionState(stateResponse?.state ?? thread?.active_state ?? null)
         setProviderStatus(providersResponse)
         setObservability(observabilityResponse)
@@ -500,6 +508,7 @@ export function AtlasAiSheet() {
     setQualityActions([])
     setContextSnapshots([])
     setPending(null)
+    setPendingThreadOrigin(null)
     setError(null)
     setLastRefreshError(null)
     setRefreshFailures(0)
@@ -911,6 +920,7 @@ export function AtlasAiSheet() {
           ? 'gemini_cli'
           : routingSnapshot.executor
       const telemetryRoute = {
+        mode: routingSnapshot.mode,
         executor: routingSnapshot.executor,
         task: routingSnapshot.task,
         style: routingSnapshot.style,
@@ -999,11 +1009,20 @@ export function AtlasAiSheet() {
         const executionPolicy = councilMode ? 'dual_review' : 'single_provider'
         const conversationContext = buildConversationContext(traces, threadId, pinnedTraceIdsSnapshot)
         const responsePolicy = responsePolicyFor(routingSnapshot.style, routingSnapshot.task)
-        const atlasFocus = atlasAiFocusForRouting(routingSnapshot)
-        const runtimePolicy =
+        const routeFocus = atlasAiFocusForRouting(routingSnapshot)
+        const atlasFocus = currentThread && isOperationalContextThread(currentThread) && routeFocus === 'general'
+          ? 'operational'
+          : routeFocus
+        const modePolicy = atlasModePayloadForRouting(routingSnapshot, atlasFocus)
+        const threadRuntimePolicy =
           threadId && currentThread?.id === threadId
-            ? runtimePolicyPayloadForThread(currentThread)
+            ? runtimePolicyPayloadForThread(currentThread, atlasFocus)
             : {}
+        const runtimePolicy = {
+          ...modePolicy,
+          ...threadRuntimePolicy,
+          ...(!threadId && pendingThreadOrigin ? pendingThreadOrigin : {}),
+        }
 
         void recordAtlasAiEvent({
           eventName: 'interaction_request_started',
@@ -1110,6 +1129,7 @@ export function AtlasAiSheet() {
 
         if (response.trace.thread_id && submissionStillSelected) {
           setCurrentThreadId(response.trace.thread_id)
+          if (!threadId) setPendingThreadOrigin(null)
         }
         await clearPendingSubmission(clientId)
 
@@ -1191,6 +1211,7 @@ export function AtlasAiSheet() {
       traces,
       currentThreadId,
       currentThread,
+      pendingThreadOrigin,
       pinnedTraceIds,
       loadThreadData,
       providerStatus,
@@ -1321,6 +1342,7 @@ export function AtlasAiSheet() {
     setQualityActions([])
     setContextSnapshots([])
     setPending(null)
+    setPendingThreadOrigin(null)
     setDraft('')
     setDraftAttachments([])
     setDraftFileAttachments([])
@@ -1340,11 +1362,13 @@ export function AtlasAiSheet() {
 
     threadViewVersionRef.current += 1
     setRouting(sanitizeRoutingState({
+      mode: 'programming',
       task: 'dev',
       domain: 'atlas',
       executor: 'codex_cli',
       style: 'technical',
     }))
+    setPendingThreadOrigin(developmentThreadOriginPayload(currentThread, contextualIntro))
     setCurrentThreadId(null)
     setCurrentThread(null)
     setSessionState(null)
@@ -1352,7 +1376,7 @@ export function AtlasAiSheet() {
     setQualityActions([])
     setContextSnapshots([])
     setPending(null)
-    setDraft(developmentPromptFromContext(contextualIntro, currentThread))
+    setDraft(developmentPromptFromContext(contextualIntro, currentThread, traces))
     setDraftAttachments([])
     setDraftFileAttachments([])
     setAttachmentSheetOpen(false)
@@ -1361,7 +1385,7 @@ export function AtlasAiSheet() {
     setThreadHistoryOpen(false)
     showToast('Sessão de desenvolvimento preparada')
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }, [contextualIntro, currentThread, interactionLocked, showToast])
+  }, [contextualIntro, currentThread, interactionLocked, showToast, traces])
 
   const selectThread = useCallback(
     async (thread: AtlasAiThread) => {
@@ -1487,6 +1511,42 @@ export function AtlasAiSheet() {
     [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast],
   )
 
+  const syncThreadRoutingMetadata = useCallback(
+    (next: RoutingState) => {
+      if (!currentThreadId || !currentThread) return
+
+      const metadataPatch = threadRoutingMetadataPatch(currentThread, next)
+      setCurrentThread((thread) =>
+        thread && thread.id === currentThreadId
+          ? { ...thread, metadata: { ...(thread.metadata ?? {}), ...metadataPatch } }
+          : thread,
+      )
+      setThreadList((threads) =>
+        threads.map((thread) =>
+          thread.id === currentThreadId
+            ? { ...thread, metadata: { ...(thread.metadata ?? {}), ...metadataPatch } }
+            : thread,
+        ),
+      )
+
+      void updateAiThread(currentThreadId, { metadata: metadataPatch })
+        .then((response) => {
+          setCurrentThread((thread) =>
+            thread && thread.id === response.thread.id
+              ? { ...thread, ...response.thread }
+              : thread,
+          )
+          setThreadList((threads) =>
+            threads.map((thread) => thread.id === response.thread.id ? { ...thread, ...response.thread } : thread),
+          )
+        })
+        .catch((routingError) => {
+          showToast(humanAiError(routingError, 'Falha ao registrar modo da conversa.'))
+        })
+    },
+    [currentThread, currentThreadId, showToast],
+  )
+
   const confirmRouting = useCallback(
     (next: RoutingState) => {
       const previousProvider = providerFromRouting(routing)
@@ -1498,6 +1558,8 @@ export function AtlasAiSheet() {
         showToast('Rota atualizada para a próxima mensagem')
         return
       }
+
+      syncThreadRoutingMetadata(next)
 
       if (
         currentThreadId
@@ -1529,7 +1591,7 @@ export function AtlasAiSheet() {
           })
       }
     },
-    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast],
+    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast, syncThreadRoutingMetadata],
   )
 
   const submitFeedback = useCallback(
@@ -1868,8 +1930,14 @@ export function AtlasAiSheet() {
                 : null
             }
             ListHeaderComponent={
-              contextualIntro
-                ? <AtlasAiContextIntro intro={contextualIntro} onPromoteToDevelopment={promoteContextToDevelopment} />
+              modeNotice || operationalBootstrap || contextualIntro
+                ? (
+                    <>
+                      {modeNotice ? <AtlasAiModeNotice notice={modeNotice} /> : null}
+                      {operationalBootstrap ? <OperationalBootstrapPanel status={operationalBootstrap} onRefresh={() => void refresh({ silent: false })} /> : null}
+                      {contextualIntro ? <AtlasAiContextIntro intro={contextualIntro} onPromoteToDevelopment={promoteContextToDevelopment} /> : null}
+                    </>
+                  )
                 : null
             }
             renderItem={({ item: turn, index }) => (
@@ -2800,6 +2868,129 @@ interface AtlasAiContextIntroData {
   execution: string
 }
 
+interface OperationalBootstrapData {
+  status: AtlasAiStatus | 'ready'
+  title: string
+  summary: string
+  traceId: string | null
+  responsePreview: string | null
+  steps: OperationalBootstrapStep[]
+}
+
+interface OperationalBootstrapStep {
+  key: string
+  label: string
+  state: 'done' | 'active' | 'pending' | 'failed'
+}
+
+interface AtlasAiModeNoticeData {
+  title: string
+  summary: string
+  tone: RoutingMode
+}
+
+function AtlasAiModeNotice({ notice }: { notice: AtlasAiModeNoticeData }) {
+  const { c } = useTheme()
+
+  return (
+    <View style={[styles.modeNotice, { borderColor: modeColor(notice.tone, c), backgroundColor: c.surface }]}>
+      <View style={[styles.modeNoticeDot, { backgroundColor: modeColor(notice.tone, c) }]} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Mono size={9.5} lineHeight={13} color={c.ink2} letterSpacing={0.35}>
+          MODO DA CONVERSA
+        </Mono>
+        <Sans weight="sb" size={14} lineHeight={19} color={c.ink} numberOfLines={2} style={{ marginTop: 3 }}>
+          {notice.title}
+        </Sans>
+        <Frau italic size={12} lineHeight={17} color={c.ink2} numberOfLines={2} style={{ marginTop: 2 }}>
+          {notice.summary}
+        </Frau>
+      </View>
+    </View>
+  )
+}
+
+function OperationalBootstrapPanel({
+  status,
+  onRefresh,
+}: {
+  status: OperationalBootstrapData
+  onRefresh: () => void
+}) {
+  const { c } = useTheme()
+  const active = status.status === 'queued' || status.status === 'processing'
+  const failed = status.status === 'failed' || status.status === 'cancelled'
+
+  return (
+    <View style={[
+      styles.bootstrapPanel,
+      {
+        borderColor: failed ? c.recRed : active ? c.bronze : c.border,
+        backgroundColor: c.surface,
+      },
+    ]}>
+      <View style={styles.bootstrapHead}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Mono size={9.5} lineHeight={13} color={failed ? c.recRed : c.bronze} letterSpacing={0.35}>
+            BOOTSTRAP OPERACIONAL
+          </Mono>
+          <Sans weight="sb" size={15} lineHeight={20} color={c.ink} numberOfLines={2} style={{ marginTop: 4 }}>
+            {status.title}
+          </Sans>
+        </View>
+        <View style={[
+          styles.bootstrapStatusPill,
+          { borderColor: failed ? c.recRed : active ? c.bronze : c.border },
+        ]}>
+          <Mono size={9.5} lineHeight={12} color={failed ? c.recRed : c.prussian} letterSpacing={0.25}>
+            {bootstrapStatusLabel(status.status)}
+          </Mono>
+        </View>
+      </View>
+
+      <Sans size={12.5} lineHeight={18} color={c.ink2}>
+        {status.summary}
+      </Sans>
+
+      <View style={styles.bootstrapSteps}>
+        {status.steps.map((step) => (
+          <View key={step.key} style={styles.bootstrapStep}>
+            <View style={[
+              styles.bootstrapStepDot,
+              { backgroundColor: bootstrapStepColor(step.state, c) },
+            ]} />
+            <Sans weight={step.state === 'active' ? 'sb' : 'med'} size={11.5} lineHeight={15} color={step.state === 'pending' ? c.ink3 : c.ink2} numberOfLines={1}>
+              {step.label}
+            </Sans>
+          </View>
+        ))}
+      </View>
+
+      {status.responsePreview ? (
+        <View style={[styles.bootstrapPreview, { borderColor: c.border }]}>
+          <Sans size={12} lineHeight={17} color={c.ink2} numberOfLines={4}>
+            {status.responsePreview}
+          </Sans>
+        </View>
+      ) : null}
+
+      {(active || failed) ? (
+        <Pressable
+          onPress={onRefresh}
+          style={({ pressed }) => [
+            styles.bootstrapRefresh,
+            { borderColor: c.border, opacity: pressed ? 0.68 : 1 },
+          ]}
+        >
+          <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian}>
+            Atualizar
+          </Sans>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}
+
 function AtlasAiContextIntro({
   intro,
   onPromoteToDevelopment,
@@ -3061,7 +3252,7 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
-type ThreadHistoryFocusFilter = 'all' | AtlasAiFocus
+type ThreadHistoryModeFilter = 'all' | RoutingMode
 
 function ThreadHistorySheet({
   visible,
@@ -3082,18 +3273,18 @@ function ThreadHistorySheet({
 }) {
   const { c } = useTheme()
   const [query, setQuery] = useState('')
-  const [focusFilter, setFocusFilter] = useState<ThreadHistoryFocusFilter>('all')
+  const [modeFilter, setModeFilter] = useState<ThreadHistoryModeFilter>('all')
   const queryFiltered = filterThreads(threads, query)
-  const focusOptions = threadHistoryFocusOptions(queryFiltered)
-  const filtered = focusFilter === 'all'
+  const modeOptions = threadHistoryModeOptions(queryFiltered)
+  const filtered = modeFilter === 'all'
     ? queryFiltered
-    : queryFiltered.filter((thread) => atlasAiFocusFromThread(thread) === focusFilter)
+    : queryFiltered.filter((thread) => atlasAiModeFromThread(thread) === modeFilter)
 
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
       <ScrollView contentContainerStyle={styles.threadPickerContent} showsVerticalScrollIndicator={false}>
         <Frau size={24} lineHeight={30} color={c.ink} align="center">
-          Sessões Atlas
+          Histórico Atlas
         </Frau>
         <View style={[styles.headingRule, { backgroundColor: c.border }]} />
 
@@ -3110,42 +3301,48 @@ function ThreadHistorySheet({
           style={[styles.searchInput, { color: c.ink, borderBottomColor: c.border }]}
         />
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.threadFocusTabs}
-        >
-          {focusOptions.map((option) => (
+        <View style={styles.threadModeGrid}>
+          {modeOptions.map((option) => (
             <Pressable
               key={option.key}
-              onPress={() => setFocusFilter(option.key)}
+              onPress={() => setModeFilter(option.key)}
               style={({ pressed }) => [
-                styles.threadFocusTab,
+                styles.threadModeCard,
                 {
-                  borderColor: focusFilter === option.key ? c.prussian : c.border,
-                  backgroundColor: focusFilter === option.key ? c.prussian : 'transparent',
+                  borderColor: modeFilter === option.key ? modeFilterColor(option.key, c) : c.border,
+                  backgroundColor: modeFilter === option.key ? c.surface : 'transparent',
                   opacity: pressed ? 0.72 : 1,
                 },
               ]}
             >
+              <View style={styles.threadModeCardTop}>
+                <View style={[
+                  styles.threadFocusDot,
+                  { backgroundColor: modeFilterColor(option.key, c) },
+                ]} />
+                <Mono
+                  size={10}
+                  lineHeight={13}
+                  color={modeFilter === option.key ? c.prussian : c.ink2}
+                  letterSpacing={0.25}
+                >
+                  {option.count}
+                </Mono>
+              </View>
               <Sans
-                weight="med"
-                size={12.5}
-                lineHeight={17}
-                color={focusFilter === option.key ? c.bg : c.ink2}
+                weight="sb"
+                size={14}
+                lineHeight={18}
+                color={c.ink}
               >
                 {option.label}
               </Sans>
-              <Mono
-                size={10}
-                lineHeight={13}
-                color={focusFilter === option.key ? c.bg : c.ink3}
-              >
-                {option.count}
-              </Mono>
+              <Frau italic size={11.5} lineHeight={16} color={c.ink2} numberOfLines={1}>
+                {option.caption}
+              </Frau>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
 
         <Pressable
           onPress={() => {
@@ -3178,12 +3375,9 @@ function ThreadHistorySheet({
             >
               <View>
                 <View style={styles.threadRowHeader}>
-                  <View style={[
-                    styles.threadFocusDot,
-                    { backgroundColor: focusColor(atlasAiFocusFromThread(thread), c) },
-                  ]} />
+                  <View style={[styles.threadFocusDot, { backgroundColor: modeColor(atlasAiModeFromThread(thread), c) }]} />
                   <Mono size={9.5} lineHeight={13} color={c.ink2} letterSpacing={0.25}>
-                    {atlasAiFocusLabel(atlasAiFocusFromThread(thread)).toUpperCase()}
+                    {atlasAiModeLabel(atlasAiModeFromThread(thread)).toUpperCase()}
                   </Mono>
                 </View>
                 <Sans weight="med" size={15} lineHeight={20} color={c.ink} numberOfLines={1}>
@@ -4204,19 +4398,23 @@ function filterThreads(threads: AtlasAiThread[], query: string): AtlasAiThread[]
   })
 }
 
-function threadHistoryFocusOptions(threads: AtlasAiThread[]): Array<{ key: ThreadHistoryFocusFilter; label: string; count: number }> {
-  const counts = new Map<AtlasAiFocus, number>()
-  for (const focus of ATLAS_AI_FOCI) counts.set(focus, 0)
+function threadHistoryModeOptions(threads: AtlasAiThread[]): Array<{ key: ThreadHistoryModeFilter; label: string; caption: string; count: number }> {
+  const counts = new Map<RoutingMode, number>([
+    ['general', 0],
+    ['operational', 0],
+    ['programming', 0],
+  ])
+
   for (const thread of threads) {
-    const focus = atlasAiFocusFromThread(thread)
-    counts.set(focus, (counts.get(focus) ?? 0) + 1)
+    const mode = atlasAiModeFromThread(thread)
+    counts.set(mode, (counts.get(mode) ?? 0) + 1)
   }
 
   return [
-    { key: 'all', label: 'Tudo', count: threads.length },
-    ...ATLAS_AI_FOCI
-      .map((focus) => ({ key: focus, label: atlasAiFocusLabel(focus), count: counts.get(focus) ?? 0 }))
-      .filter((option) => option.count > 0 || option.key === 'general' || option.key === 'programming' || option.key === 'operational'),
+    { key: 'all', label: 'Tudo', caption: 'todas as conversas', count: threads.length },
+    { key: 'general', label: 'Geral', caption: 'conversa e ideias', count: counts.get('general') ?? 0 },
+    { key: 'operational', label: 'Operacional', caption: 'alertas e diagnóstico', count: counts.get('operational') ?? 0 },
+    { key: 'programming', label: 'Programação', caption: 'código e testes', count: counts.get('programming') ?? 0 },
   ]
 }
 
@@ -4228,18 +4426,17 @@ function threadHistorySubtitle(thread: AtlasAiThread): string {
   return [context, summary || fallback].filter(Boolean).join(' · ')
 }
 
-function focusColor(focus: AtlasAiFocus, c: ReturnType<typeof useTheme>['c']): string {
-  switch (focus) {
+function modeFilterColor(filter: ThreadHistoryModeFilter, c: ReturnType<typeof useTheme>['c']): string {
+  if (filter === 'all') return c.ink2
+  return modeColor(filter, c)
+}
+
+function modeColor(mode: RoutingMode, c: ReturnType<typeof useTheme>['c']): string {
+  switch (mode) {
     case 'programming':
       return c.prussian
     case 'operational':
       return c.bronze
-    case 'research':
-      return c.moss
-    case 'review':
-      return c.recRed
-    case 'project':
-      return c.ink2
     default:
       return c.ink3
   }
@@ -4434,6 +4631,7 @@ function normalizeStoredRouting(raw: string | null): RoutingState {
   try {
     const value = JSON.parse(raw) as Partial<RoutingState>
     return sanitizeRoutingState({
+      mode: isRoutingMode(value.mode) ? value.mode : ROUTING_DEFAULT.mode,
       task: isRoutingTask(value.task) ? value.task : ROUTING_DEFAULT.task,
       domain: isRoutingDomain(value.domain) ? value.domain : ROUTING_DEFAULT.domain,
       executor: isRoutingExecutor(value.executor) ? value.executor : ROUTING_DEFAULT.executor,
@@ -4444,8 +4642,60 @@ function normalizeStoredRouting(raw: string | null): RoutingState {
   }
 }
 
+function routingStateFromThread(thread: AtlasAiThread, fallback: RoutingState): RoutingState {
+  const metadata = thread.metadata ?? {}
+  const mode = atlasAiModeFromThread(thread)
+  const base = routingDefaultForMode(mode, fallback)
+  const task = metadataString(metadata, 'routing_task')
+  const domain = metadataString(metadata, 'routing_domain')
+  const style = metadataString(metadata, 'routing_style')
+  const requestedProvider = metadataString(metadata, 'requested_provider') ?? thread.last_provider
+
+  return sanitizeRoutingState({
+    mode,
+    task: isRoutingTask(task) ? task : base.task,
+    domain: isRoutingDomain(domain) ? domain : base.domain,
+    executor: isRoutingExecutor(requestedProvider) ? requestedProvider : base.executor,
+    style: isRoutingStyle(style) ? style : base.style,
+  })
+}
+
+function routingDefaultForMode(mode: RoutingMode, fallback: RoutingState): RoutingState {
+  if (mode === 'programming') {
+    return sanitizeRoutingState({
+      ...fallback,
+      mode,
+      task: fallback.task === 'debug' ? 'debug' : 'dev',
+      domain: fallback.domain === 'auto' ? 'atlas' : fallback.domain,
+      executor: fallback.executor === 'auto' ? 'codex_cli' : fallback.executor,
+      style: fallback.style === 'clear' ? 'technical' : fallback.style,
+    })
+  }
+
+  if (mode === 'operational') {
+    return sanitizeRoutingState({
+      ...fallback,
+      mode,
+      task: fallback.task === 'plan' ? 'plan' : 'review',
+      domain: fallback.domain === 'auto' ? 'atlas' : fallback.domain,
+      style: fallback.style === 'clear' ? 'complete' : fallback.style,
+    })
+  }
+
+  return sanitizeRoutingState({
+    ...fallback,
+    mode,
+    task: fallback.task === 'dev' || fallback.task === 'debug' ? 'direct' : fallback.task,
+    domain: fallback.domain === 'atlas' ? 'auto' : fallback.domain,
+  })
+}
+
 function isRoutingTask(value: unknown): value is RoutingState['task'] {
   return value === 'direct' || value === 'plan' || value === 'review' || value === 'dev' || value === 'debug'
+}
+
+function isRoutingMode(value: unknown): value is RoutingMode {
+  return value === 'general' || value === 'operational' || value === 'programming'
 }
 
 function isRoutingDomain(value: unknown): value is RoutingState['domain'] {
@@ -4540,14 +4790,17 @@ function geminiAutomaticEnabled(status: AiProvidersStatusResponse | null): boole
 }
 
 function effectiveAgent(routing: RoutingState): string | undefined {
+  routing = sanitizeRoutingState(routing)
+  if (routing.mode === 'programming') return 'desenvolvedor'
   if (routing.domain !== 'auto') return routing.domain
-  if (routing.task === 'dev' || routing.task === 'debug') return 'desenvolvedor'
   if (routing.task === 'review') return 'code-reviewer'
   return undefined
 }
 
 function atlasAiFocusForRouting(routing: RoutingState): AtlasAiFocus {
   const safeRouting = sanitizeRoutingState(routing)
+  if (safeRouting.mode === 'programming') return 'programming'
+  if (safeRouting.mode === 'operational') return 'operational'
   if (safeRouting.task === 'dev' || safeRouting.task === 'debug') return 'programming'
   if (safeRouting.task === 'review') return 'review'
   if (safeRouting.task === 'plan') return 'project'
@@ -4555,6 +4808,90 @@ function atlasAiFocusForRouting(routing: RoutingState): AtlasAiFocus {
   if (safeRouting.domain === 'atlas') return 'operational'
 
   return 'general'
+}
+
+function atlasAiModeFromThread(thread: AtlasAiThread | null | undefined): RoutingMode {
+  const metadata = thread?.metadata ?? {}
+  const explicit = metadataString(metadata, 'current_mode') ?? metadataString(metadata, 'atlas_mode')
+  if (explicit) return normalizeAtlasAiMode(explicit)
+
+  const focus = atlasAiFocusFromThread(thread)
+  if (focus === 'programming') return 'programming'
+  if (focus === 'operational') return 'operational'
+  return 'general'
+}
+
+function normalizeAtlasAiMode(value: unknown, fallback: RoutingMode = 'general'): RoutingMode {
+  if (typeof value !== 'string') return fallback
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_')
+  if (normalized === 'programacao' || normalized === 'programming' || normalized === 'dev' || normalized === 'debug') return 'programming'
+  if (normalized === 'operacional' || normalized === 'operational' || normalized === 'operations') return 'operational'
+  if (normalized === 'geral' || normalized === 'general' || normalized === 'conversation') return 'general'
+  return fallback
+}
+
+function atlasAiModeLabel(mode: RoutingMode): string {
+  if (mode === 'programming') return 'Programação'
+  if (mode === 'operational') return 'Operacional'
+  return 'Geral'
+}
+
+function threadRoutingMetadataPatch(thread: AtlasAiThread, routing: RoutingState): Record<string, unknown> {
+  const safeRouting = sanitizeRoutingState(routing)
+  const metadata = thread.metadata ?? {}
+  const mode = safeRouting.mode
+  const focus = atlasAiFocusForRouting(safeRouting)
+  const now = new Date().toISOString()
+  const initialMode = metadataString(metadata, 'initial_mode')
+    ?? metadataString(metadata, 'atlas_mode')
+    ?? atlasAiModeFromThread(thread)
+  const initialFocus = metadataString(metadata, 'initial_focus')
+    ?? metadataString(metadata, 'atlas_focus')
+    ?? atlasAiFocusFromThread(thread)
+
+  return {
+    initial_mode: normalizeAtlasAiMode(initialMode, mode),
+    current_mode: mode,
+    atlas_mode: mode,
+    mode_history: appendRoutingHistory(metadata.mode_history, mode, now, safeRouting),
+    initial_focus: normalizeAtlasAiFocus(initialFocus, focus),
+    current_focus: focus,
+    atlas_focus: focus,
+    focus_history: appendRoutingHistory(metadata.focus_history, focus, now, safeRouting),
+    routing_task: safeRouting.task,
+    routing_domain: safeRouting.domain,
+    routing_style: safeRouting.style,
+    requested_provider: providerFromRouting(safeRouting),
+    routing_updated_from: 'atlas_ai_sheet',
+    routing_updated_at: now,
+  }
+}
+
+function appendRoutingHistory(
+  raw: unknown,
+  value: string,
+  changedAt: string,
+  routing: RoutingState,
+): Array<Record<string, unknown>> {
+  const history = (Array.isArray(raw) ? raw : [])
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
+    .slice(-11)
+  const last = history[history.length - 1]
+
+  if (last && last.value === value) return history
+
+  return [
+    ...history,
+    {
+      value,
+      changed_at: changedAt,
+      source: 'atlas_ai_sheet',
+      task: routing.task,
+      domain: routing.domain,
+      executor: routing.executor,
+      style: routing.style,
+    },
+  ]
 }
 
 function responsePolicyFor(style: RoutingStyle, task: RoutingState['task']) {
@@ -4739,7 +5076,103 @@ function buildConversationContext(traces: AtlasAiTrace[], threadId: string | nul
   }
 }
 
-function runtimePolicyPayloadForThread(thread: AtlasAiThread | null): Record<string, unknown> {
+function atlasModePayloadForRouting(routing: RoutingState, focus: AtlasAiFocus): Record<string, unknown> {
+  const mode = focus === 'programming'
+    ? 'programming'
+    : focus === 'operational'
+      ? 'operational'
+      : 'general'
+
+  const base = {
+    atlas_mode: mode,
+    atlas_mode_contract: atlasModeContract(mode, routing),
+    quality_policy: atlasQualityPolicy(mode),
+  }
+
+  if (mode !== 'programming') return base
+
+  return {
+    ...base,
+    capability_profile: 'atlas_programming',
+    permission_policy: 'full_access',
+    permission_mode: 'danger',
+    tool_permissions: {
+      mode: 'danger',
+      workspace: undefined,
+      confirmed: true,
+      allow_unsandboxed_provider: true,
+      source: 'atlas_ai_programming_mode',
+    },
+    mobile_runtime_policy: {
+      allows_code_execution: true,
+      reason: 'Modo Programacao habilita o runtime completo do Atlas AI para codigo, scripts, testes e automacoes.',
+    },
+    programming_harness: {
+      schema_version: 1,
+      workspace_required: true,
+      expected_artifacts: ['plan', 'diff_or_reason', 'tests_or_reason', 'risks'],
+      escalation_policy: 'ask_before_destructive_or_external_write',
+    },
+  }
+}
+
+function atlasModeContract(mode: 'general' | 'operational' | 'programming', routing: RoutingState): Record<string, unknown> {
+  if (mode === 'programming') {
+    return {
+      schema_version: 1,
+      mode,
+      objective: 'resolver trabalho de engenharia com contexto, plano, execucao, verificacao e evidencias',
+      routing_task: routing.task,
+      default_runtime: 'engineering_harness',
+      expected_output: ['diagnostico', 'plano', 'execucao', 'testes', 'riscos', 'proximos_passos'],
+    }
+  }
+
+  if (mode === 'operational') {
+    return {
+      schema_version: 1,
+      mode,
+      objective: 'explicar situacao operacional, isolar causa, medir impacto e propor proxima acao',
+      routing_task: routing.task,
+      expected_output: ['resumo', 'evidencias', 'risco', 'acao_recomendada', 'quando_promover_para_programacao'],
+    }
+  }
+
+  return {
+    schema_version: 1,
+    mode,
+    objective: 'conversa geral, pesquisa, ideias e organizacao sem herdar contexto operacional ou de codigo por acidente',
+    routing_task: routing.task,
+    expected_output: ['resposta_clara', 'perguntas_necessarias', 'proximos_passos_quando_util'],
+  }
+}
+
+function atlasQualityPolicy(mode: 'general' | 'operational' | 'programming'): Record<string, unknown> {
+  if (mode === 'programming') {
+    return {
+      require_plan: true,
+      require_tests_or_reason: true,
+      require_diff_or_reason: true,
+      require_risk_summary: true,
+    }
+  }
+
+  if (mode === 'operational') {
+    return {
+      require_evidence: true,
+      require_uncertainty: true,
+      require_next_actions: true,
+      avoid_raw_json_as_primary_output: true,
+    }
+  }
+
+  return {
+    keep_context_light: true,
+    avoid_operational_or_programming_assumptions: true,
+  }
+}
+
+function runtimePolicyPayloadForThread(thread: AtlasAiThread | null, focusOverride?: AtlasAiFocus): Record<string, unknown> {
   const metadata = thread?.metadata ?? {}
   const capabilityProfile = metadataString(metadata, 'capability_profile')
   const metadataSourceType = metadataString(metadata, 'source_type')
@@ -4748,9 +5181,11 @@ function runtimePolicyPayloadForThread(thread: AtlasAiThread | null): Record<str
     || thread?.source_type === 'inbox_item'
 
   if (!operationalContext) return {}
+  const focus = focusOverride ?? normalizeAtlasAiFocus(metadataString(metadata, 'atlas_focus'), 'operational')
 
   return {
-    atlas_focus: metadataString(metadata, 'atlas_focus') ?? 'operational',
+    atlas_focus: focus,
+    source_atlas_focus: metadataString(metadata, 'atlas_focus') ?? 'operational',
     thread_source: 'mobile_gateway_inbox',
     inbox_item_id: metadataString(metadata, 'inbox_item_id') ?? thread?.source_id ?? undefined,
     context_bundle_id: metadataString(metadata, 'context_bundle_id') ?? undefined,
@@ -4769,6 +5204,135 @@ function runtimePolicyPayloadForThread(thread: AtlasAiThread | null): Record<str
       allows_code_execution: true,
       reason: 'Atlas app runtime settings allow provider execution and full-access tooling.',
     },
+  }
+}
+
+function operationalBootstrapStatus(thread: AtlasAiThread | null, traces: AtlasAiTrace[]): OperationalBootstrapData | null {
+  if (!isOperationalContextThread(thread)) return null
+
+  const bootstrapTrace = traces.find(isDiscussionBootstrapTrace) ?? null
+  if (!bootstrapTrace) {
+    return {
+      status: 'ready',
+      title: 'Contexto operacional carregado',
+      summary: 'Atlas abriu esta conversa com contexto, permissão e execução preparados para diagnosticar o item.',
+      traceId: null,
+      responsePreview: null,
+      steps: operationalBootstrapSteps('ready', false),
+    }
+  }
+
+  if (bootstrapTrace.status === 'queued' || bootstrapTrace.status === 'processing') {
+    return {
+      status: bootstrapTrace.status,
+      title: 'Atlas está montando o diagnóstico inicial',
+      summary: 'O contexto do Inbox já foi enviado; evidências, risco e próximas ações estão sendo preparados.',
+      traceId: bootstrapTrace.id,
+      responsePreview: null,
+      steps: operationalBootstrapSteps(bootstrapTrace.status, false),
+    }
+  }
+
+  if (bootstrapTrace.status === 'failed' || bootstrapTrace.status === 'cancelled') {
+    return {
+      status: bootstrapTrace.status,
+      title: 'Diagnóstico inicial não completou',
+      summary: 'O contexto continua preso à conversa. Atualize ou envie uma mensagem para o Atlas continuar a análise.',
+      traceId: bootstrapTrace.id,
+      responsePreview: null,
+      steps: operationalBootstrapSteps(bootstrapTrace.status, false),
+    }
+  }
+
+  const preview = pickResponseText(bootstrapTrace).trim()
+
+  return {
+    status: bootstrapTrace.status,
+    title: 'Diagnóstico inicial pronto',
+    summary: 'O Atlas já analisou o alerta antes da sua primeira mensagem nesta conversa.',
+    traceId: bootstrapTrace.id,
+    responsePreview: preview ? truncateForContext(preview, 360) : null,
+    steps: operationalBootstrapSteps(bootstrapTrace.status, preview.length > 0),
+  }
+}
+
+function operationalBootstrapSteps(
+  status: AtlasAiStatus | 'ready',
+  hasResponse: boolean,
+): OperationalBootstrapStep[] {
+  const failed = status === 'failed' || status === 'cancelled'
+  const active = status === 'queued' || status === 'processing'
+  const completed = status === 'succeeded' || status === 'awaiting_user_choice'
+
+  return [
+    { key: 'context', label: 'contexto carregado', state: 'done' },
+    { key: 'evidence', label: 'evidências preparadas', state: failed ? 'failed' : active || completed || status === 'ready' ? 'done' : 'pending' },
+    {
+      key: 'diagnostic',
+      label: 'diagnóstico inicial',
+      state: failed ? 'failed' : active ? 'active' : completed ? 'done' : 'pending',
+    },
+    {
+      key: 'action',
+      label: 'próxima ação',
+      state: failed ? 'pending' : hasResponse ? 'done' : active ? 'pending' : status === 'ready' ? 'pending' : 'pending',
+    },
+  ]
+}
+
+function isDiscussionBootstrapTrace(trace: AtlasAiTrace): boolean {
+  const metadata = trace.metadata ?? {}
+  const clientId = metadataString(metadata, 'client_id') ?? metadataString(metadata, 'clientId')
+  const bootstrap = metadata.discussion_bootstrap
+  const bootstrapSource = bootstrap && typeof bootstrap === 'object'
+    ? metadataString(bootstrap as Record<string, unknown>, 'source')
+    : null
+
+  return clientId?.startsWith('inbox-discuss-bootstrap-') === true
+    || bootstrapSource === 'inbox_discuss_action'
+    || trace.operator_input.includes('Analise este item operacional do Inbox')
+}
+
+function bootstrapStatusLabel(status: OperationalBootstrapData['status']): string {
+  if (status === 'queued') return 'fila'
+  if (status === 'processing') return 'rodando'
+  if (status === 'failed') return 'falhou'
+  if (status === 'cancelled') return 'cancelado'
+  if (status === 'awaiting_user_choice') return 'pausado'
+  return 'pronto'
+}
+
+function bootstrapStepColor(
+  state: OperationalBootstrapStep['state'],
+  c: ReturnType<typeof useTheme>['c'],
+): string {
+  if (state === 'done') return c.moss
+  if (state === 'active') return c.bronze
+  if (state === 'failed') return c.recRed
+  return c.ink3
+}
+
+function threadModeNotice(thread: AtlasAiThread | null): AtlasAiModeNoticeData | null {
+  if (!thread) return null
+
+  const metadata = thread.metadata ?? {}
+  const current = atlasAiModeFromThread(thread)
+  const initial = normalizeAtlasAiMode(
+    metadataString(metadata, 'initial_mode')
+      ?? metadataString(metadata, 'initial_focus')
+      ?? metadataString(metadata, 'atlas_mode')
+      ?? metadataString(metadata, 'atlas_focus'),
+    current,
+  )
+  const history = Array.isArray(metadata.mode_history) ? metadata.mode_history : []
+  const changed = current !== initial || history.length > 1
+
+  if (!changed) return null
+
+  return {
+    tone: current,
+    title: `Modo ${atlasAiModeLabel(current)} ativo`,
+    summary: `Começou em ${atlasAiModeLabel(initial)}; próximos envios seguem ${atlasAiModeLabel(current)}.`,
   }
 }
 
@@ -4792,14 +5356,51 @@ function contextualThreadIntro(thread: AtlasAiThread | null): AtlasAiContextIntr
   }
 }
 
-function developmentPromptFromContext(intro: AtlasAiContextIntroData, sourceThread: AtlasAiThread): string {
+function developmentPromptFromContext(
+  intro: AtlasAiContextIntroData,
+  sourceThread: AtlasAiThread,
+  traces: AtlasAiTrace[],
+): string {
+  const metadata = sourceThread.metadata ?? {}
+  const bootstrapTrace = traces.find(isDiscussionBootstrapTrace) ?? null
+  const bootstrapResponse = bootstrapTrace ? pickResponseText(bootstrapTrace).trim() : ''
+  const recentUserTurns = sortAtlasTraces(traces)
+    .filter((trace) => trace.operator_input.trim().length > 0 && !isDiscussionBootstrapTrace(trace))
+    .slice(-3)
+    .map((trace) => `- ${truncateForContext(trace.operator_input.trim(), 260)}`)
+
   const sections = [
-    'Use este contexto operacional como briefing e trabalhe em modo desenvolvimento.',
-    `Origem: ${intro.title}`,
-    intro.summary ? `Resumo: ${intro.summary}` : null,
-    intro.body ? `Contexto:\n${intro.body}` : null,
-    `Thread de origem: ${sourceThread.id}`,
-    'Objetivo: transformar este diagnóstico em plano técnico executável. Se precisar executar script, webscrape, teste ou alteração de código, proponha a ação e use o runtime normal de desenvolvimento do Atlas.',
+    'Modo Programação do Atlas AI.',
+    'Use este contexto operacional como briefing técnico. Não peça para eu reenviar o alerta; o contexto abaixo é a fonte inicial.',
+    [
+      'Origem operacional:',
+      `- Título: ${intro.title}`,
+      intro.summary ? `- Resumo: ${intro.summary}` : null,
+      `- Thread operacional: ${sourceThread.id}`,
+      metadataString(metadata, 'inbox_item_id') ? `- Inbox item: ${metadataString(metadata, 'inbox_item_id')}` : null,
+      metadataString(metadata, 'context_bundle_id') ? `- Context bundle: ${metadataString(metadata, 'context_bundle_id')}` : null,
+      metadataString(metadata, 'source_type') ? `- Source: ${metadataString(metadata, 'source_type')}` : null,
+    ].filter(Boolean).join('\n'),
+    intro.body ? `Contexto carregado:\n${intro.body}` : null,
+    bootstrapResponse
+      ? `Diagnóstico inicial do Atlas:\n${truncateForContext(bootstrapResponse, 1600)}`
+      : 'Diagnóstico inicial do Atlas: ainda não há resposta automática completa; use o contexto carregado e investigue antes de concluir.',
+    recentUserTurns.length > 0 ? `Mensagens recentes do operador:\n${recentUserTurns.join('\n')}` : null,
+    [
+      'Objetivo técnico:',
+      '- Transformar o alerta operacional em diagnóstico executável.',
+      '- Identificar arquivos, serviços, comandos, queries, logs ou testes relevantes.',
+      '- Se for preciso webscrape, script, teste, Postgres ou alteração de código, use o runtime normal de Programação do Atlas.',
+      '- Antes de alterar comportamento, isole causa, risco e critério de sucesso.',
+    ].join('\n'),
+    [
+      'Saída esperada:',
+      '- Plano curto.',
+      '- Evidências verificadas.',
+      '- Execução realizada ou motivo claro para não executar.',
+      '- Testes/comandos rodados ou próximos comandos exatos.',
+      '- Riscos e rollback quando houver mudança.',
+    ].join('\n'),
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
 
   return sections.join('\n\n')
@@ -5219,6 +5820,77 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     flexGrow: 1,
   },
+  modeNotice: {
+    minHeight: 74,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 14,
+  },
+  modeNoticeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 6,
+  },
+  bootstrapPanel: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+    gap: 11,
+    marginBottom: 14,
+  },
+  bootstrapHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  bootstrapStatusPill: {
+    minHeight: 28,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bootstrapPreview: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 11,
+  },
+  bootstrapSteps: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  bootstrapStep: {
+    minHeight: 28,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  bootstrapStepDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  bootstrapRefresh: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+  },
   contextIntro: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -5466,20 +6138,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     marginBottom: 12,
   },
-  threadFocusTabs: {
-    gap: 8,
-    paddingVertical: 8,
-    paddingRight: 12,
-    marginBottom: 6,
+  threadModeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 4,
+    marginBottom: 12,
   },
-  threadFocusTab: {
-    minHeight: 32,
+  threadModeCard: {
+    width: '47.5%',
+    minHeight: 82,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    gap: 5,
+  },
+  threadModeCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
   },
   threadRow: {
     flexDirection: 'row',

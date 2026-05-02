@@ -14,8 +14,10 @@ export const ROUTING_DOMAIN_OPTIONS = [
 export type RoutingDomain = (typeof ROUTING_DOMAIN_OPTIONS)[number]['key']
 export type RoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type RoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
+export type RoutingMode = 'general' | 'operational' | 'programming'
 
 export interface RoutingState {
+  mode: RoutingMode
   task: RoutingTask
   domain: RoutingDomain
   executor: RoutingExecutor
@@ -23,6 +25,7 @@ export interface RoutingState {
 }
 
 export const ROUTING_DEFAULT: RoutingState = {
+  mode: 'general',
   task: 'direct',
   domain: 'auto',
   executor: 'auto',
@@ -36,9 +39,14 @@ export function routingExecutorAllowedForTask(executor: RoutingExecutor, task: R
 }
 
 export function sanitizeRoutingState(state: RoutingState): RoutingState {
-  return routingExecutorAllowedForTask(state.executor, state.task)
-    ? state
-    : { ...state, executor: 'auto' }
+  const mode = isRoutingMode(state.mode) ? state.mode : legacyModeForTask(state.task, state.domain)
+  const task = taskAllowedForMode(state.task, mode) ? state.task : defaultTaskForMode(mode)
+  const domain = routingDomainAllowedForMode(state.domain, mode) ? state.domain : 'auto'
+  const next = { ...state, mode, task, domain }
+
+  return routingExecutorAllowedForTask(next.executor, next.task)
+    ? next
+    : { ...next, executor: 'auto' }
 }
 
 interface Props {
@@ -92,12 +100,19 @@ export function routingPhrase(state: RoutingState): string {
   const taskClause = safeState.task === 'direct' ? '' : ` em ${taskWord(safeState.task)}`
   const domainClause = safeState.domain === 'auto' ? '' : ` para ${domainWord(safeState.domain)}`
   const styleClause = safeState.style === 'clear' ? '' : ` · ${styleWord(safeState.style)}`
-  return `${subject}${taskClause}${domainClause}${styleClause}`
+  const modeClause = safeState.mode === 'general' ? '' : ` · ${modeWord(safeState.mode)}`
+  return `${subject}${taskClause}${domainClause}${modeClause}${styleClause}`
 }
 
 export function isRoutingDomainKey(value: unknown): value is RoutingDomain {
   return typeof value === 'string'
     && ROUTING_DOMAIN_OPTIONS.some((option) => option.key === value)
+}
+
+export function routingDomainAllowedForMode(domain: RoutingDomain, mode: RoutingMode): boolean {
+  if (domain === 'auto') return true
+  if (mode === 'general') return domain !== 'atlas'
+  return true
 }
 
 function executorVerb(executor: RoutingExecutor): string {
@@ -131,9 +146,40 @@ function styleWord(style: RoutingStyle): string {
   }
 }
 
+function modeWord(mode: RoutingMode): string {
+  switch (mode) {
+    case 'operational': return 'operacional'
+    case 'programming': return 'programação'
+    default:            return 'geral'
+  }
+}
+
+function isRoutingMode(value: unknown): value is RoutingMode {
+  return value === 'general' || value === 'operational' || value === 'programming'
+}
+
+function taskAllowedForMode(task: RoutingTask, mode: RoutingMode): boolean {
+  if (mode === 'programming') return task === 'plan' || task === 'review' || task === 'dev' || task === 'debug'
+  if (mode === 'operational') return task === 'direct' || task === 'plan' || task === 'review'
+  return task === 'direct' || task === 'plan' || task === 'review'
+}
+
+function defaultTaskForMode(mode: RoutingMode): RoutingTask {
+  if (mode === 'programming') return 'dev'
+  if (mode === 'operational') return 'review'
+  return 'direct'
+}
+
+function legacyModeForTask(task: RoutingTask, domain: RoutingDomain): RoutingMode {
+  if (task === 'dev' || task === 'debug') return 'programming'
+  if (domain === 'atlas' && (task === 'review' || task === 'plan')) return 'operational'
+  return 'general'
+}
+
 function isOverridden(state: RoutingState): boolean {
   return (
-    state.task !== 'direct'
+    state.mode !== 'general'
+    || state.task !== 'direct'
     || state.domain !== 'auto'
     || state.executor !== 'auto'
     || state.style !== 'clear'

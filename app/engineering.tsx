@@ -11,17 +11,22 @@ import {
   calibrateEngineeringBenchmarkSuite,
   calibrateEngineeringHarnessability,
   ensureDefaultEngineeringBenchmarkSuite,
+  fetchEngineeringCodeModules,
   fetchEngineeringBenchmarkRun,
   fetchEngineeringBenchmarkSuite,
   fetchEngineeringBenchmarkTrends,
   fetchEngineeringHarnessabilityCalibration,
+  fetchEngineeringKnowledge,
+  fetchEngineeringKnowledgeItem,
   fetchEngineeringRunPatchDiff,
   fetchEngineeringTestRunArtifactContent,
   listEngineeringTestRunArtifacts,
   listEngineeringBenchmarkSuites,
+  indexEngineeringCodeKnowledge,
   replayEngineeringRun,
   replayEngineeringRunAttempt,
   runEngineeringBenchmarkSuite,
+  syncEngineeringKnowledge,
   type AtlasEngineeringAttemptComparisonRow,
   type AtlasEngineeringBenchmarkResultSummary,
   type AtlasEngineeringBenchmarkRunResponse,
@@ -29,11 +34,19 @@ import {
   type AtlasEngineeringBenchmarkSuiteResponse,
   type AtlasEngineeringBenchmarkSuiteSummary,
   type AtlasEngineeringBenchmarkTrendsResponse,
+  type AtlasEngineeringCodeModulesResponse,
+  type AtlasEngineeringKnowledgeItemDetail,
+  type AtlasEngineeringKnowledgeResponse,
   type AtlasEngineeringTestArtifactContentResponse,
   type AtlasEngineeringTestArtifactFile,
   type AtlasEngineeringRunSummary,
   type AtlasEngineeringTestRunSummary,
 } from '../lib/api/client'
+import {
+  engineeringKnowledgeBodyPreview,
+  engineeringKnowledgeMetaLine,
+  engineeringKnowledgeValuesLine,
+} from '../lib/engineeringKnowledge'
 
 export default function EngineeringScreen() {
   const c = usePalette()
@@ -63,6 +76,12 @@ export default function EngineeringScreen() {
   const [calibrating, setCalibrating] = useState(false)
   const [harnessCalibration, setHarnessCalibration] = useState<Record<string, unknown> | null>(null)
   const [calibratingHarness, setCalibratingHarness] = useState(false)
+  const [knowledge, setKnowledge] = useState<AtlasEngineeringKnowledgeResponse | null>(null)
+  const [codeKnowledge, setCodeKnowledge] = useState<AtlasEngineeringCodeModulesResponse | null>(null)
+  const [selectedKnowledgeItem, setSelectedKnowledgeItem] = useState<AtlasEngineeringKnowledgeItemDetail | null>(null)
+  const [knowledgeDetailLoading, setKnowledgeDetailLoading] = useState(false)
+  const [syncingKnowledge, setSyncingKnowledge] = useState(false)
+  const [indexingCodeKnowledge, setIndexingCodeKnowledge] = useState(false)
 
   const selectedSuiteSummary = useMemo(
     () => suites.find((suite) => suite.slug === selectedSuite || suite.id === selectedSuite) ?? null,
@@ -138,10 +157,42 @@ export default function EngineeringScreen() {
     }
   }, [])
 
+  const loadKnowledge = useCallback(async () => {
+    try {
+      const response = await fetchEngineeringKnowledge({ limit: 8 })
+      setKnowledge(response)
+    } catch {
+      setKnowledge(null)
+    }
+  }, [])
+
+  const loadCodeKnowledge = useCallback(async () => {
+    try {
+      const response = await fetchEngineeringCodeModules({ limit: 8 })
+      setCodeKnowledge(response)
+    } catch {
+      setCodeKnowledge(null)
+    }
+  }, [])
+
+  const openKnowledgeItem = useCallback(async (item: string) => {
+    setKnowledgeDetailLoading(true)
+    try {
+      const response = await fetchEngineeringKnowledgeItem(item)
+      setSelectedKnowledgeItem(response.knowledge_item)
+    } catch {
+      showToast('Não consegui abrir knowledge item')
+    } finally {
+      setKnowledgeDetailLoading(false)
+    }
+  }, [showToast])
+
   useEffect(() => {
     void loadSuites()
     void loadHarnessCalibration()
-  }, [loadSuites, loadHarnessCalibration])
+    void loadKnowledge()
+    void loadCodeKnowledge()
+  }, [loadSuites, loadHarnessCalibration, loadKnowledge, loadCodeKnowledge])
 
   useEffect(() => {
     void loadSuite(selectedSuite)
@@ -160,6 +211,8 @@ export default function EngineeringScreen() {
       loadSuites(),
       loadSuite(selectedSuite),
       loadHarnessCalibration(),
+      loadKnowledge(),
+      loadCodeKnowledge(),
     ])
   }
 
@@ -254,6 +307,38 @@ export default function EngineeringScreen() {
     }
   }
 
+  const syncKnowledgeBase = async () => {
+    if (syncingKnowledge) return
+
+    setSyncingKnowledge(true)
+    try {
+      const response = await syncEngineeringKnowledge({ prune: true })
+      await loadKnowledge()
+      setSelectedKnowledgeItem(null)
+      const changed = response.summary.created + response.summary.updated + response.summary.archived
+      showToast(changed > 0 ? 'Knowledge base sincronizada' : 'Knowledge base atualizada')
+    } catch {
+      showToast('Não consegui sincronizar knowledge base')
+    } finally {
+      setSyncingKnowledge(false)
+    }
+  }
+
+  const indexCodeKnowledge = async () => {
+    if (indexingCodeKnowledge) return
+
+    setIndexingCodeKnowledge(true)
+    try {
+      const response = await indexEngineeringCodeKnowledge({ prune: true })
+      await loadCodeKnowledge()
+      showToast(`${response.summary.module_count} módulos indexados`)
+    } catch {
+      showToast('Não consegui indexar code intelligence')
+    } finally {
+      setIndexingCodeKnowledge(false)
+    }
+  }
+
   return (
     <Screen
       topExtra={22}
@@ -279,6 +364,19 @@ export default function EngineeringScreen() {
         calibration={harnessCalibration}
         calibrating={calibratingHarness}
         onCalibrate={() => { void calibrateHarnessability() }}
+      />
+
+      <KnowledgeBaseCard
+        knowledge={knowledge}
+        codeKnowledge={codeKnowledge}
+        selectedItem={selectedKnowledgeItem}
+        detailLoading={knowledgeDetailLoading}
+        syncing={syncingKnowledge}
+        indexingCode={indexingCodeKnowledge}
+        onOpenItem={(item) => { void openKnowledgeItem(item) }}
+        onCloseItem={() => setSelectedKnowledgeItem(null)}
+        onSync={() => { void syncKnowledgeBase() }}
+        onIndexCode={() => { void indexCodeKnowledge() }}
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suiteRail}>
@@ -632,6 +730,209 @@ function CalibrationCard({ calibration }: { calibration: Record<string, unknown>
         <Metric label="sla outcome" value={`${numberValue(policy.outcome_required_within_hours) ?? '-'}h`} />
         <Metric label="min saudável" value={String(numberValue(policy.healthy_outcome_min_score) ?? '-')} />
       </View>
+    </View>
+  )
+}
+
+function KnowledgeBaseCard({
+  knowledge,
+  codeKnowledge,
+  selectedItem,
+  detailLoading,
+  syncing,
+  indexingCode,
+  onOpenItem,
+  onCloseItem,
+  onSync,
+  onIndexCode,
+}: {
+  knowledge: AtlasEngineeringKnowledgeResponse | null
+  codeKnowledge: AtlasEngineeringCodeModulesResponse | null
+  selectedItem: AtlasEngineeringKnowledgeItemDetail | null
+  detailLoading: boolean
+  syncing: boolean
+  indexingCode: boolean
+  onOpenItem: (item: string) => void
+  onCloseItem: () => void
+  onSync: () => void
+  onIndexCode: () => void
+}) {
+  const c = usePalette()
+  const summary = knowledge?.summary
+  const codeSummary = codeKnowledge?.summary
+  const items = knowledge?.items ?? []
+  const modules = codeKnowledge?.modules ?? []
+  const categories = summary?.categories ?? {}
+  const status = summary?.status ?? 'unknown'
+  const codeStatus = codeSummary?.status ?? 'unknown'
+
+  return (
+    <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
+      <View style={styles.panelTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Engineering knowledge</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink}>
+            {statusLabel(status)} · {summary?.active ?? 0}/{summary?.total ?? 0}
+          </Sans>
+          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+            {summary?.docs_root ?? 'docs/engineering-knowledge-base'}
+          </Mono>
+        </View>
+        <View style={{ gap: 8 }}>
+          <Pressable
+            disabled={syncing}
+            onPress={onSync}
+            style={({ pressed }) => [
+              styles.inlineButton,
+              {
+                borderColor: c.border,
+                backgroundColor: syncing ? c.bg : c.surface,
+                opacity: pressed && !syncing ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+              {syncing ? 'Sync' : 'Sincronizar'}
+            </Sans>
+          </Pressable>
+          <Pressable
+            disabled={indexingCode}
+            onPress={onIndexCode}
+            style={({ pressed }) => [
+              styles.inlineButton,
+              {
+                borderColor: c.border,
+                backgroundColor: indexingCode ? c.bg : c.surface,
+                opacity: pressed && !indexingCode ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+              {indexingCode ? 'Indexando' : 'Indexar código'}
+            </Sans>
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="docs" value={String(summary?.canonical_doc_count ?? 0)} tone={status} />
+        <Metric label="ativos" value={String(summary?.active ?? 0)} tone={status} />
+        <Metric label="categorias" value={String(Object.keys(categories).length)} />
+        <Metric label="indexado" value={summary?.last_indexed_at ? 'sim' : '-'} tone={summary?.last_indexed_at ? 'passed' : 'warning'} />
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="módulos" value={String(codeSummary?.module_count ?? 0)} tone={codeStatus} />
+        <Metric label="símbolos" value={String(codeSummary?.symbol_count ?? 0)} tone={codeStatus} />
+        <Metric label="rotas" value={String(codeSummary?.route_count ?? 0)} />
+        <Metric label="doc links" value={String(codeSummary?.doc_link_count ?? 0)} tone={(codeSummary?.doc_link_count ?? 0) > 0 ? 'passed' : 'warning'} />
+      </View>
+      {items.length ? (
+        <View style={styles.auditSection}>
+          {items.slice(0, 4).map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => onOpenItem(item.slug)}
+              style={({ pressed }) => [
+                styles.auditRow,
+                {
+                  borderColor: c.border,
+                  backgroundColor: selectedItem?.id === item.id ? c.premium : c.bg,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.5} lineHeight={18} color={c.ink} numberOfLines={1}>
+                  {item.title}
+                </Sans>
+                <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+                  {engineeringKnowledgeMetaLine(item)}
+                </Mono>
+              </View>
+              <StatusPill status={item.status} compact />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {modules.length ? (
+        <View style={styles.auditSection}>
+          {modules.slice(0, 5).map((module) => (
+            <View key={module.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.5} lineHeight={18} color={c.ink} numberOfLines={1}>
+                  {module.name}
+                </Sans>
+                <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+                  {module.slug} · {module.file_count} files · {module.symbol_count} símbolos
+                </Mono>
+              </View>
+              <StatusPill status={module.docs_status} compact />
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {detailLoading ? (
+        <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+          <Sans weight="med" size={12.5} lineHeight={18} color={c.ink}>
+            Carregando detalhe
+          </Sans>
+        </View>
+      ) : null}
+      {selectedItem ? (
+        <View style={[styles.monoBox, { borderColor: c.border, backgroundColor: c.bg, marginTop: 12 }]}>
+          <View style={styles.panelTop}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Label>Detalhe</Label>
+              <Sans weight="sb" size={14} lineHeight={20} color={c.ink} numberOfLines={2}>
+                {selectedItem.title}
+              </Sans>
+              <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                {engineeringKnowledgeMetaLine(selectedItem)}
+              </Mono>
+            </View>
+            <Pressable
+              onPress={onCloseItem}
+              style={({ pressed }) => [
+                styles.inlineButton,
+                {
+                  borderColor: c.border,
+                  backgroundColor: c.surface,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+                Fechar
+              </Sans>
+            </Pressable>
+          </View>
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            {selectedItem.summary ?? 'Sem resumo registrado.'}
+          </Sans>
+          <KnowledgeDetailLine label="Capabilities" value={engineeringKnowledgeValuesLine(selectedItem.capabilities, 'sem capabilities')} />
+          <KnowledgeDetailLine label="Decisões" value={engineeringKnowledgeValuesLine(selectedItem.decisions, 'sem decisões')} />
+          <KnowledgeDetailLine label="Manutenção" value={engineeringKnowledgeValuesLine(selectedItem.maintenance, 'sem manutenção')} />
+          <KnowledgeDetailLine label="Tags" value={engineeringKnowledgeValuesLine(selectedItem.tags, 'sem tags')} />
+          <View style={styles.detailLine}>
+            <Label>Excerpt</Label>
+            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2} numberOfLines={6}>
+              {engineeringKnowledgeBodyPreview(selectedItem.body_excerpt)}
+            </Mono>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+function KnowledgeDetailLine({ label, value }: { label: string; value: string }) {
+  const c = usePalette()
+
+  return (
+    <View style={styles.detailLine}>
+      <Label>{label}</Label>
+      <Sans size={12.5} lineHeight={18} color={c.ink}>
+        {value}
+      </Sans>
     </View>
   )
 }
@@ -1620,6 +1921,7 @@ function statusLabel(status: string): string {
     case 'blocked':
       return 'bloq'
     case 'healthy':
+    case 'ready':
       return 'saudável'
     case 'accepted':
       return 'aceito'
@@ -1670,7 +1972,7 @@ function statusLabel(status: string): string {
 
 function statusColor(status: string, c: ReturnType<typeof usePalette>): string {
   const normalized = status.toLowerCase()
-  if (['passed', 'resolved', 'ok', 'active'].includes(normalized)) return c.moss
+  if (['passed', 'resolved', 'ok', 'active', 'ready'].includes(normalized)) return c.moss
   if (['improved', 'melhor', 'release_ready', 'healthy', 'accepted', 'accept', 'best_repair_base'].includes(normalized)) return c.moss
   if (['failed', 'unresolved', 'unsafe', 'falha', 'regressed', 'blocked', 'degraded', 'incident', 'rolled_back', 'cancelled', 'cancel', 'reject'].includes(normalized)) return c.recRed
   if (['avoid_replay_base'].includes(normalized)) return c.recRed
@@ -1935,6 +2237,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 8,
+  },
+  detailLine: {
+    gap: 3,
   },
   inlineButton: {
     minHeight: 36,

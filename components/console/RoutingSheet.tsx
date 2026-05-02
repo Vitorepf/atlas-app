@@ -7,9 +7,12 @@ import { BronzeDiamond } from './BronzeDiamond'
 import {
   ROUTING_DOMAIN_OPTIONS,
   ROUTING_DEFAULT,
+  routingDomainAllowedForMode,
   routingExecutorAllowedForTask,
+  routingPhrase,
   sanitizeRoutingState,
   type RoutingExecutor,
+  type RoutingMode,
   type RoutingStyle,
   type RoutingState,
   type RoutingTask,
@@ -22,12 +25,18 @@ interface Props {
   onConfirm: (next: RoutingState) => void
 }
 
-const TASKS: Array<{ key: RoutingTask; label: string }> = [
-  { key: 'direct', label: 'Responder' },
-  { key: 'plan',   label: 'Planejar' },
-  { key: 'review', label: 'Revisar' },
-  { key: 'dev',    label: 'Dev' },
-  { key: 'debug',  label: 'Debug' },
+const TASKS: Array<{ key: RoutingTask; label: string; modes: RoutingMode[] }> = [
+  { key: 'direct', label: 'Responder', modes: ['general', 'operational'] },
+  { key: 'plan',   label: 'Planejar',  modes: ['general', 'operational', 'programming'] },
+  { key: 'review', label: 'Revisar',   modes: ['general', 'operational', 'programming'] },
+  { key: 'dev',    label: 'Dev',       modes: ['programming'] },
+  { key: 'debug',  label: 'Debug',     modes: ['programming'] },
+]
+
+const MODES: Array<{ key: RoutingMode; label: string; gloss: string }> = [
+  { key: 'general', label: 'Geral', gloss: 'conversa, ideias, pesquisa e organização' },
+  { key: 'operational', label: 'Operacional', gloss: 'diagnóstico, evidências, riscos e próximas ações' },
+  { key: 'programming', label: 'Programação', gloss: 'código, testes, automação, scripts e harness' },
 ]
 
 const EXECUTORS: Array<{ key: RoutingExecutor; label: string; gloss?: string }> = [
@@ -52,6 +61,9 @@ const STYLES: Array<{ key: RoutingStyle; label: string; gloss?: string }> = [
 export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
   const c = usePalette()
   const [draft, setDraft] = useState<RoutingState>(sanitizeRoutingState(initial))
+  const activeMode = draft.mode
+  const taskOptions = TASKS.filter((option) => option.modes.includes(activeMode))
+  const domainOptions = ROUTING_DOMAIN_OPTIONS.filter((option) => routingDomainAllowedForMode(option.key, activeMode))
 
   useEffect(() => {
     if (visible) setDraft(sanitizeRoutingState(initial))
@@ -75,9 +87,25 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
 
         <View style={[styles.headingRule, { backgroundColor: c.border }]} />
 
+        <RoutingSummary state={draft} />
+
+        <Section label="modo">
+          <View style={styles.executorList}>
+            {MODES.map((option) => (
+              <ExecutorRow
+                key={option.key}
+                label={option.label}
+                gloss={option.gloss}
+                active={activeMode === option.key}
+                onPress={() => setDraft((d) => applyAtlasMode(d, option.key))}
+              />
+            ))}
+          </View>
+        </Section>
+
         <Section label="tarefa">
           <ChipRow>
-            {TASKS.map((option) => (
+            {taskOptions.map((option) => (
               <ChoiceChip
                 key={option.key}
                 label={option.label}
@@ -90,7 +118,7 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
 
         <Section label="domínio">
           <ChipRow>
-            {ROUTING_DOMAIN_OPTIONS.map((option) => (
+            {domainOptions.map((option) => (
               <ChoiceChip
                 key={option.key}
                 label={option.label}
@@ -158,6 +186,38 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
   )
 }
 
+function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
+  if (mode === 'programming') {
+    return sanitizeRoutingState({
+      ...state,
+      mode,
+      task: state.task === 'debug' ? 'debug' : 'dev',
+      domain: 'atlas',
+      executor: state.executor === 'claude_cli' || state.executor === 'gemini_cli' || state.executor === 'claude_codex'
+        ? state.executor
+        : 'codex_cli',
+      style: 'technical',
+    })
+  }
+
+  if (mode === 'operational') {
+    return sanitizeRoutingState({
+      ...state,
+      mode,
+      task: 'review',
+      domain: 'atlas',
+      executor: state.executor === 'codex_cli' ? 'auto' : state.executor,
+      style: 'complete',
+    })
+  }
+
+  return sanitizeRoutingState({
+    ...ROUTING_DEFAULT,
+    mode,
+    executor: state.executor === 'codex_cli' ? 'auto' : state.executor,
+  })
+}
+
 function Section({ label, children }: { label: string; children: ReactNode }) {
   const c = usePalette()
   return (
@@ -173,6 +233,22 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 
 function ChipRow({ children }: { children: ReactNode }) {
   return <View style={styles.chipRow}>{children}</View>
+}
+
+function RoutingSummary({ state }: { state: RoutingState }) {
+  const c = usePalette()
+  const safeState = sanitizeRoutingState(state)
+
+  return (
+    <View style={[styles.summaryBox, { borderColor: c.border, backgroundColor: c.surface }]}>
+      <Sans weight="sb" size={12} lineHeight={16} color={c.prussian}>
+        {modeLabel(safeState.mode)}
+      </Sans>
+      <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.58, marginTop: 3 }}>
+        {routingPhrase(safeState)}
+      </Frau>
+    </View>
+  )
 }
 
 function ChoiceChip({
@@ -274,10 +350,17 @@ function FooterAction({
 }
 
 function sameRouting(a: RoutingState, b: RoutingState): boolean {
-  return a.task === b.task
+  return a.mode === b.mode
+    && a.task === b.task
     && a.domain === b.domain
     && a.executor === b.executor
     && a.style === b.style
+}
+
+function modeLabel(mode: RoutingMode): string {
+  if (mode === 'programming') return 'Modo Programação'
+  if (mode === 'operational') return 'Modo Operacional'
+  return 'Modo Geral'
 }
 
 const styles = StyleSheet.create({
@@ -302,6 +385,13 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 28,
+  },
+  summaryBox: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 24,
   },
   sectionRule: {
     height: StyleSheet.hairlineWidth,

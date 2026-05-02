@@ -23,8 +23,10 @@ import {
   providerProjectionAuditOverviewLine,
   providerProjectionAuditOverviewPeriodLine,
   providerProjectionAuditPurgeCanApply,
+  providerProjectionAuditPurgeFromError,
   providerProjectionAuditPurgeInput,
   providerProjectionAuditPurgeLine,
+  providerProjectionAuditPurgePermissionLine,
   providerProjectionAuditPurgePolicyLine,
   providerProjectionAuditQuery,
   providerProjectionAuditSummaryQuery,
@@ -400,21 +402,37 @@ export default function MemoryScreen() {
       return
     }
 
-    const result = await runAction('provider-projection-audit-purge-apply', () => (
-      purgeAtlasMemoryProviderProjectionAudits(providerProjectionAuditPurgeInput(
+    setBusy('provider-projection-audit-purge-apply')
+    setError(null)
+    try {
+      const result = await purgeAtlasMemoryProviderProjectionAudits(providerProjectionAuditPurgeInput(
         providerProjectionTarget,
         providerProjectionAuditResult,
         providerProjectionAuditInitiator,
         false,
         true,
+        undefined,
+        providerProjectionAuditPurge?.confirmation_fingerprint,
       ))
-    ), false)
-
-    if (result) {
       setProviderProjectionAuditPurge(result.provider_projection_audit_purge)
       setProviderProjectionAuditPurgeConfirmArmed(false)
       await load()
       return
+    } catch (err) {
+      const purge = providerProjectionAuditPurgeFromError(err)
+      if (purge) {
+        setProviderProjectionAuditPurge(purge)
+        setError(providerProjectionAuditPurgePolicyLine(
+          purge,
+          providerProjectionTarget,
+          providerProjectionAuditResult,
+          providerProjectionAuditInitiator,
+        ))
+      } else {
+        setError(err instanceof Error ? err.message : 'Operação falhou.')
+      }
+    } finally {
+      setBusy(null)
     }
 
     setProviderProjectionAuditPurgeConfirmArmed(false)
@@ -1384,6 +1402,7 @@ function ProviderProjectionAuditHistory({
           <TemplateRow label="Periodo" value={providerProjectionAuditOverviewPeriodLine(summary)} />
           <TemplateRow label="Retencao 90d" value={providerProjectionAuditPurgeLine(purge)} />
           <TemplateRow label="Politica" value={providerProjectionAuditPurgePolicyLine(purge, target, resultFilter, initiatorFilter)} />
+          <TemplateRow label="Permissao" value={providerProjectionAuditPurgePermissionLine(purge)} />
         </View>
         {purgeConfirmArmed ? (
           <AuditLine label="Confirmacao" value="O proximo toque remove auditorias antigas que batem com os filtros atuais." />

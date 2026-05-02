@@ -53,6 +53,18 @@ export function openAtlasDeepLink(url: string, router: RouterLike, handlers: Atl
       return true
     case 'inbox':
       if (parsed.id) {
+        if (parsed.action === 'discuss') {
+          router.push({
+            pathname: '/mobile-thread',
+            params: {
+              inboxId: parsed.id,
+              action: 'discuss',
+              mode: parsed.params?.atlas_mode ?? 'operational',
+            },
+          })
+          return true
+        }
+
         router.push({
           pathname: '/mobile-inbox-item',
           params: { inboxId: parsed.id, inboxAction: parsed.action ?? '' },

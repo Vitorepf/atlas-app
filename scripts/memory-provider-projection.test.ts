@@ -6,8 +6,10 @@ import {
   providerProjectionAuditOverviewLine,
   providerProjectionAuditOverviewPeriodLine,
   providerProjectionAuditPurgeCanApply,
+  providerProjectionAuditPurgeFromError,
   providerProjectionAuditPurgeInput,
   providerProjectionAuditPurgeLine,
+  providerProjectionAuditPurgePermissionLine,
   providerProjectionAuditPurgePolicyLine,
   providerProjectionAuditQuery,
   providerProjectionAuditSummaryQuery,
@@ -181,6 +183,15 @@ assert.deepEqual(providerProjectionAuditPurgeInput('all', 'blocked', 'api', true
   dry_run: true,
   confirm: false,
 })
+assert.deepEqual(providerProjectionAuditPurgeInput('all', 'blocked', 'api', false, true, 120, 'abc123'), {
+  target: 'all',
+  ok: false,
+  initiator: 'api',
+  older_than_days: 120,
+  dry_run: false,
+  confirm: true,
+  confirmation_fingerprint: 'abc123',
+})
 
 const summary: AtlasMemoryProviderProjectionAuditSummary = {
   ok: true,
@@ -205,19 +216,40 @@ const purge: AtlasMemoryProviderProjectionAuditPurge = {
   cutoff_at: '2026-02-01T10:30:00.000000Z',
   matched: 4,
   deleted: 0,
+  confirmation_fingerprint: 'dry-run-fingerprint',
   filters: { target: 'all' },
+  policy: { authorized: true, requires_operator: false, mode: 'atlas_token', header: 'X-Atlas-Operator' },
+}
+const operatorRequiredPurge: AtlasMemoryProviderProjectionAuditPurge = {
+  ok: false,
+  status: 'operator_permission_required',
+  dry_run: false,
+  older_than_days: 90,
+  deleted: 0,
+  policy: { authorized: false, requires_operator: true, mode: 'operator_header', header: 'X-Atlas-Operator' },
 }
 assert.equal(providerProjectionAuditPurgeLine(null), 'Simulação padrão: 90 dias')
 assert.equal(providerProjectionAuditPurgeLine(purge), 'simulação · 4 encontrado(s) · 0 removido(s)')
 assert.equal(providerProjectionAuditPurgeLine({ ...purge, dry_run: false, deleted: 4 }), 'remoção · 4 encontrado(s) · 4 removido(s)')
+assert.equal(providerProjectionAuditPurgeLine(operatorRequiredPurge), 'remoção · 0 encontrado(s) · 0 removido(s)')
 assert.equal(providerProjectionAuditPurgeCanApply(purge, 'all', 'all', 'all'), true)
 assert.equal(providerProjectionAuditPurgeCanApply({ ...purge, matched: 0 }, 'all', 'all', 'all'), false)
 assert.equal(providerProjectionAuditPurgeCanApply({ ...purge, filters: { target: 'agents' } }, 'all', 'all', 'all'), false)
 assert.equal(providerProjectionAuditPurgeCanApply({ ...purge, dry_run: false }, 'all', 'all', 'all'), false)
+assert.equal(providerProjectionAuditPurgeCanApply({ ...purge, confirmation_fingerprint: '' }, 'all', 'all', 'all'), false)
+assert.equal(providerProjectionAuditPurgeCanApply(operatorRequiredPurge, 'all', 'all', 'all'), false)
 assert.equal(providerProjectionAuditPurgePolicyLine(null, 'all', 'all', 'all'), 'Simule antes de aplicar')
+assert.equal(providerProjectionAuditPurgePolicyLine(operatorRequiredPurge, 'all', 'all', 'all'), 'Operador requerido (X-Atlas-Operator)')
 assert.equal(providerProjectionAuditPurgePolicyLine({ ...purge, filters: { target: 'agents' } }, 'all', 'all', 'all'), 'Filtros mudaram; simule novamente')
+assert.equal(providerProjectionAuditPurgePolicyLine({ ...purge, confirmation_fingerprint: '' }, 'all', 'all', 'all'), 'Dry-run antigo; simule novamente')
 assert.equal(providerProjectionAuditPurgePolicyLine({ ...purge, matched: 0 }, 'all', 'all', 'all'), 'Nenhuma auditoria antiga encontrada')
 assert.equal(providerProjectionAuditPurgePolicyLine({ ...purge, dry_run: false }, 'all', 'all', 'all'), 'Simule novamente apos remocao')
 assert.equal(providerProjectionAuditPurgePolicyLine(purge, 'all', 'all', 'all'), 'Dry-run valido para aplicar')
+assert.equal(providerProjectionAuditPurgePermissionLine(null), 'Permissao backend nao informada')
+assert.equal(providerProjectionAuditPurgePermissionLine(purge), 'Token Atlas autorizado')
+assert.equal(providerProjectionAuditPurgePermissionLine(operatorRequiredPurge), 'Operador requerido (X-Atlas-Operator)')
+assert.equal(providerProjectionAuditPurgePermissionLine({ ...operatorRequiredPurge, policy: { ...operatorRequiredPurge.policy!, authorized: true } }), 'Operador autorizado (operator_header)')
+assert.equal(providerProjectionAuditPurgeFromError({ payload: { provider_projection_audit_purge: operatorRequiredPurge } })?.status, 'operator_permission_required')
+assert.equal(providerProjectionAuditPurgeFromError(new Error('plain')), null)
 
 console.log('memory provider projection tests passed')

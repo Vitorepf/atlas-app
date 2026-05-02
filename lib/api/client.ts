@@ -1345,6 +1345,204 @@ export interface AtlasEngineeringHarnessabilityCalibrationResponse {
   harnessability_calibration: Record<string, unknown> | null
 }
 
+export interface AtlasEngineeringKnowledgeItemSummary {
+  id: string
+  slug: string
+  title: string
+  category: string
+  status: string
+  priority: number
+  source_type: string
+  canonical_path: string
+  source_hash: string
+  content_hash: string
+  summary: string | null
+  tags: string[]
+  related_paths: string[]
+  capabilities: string[]
+  decisions: string[]
+  maintenance: string[]
+  metadata?: Record<string, unknown>
+  indexed_at: string | null
+  last_verified_at: string | null
+  archived_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AtlasEngineeringKnowledgeItemDetail extends AtlasEngineeringKnowledgeItemSummary {
+  body_excerpt: string | null
+}
+
+export interface AtlasEngineeringKnowledgeItemResponse {
+  knowledge_item: AtlasEngineeringKnowledgeItemDetail
+}
+
+export interface AtlasEngineeringKnowledgeContextRef {
+  type: string
+  id: string
+  slug: string
+  title: string
+  category: string
+  priority: number
+  canonical_path: string
+  content_hash: string
+  summary: string | null
+  reason: string
+}
+
+export interface AtlasEngineeringKnowledgeContextResponse {
+  knowledge_refs: AtlasEngineeringKnowledgeContextRef[]
+}
+
+export interface AtlasEngineeringKnowledgeResponse {
+  summary: {
+    status: string
+    table_exists: boolean
+    docs_root: string
+    docs_root_exists: boolean
+    canonical_doc_count?: number
+    total: number
+    active: number
+    archived?: number
+    categories: Record<string, number>
+    last_indexed_at: string | null
+  }
+  items: AtlasEngineeringKnowledgeItemSummary[]
+}
+
+export interface AtlasEngineeringKnowledgeSyncResponse {
+  ok: boolean
+  dry_run: boolean
+  docs_root: string
+  summary: {
+    created: number
+    updated: number
+    unchanged: number
+    archived: number
+    failed: number
+  }
+  items: Array<Record<string, unknown>>
+  generated_at: string
+}
+
+export interface AtlasEngineeringCodeSummary {
+  status: string
+  table_exists: boolean
+  module_count: number
+  symbol_count: number
+  doc_link_count: number
+  route_count?: number
+  command_count?: number
+  migration_count?: number
+  test_count?: number
+  docs_status?: Record<string, number>
+  layers?: Record<string, number>
+  last_indexed_at?: string | null
+}
+
+export interface AtlasEngineeringCodeModuleSummary {
+  id: string
+  slug: string
+  name: string
+  layer: string
+  root_path: string | null
+  primary_language: string | null
+  status: string
+  owner: string | null
+  description: string | null
+  docs_status: string
+  file_count: number
+  symbol_count: number
+  route_count: number
+  command_count: number
+  migration_count: number
+  test_count: number
+  source_hash: string
+  docs_hash: string | null
+  tags: string[]
+  related_docs: string[]
+  related_tests: string[]
+  metadata: Record<string, unknown>
+  indexed_at: string | null
+  archived_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AtlasEngineeringCodeSymbolSummary {
+  id: string
+  module_id: string | null
+  module_slug: string | null
+  symbol_type: string
+  symbol_name: string
+  file_path: string
+  line_start: number | null
+  line_end: number | null
+  language: string | null
+  signature: string | null
+  namespace: string | null
+  parent_symbol: string | null
+  visibility: string | null
+  status: string
+  docs_status: string
+  source_hash: string
+  related_doc_ids: string[]
+  metadata: Record<string, unknown>
+  indexed_at: string | null
+}
+
+export interface AtlasEngineeringDocLinkSummary {
+  id: string
+  knowledge_item_id: string | null
+  module_id: string | null
+  symbol_id: string | null
+  link_type: string
+  status: string
+  canonical_path: string
+  target_path: string | null
+  doc_hash: string | null
+  target_hash: string | null
+  metadata: Record<string, unknown>
+  indexed_at: string | null
+}
+
+export interface AtlasEngineeringCodeModulesResponse {
+  summary: AtlasEngineeringCodeSummary
+  modules: AtlasEngineeringCodeModuleSummary[]
+}
+
+export interface AtlasEngineeringCodeSymbolsResponse {
+  summary: AtlasEngineeringCodeSummary
+  symbols: AtlasEngineeringCodeSymbolSummary[]
+}
+
+export interface AtlasEngineeringCodeModuleResponse {
+  module: AtlasEngineeringCodeModuleSummary
+  symbols: AtlasEngineeringCodeSymbolSummary[]
+  doc_links: AtlasEngineeringDocLinkSummary[]
+}
+
+export interface AtlasEngineeringCodeIndexResponse {
+  ok: boolean
+  dry_run: boolean
+  workspace: string
+  summary: {
+    module_count: number
+    symbol_count: number
+    doc_link_count: number
+    route_count: number
+    command_count: number
+    migration_count: number
+    test_count: number
+    file_count: number
+  }
+  modules?: AtlasEngineeringCodeModuleSummary[]
+  symbols_preview?: AtlasEngineeringCodeSymbolSummary[]
+  symbol_count?: number
+  generated_at: string
+}
+
 export interface AtlasEngineeringBenchmarkTrendSeries {
   benchmark_key: string
   provider: string | null
@@ -3132,16 +3330,27 @@ export interface PurgeAtlasMemoryProviderProjectionAuditInput extends AtlasMemor
   older_than_days?: number
   dry_run?: boolean
   confirm?: boolean
+  confirmation_fingerprint?: string
+}
+
+export interface AtlasMemoryProviderProjectionAuditPurgePolicy {
+  authorized: boolean
+  requires_operator: boolean
+  mode: 'atlas_token' | 'operator_header' | 'operator_token' | string
+  header: string
 }
 
 export interface AtlasMemoryProviderProjectionAuditPurge {
   ok: boolean
   dry_run: boolean
   older_than_days: number
-  cutoff_at: string
-  matched: number
+  cutoff_at?: string
+  matched?: number
   deleted: number
-  filters: Record<string, unknown>
+  confirmation_fingerprint?: string | null
+  filters?: Record<string, unknown>
+  policy?: AtlasMemoryProviderProjectionAuditPurgePolicy
+  status?: string
 }
 
 export interface AtlasMemoryProviderProjectionAuditPurgeResponse {
@@ -4595,6 +4804,54 @@ export async function calibrateEngineeringHarnessability(
   input: AtlasEngineeringHarnessabilityCalibrationInput = {},
 ): Promise<AtlasEngineeringHarnessabilityCalibrationResponse> {
   return apiPost<AtlasEngineeringHarnessabilityCalibrationResponse>('/engineering/harnessability/calibrate', input)
+}
+
+export async function fetchEngineeringKnowledge(
+  params: { category?: string; status?: string; q?: string; include_archived?: boolean; limit?: number } = {},
+): Promise<AtlasEngineeringKnowledgeResponse> {
+  return apiGet<AtlasEngineeringKnowledgeResponse>(`/engineering/knowledge${queryString(params)}`)
+}
+
+export async function fetchEngineeringKnowledgeItem(
+  item: string,
+): Promise<AtlasEngineeringKnowledgeItemResponse> {
+  return apiGet<AtlasEngineeringKnowledgeItemResponse>(`/engineering/knowledge/items/${encodeURIComponent(item)}`)
+}
+
+export async function fetchEngineeringKnowledgeContext(
+  params: { category?: string; q?: string; limit?: number } = {},
+): Promise<AtlasEngineeringKnowledgeContextResponse> {
+  return apiGet<AtlasEngineeringKnowledgeContextResponse>(`/engineering/knowledge/context${queryString(params)}`)
+}
+
+export async function syncEngineeringKnowledge(
+  input: { dry_run?: boolean; prune?: boolean } = {},
+): Promise<AtlasEngineeringKnowledgeSyncResponse> {
+  return apiPost<AtlasEngineeringKnowledgeSyncResponse>('/engineering/knowledge/sync', input)
+}
+
+export async function indexEngineeringCodeKnowledge(
+  input: { workspace?: string | null; dry_run?: boolean; prune?: boolean } = {},
+): Promise<AtlasEngineeringCodeIndexResponse> {
+  return apiPost<AtlasEngineeringCodeIndexResponse>('/engineering/knowledge/code/index', input)
+}
+
+export async function fetchEngineeringCodeModules(
+  params: { layer?: string; docs_status?: string; q?: string; include_archived?: boolean; limit?: number } = {},
+): Promise<AtlasEngineeringCodeModulesResponse> {
+  return apiGet<AtlasEngineeringCodeModulesResponse>(`/engineering/knowledge/code/modules${queryString(params)}`)
+}
+
+export async function fetchEngineeringCodeSymbols(
+  params: { module?: string; symbol_type?: string; language?: string; docs_status?: string; q?: string; include_archived?: boolean; limit?: number } = {},
+): Promise<AtlasEngineeringCodeSymbolsResponse> {
+  return apiGet<AtlasEngineeringCodeSymbolsResponse>(`/engineering/knowledge/code/symbols${queryString(params)}`)
+}
+
+export async function fetchEngineeringCodeModule(
+  module: string,
+): Promise<AtlasEngineeringCodeModuleResponse> {
+  return apiGet<AtlasEngineeringCodeModuleResponse>(`/engineering/knowledge/code/modules/${encodeURIComponent(module)}`)
 }
 
 export async function listEngineeringBenchmarkSuites(

@@ -250,6 +250,7 @@ export function providerProjectionAuditPurgeInput(
   dryRun = true,
   confirm = false,
   olderThanDays = PROVIDER_PROJECTION_AUDIT_RETENTION_DAYS,
+  confirmationFingerprint?: string | null,
 ): PurgeAtlasMemoryProviderProjectionAuditInput {
   const { limit: _limit, ...filters } = providerProjectionAuditQuery(target, result, initiator, 1)
 
@@ -258,6 +259,7 @@ export function providerProjectionAuditPurgeInput(
     older_than_days: olderThanDays,
     dry_run: dryRun,
     confirm,
+    ...(confirmationFingerprint ? { confirmation_fingerprint: confirmationFingerprint } : {}),
   }
 }
 
@@ -267,7 +269,7 @@ export function providerProjectionAuditPurgeCanApply(
   result: ProviderProjectionAuditResultFilter,
   initiator: ProviderProjectionAuditInitiatorFilter,
 ): boolean {
-  if (!purge || !purge.dry_run || purge.matched <= 0) return false
+  if (!purge || !purge.dry_run || (purge.matched ?? 0) <= 0 || !purge.confirmation_fingerprint) return false
 
   return providerProjectionAuditPurgeFiltersMatch(purge, target, result, initiator)
 }
@@ -279,11 +281,29 @@ export function providerProjectionAuditPurgePolicyLine(
   initiator: ProviderProjectionAuditInitiatorFilter,
 ): string {
   if (!purge) return 'Simule antes de aplicar'
+  if (purge.status === 'operator_permission_required') return providerProjectionAuditPurgePermissionLine(purge)
   if (!purge.dry_run) return 'Simule novamente apos remocao'
   if (!providerProjectionAuditPurgeFiltersMatch(purge, target, result, initiator)) return 'Filtros mudaram; simule novamente'
-  if (purge.matched <= 0) return 'Nenhuma auditoria antiga encontrada'
+  if (!purge.confirmation_fingerprint) return 'Dry-run antigo; simule novamente'
+  if ((purge.matched ?? 0) <= 0) return 'Nenhuma auditoria antiga encontrada'
 
   return 'Dry-run valido para aplicar'
+}
+
+export function providerProjectionAuditPurgePermissionLine(purge: AtlasMemoryProviderProjectionAuditPurge | null): string {
+  const policy = purge?.policy
+  if (!policy) return 'Permissao backend nao informada'
+  if (policy.requires_operator && !policy.authorized) return `Operador requerido (${policy.header})`
+  if (policy.requires_operator && policy.authorized) return `Operador autorizado (${policy.mode})`
+
+  return 'Token Atlas autorizado'
+}
+
+export function providerProjectionAuditPurgeFromError(error: unknown): AtlasMemoryProviderProjectionAuditPurge | null {
+  const payload = objectRecord(objectRecord(error)?.payload)
+  const purge = objectRecord(payload?.provider_projection_audit_purge)
+
+  return purge ? purge as unknown as AtlasMemoryProviderProjectionAuditPurge : null
 }
 
 export function providerProjectionAuditFilterLine(
@@ -313,7 +333,7 @@ export function providerProjectionAuditPurgeLine(purge: AtlasMemoryProviderProje
 
   const action = purge.dry_run ? 'simulação' : 'remoção'
 
-  return `${action} · ${purge.matched} encontrado(s) · ${purge.deleted} removido(s)`
+  return `${action} · ${purge.matched ?? 0} encontrado(s) · ${purge.deleted} removido(s)`
 }
 
 function providerProjectionAuditPurgeFiltersMatch(
@@ -334,6 +354,10 @@ function filterValueMatches(filters: Record<string, unknown>, key: string, expec
   if (expected === undefined || expected === null) return filters[key] === undefined || filters[key] === null
 
   return filters[key] === expected
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null
 }
 
 function projectionCountLabel(count: number, label: string): string | null {

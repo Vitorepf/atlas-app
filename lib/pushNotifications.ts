@@ -123,7 +123,7 @@ export function useAtlasPushNotifications(): void {
     if (handledResponseIdsRef.current.has(responseId)) return
     handledResponseIdsRef.current.add(responseId)
 
-    const deepLink = response.notification.request.content.data?.deep_link
+    const deepLink = deepLinkFromNotificationData(response.notification.request.content.data)
     if (typeof deepLink === 'string') openDeepLink(deepLink)
   }, [openDeepLink])
 
@@ -174,4 +174,17 @@ function projectIdOption(): { projectId?: string } | undefined {
   const projectId = extra?.eas?.projectId ?? Constants.easConfig?.projectId
 
   return typeof projectId === 'string' && projectId !== '' ? { projectId } : undefined
+}
+
+function deepLinkFromNotificationData(data: Notifications.NotificationContent['data'] | undefined): string | null {
+  const explicit = data?.deep_link
+  if (typeof explicit === 'string' && explicit.trim().length > 0) return explicit.trim()
+
+  const inboxId = data?.inbox_id
+  const openAction = data?.open_action
+  if (typeof inboxId === 'string' && inboxId.trim().length > 0 && openAction === 'discuss') {
+    return `atlas://inbox/${encodeURIComponent(inboxId.trim())}/discuss`
+  }
+
+  return null
 }
