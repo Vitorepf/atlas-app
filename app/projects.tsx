@@ -9,6 +9,7 @@ import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { domainColor, domainLabel, type DomainKey } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
+import { memoryProjectReviewParams, memoryTaskReviewParams } from '../lib/memoryReviewNavigation'
 import {
   completeTask,
   convertProjectBlockerToTask,
@@ -882,6 +883,14 @@ export default function ProjectsScreen() {
             onResolveBlocker={(blocker) => { void resolveBlocker(project, blocker) }}
             onEngineeringEvidenceRecorded={applyEngineeringEvidenceResponse}
             onEngineeringBlueprintFrozen={applyEngineeringPackageResponse}
+            onOpenProjectMemory={() => {
+              router.push({ pathname: '/memory', params: memoryProjectReviewParams(project.id) })
+            }}
+            onOpenActiveTaskMemory={() => {
+              const taskId = project.active_next_task?.id
+              if (!taskId) return
+              router.push({ pathname: '/memory', params: memoryTaskReviewParams(taskId, project.id) })
+            }}
           />
         ))}
       </View>
@@ -926,6 +935,8 @@ function ProjectCard({
   onResolveBlocker,
   onEngineeringEvidenceRecorded,
   onEngineeringBlueprintFrozen,
+  onOpenProjectMemory,
+  onOpenActiveTaskMemory,
 }: {
   project: AtlasProject
   selected: boolean
@@ -963,6 +974,8 @@ function ProjectCard({
   onResolveBlocker: (blocker: AtlasProjectBlocker) => void
   onEngineeringEvidenceRecorded: (response: AtlasEngineeringEvidenceResponse) => void
   onEngineeringBlueprintFrozen: (response: AtlasEngineeringPackageResponse) => void
+  onOpenProjectMemory: () => void
+  onOpenActiveTaskMemory: () => void
 }) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
@@ -1132,6 +1145,10 @@ function ProjectCard({
               <View style={styles.actionRow}>
                 <SmallAction label="Replanejar" disabled={busyAction != null} onPress={onRebuild} />
                 <SmallAction label="Fechar projeto" disabled={busyAction != null} onPress={onOpenProjectCompletion} />
+                <SmallAction label="Memória do projeto" disabled={busyAction != null} onPress={onOpenProjectMemory} />
+                {project.active_next_task ? (
+                  <SmallAction label="Memória da task" disabled={busyAction != null} onPress={onOpenActiveTaskMemory} />
+                ) : null}
               </View>
 
               {acceptedPlan ? (
@@ -1366,6 +1383,7 @@ function EngineeringPanel({
   onBlueprintFrozen: (response: AtlasEngineeringPackageResponse) => void
 }) {
   const c = usePalette()
+  const router = useRouter()
   const { showToast } = useShell()
   const [formOpen, setFormOpen] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -1452,6 +1470,10 @@ function EngineeringPanel({
   const latestEvidence = packet.latest_evidence
   const firstAcceptance = packet.status_snapshot.acceptance_checklist[0] ?? null
   const latestDecision = packet.status_snapshot.decision.status
+  const latestHarness = packet.latest_harness_run ?? packet.harness_runs?.[0] ?? null
+  const latestHarnessDecision = String(latestHarness?.decision ?? latestHarness?.status ?? 'not_applicable')
+  const latestHarnessTimeline = Array.isArray(latestHarness?.timeline) ? latestHarness.timeline : []
+  const latestHarnessReview = latestHarness?.review_summary
 
   return (
     <View style={[styles.engineeringBox, { borderColor: c.border, backgroundColor: c.bg }]}>
@@ -1471,6 +1493,7 @@ function EngineeringPanel({
         <Fact label="aceites" value={String(packet.blueprint.acceptance_matrix.length)} />
         <Fact label="gates abertos" value={String(openGateCount)} />
         <Fact label="evidências" value={String(packet.evidence_history.length)} />
+        <Fact label="harness" value={latestHarness?.score != null ? String(latestHarness.score) : 'sem'} />
       </View>
 
       {packet.blueprint_snapshot ? (
@@ -1515,6 +1538,36 @@ function EngineeringPanel({
         </View>
       ) : null}
 
+      {latestHarness ? (
+        <View style={[styles.engineeringHarnessRun, { borderColor: c.border }]}>
+          <View style={styles.engineeringGateRow}>
+            <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={engineeringStatusColor(latestHarnessDecision, c)} style={{ flex: 1 }}>
+              harness · {engineeringStatusLabel(latestHarnessDecision)} · score {latestHarness.score ?? '-'}
+            </Mono>
+            <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.ink2}>
+              {dateLabel(typeof latestHarness.finished_at === 'string' ? latestHarness.finished_at : null)}
+            </Mono>
+          </View>
+          <Sans size={11.5} lineHeight={16} color={c.ink2} numberOfLines={2}>
+            {latestHarness.attempt_count ?? 0} attempt(s) · {latestHarness.workspace?.isolated ? 'isolado' : 'workspace'} · {latestHarnessReview?.blocking_count ?? 0} bloqueio(s)
+          </Sans>
+          {latestHarnessTimeline.length > 0 ? (
+            <View style={styles.engineeringTimeline}>
+              {latestHarnessTimeline.slice(-3).map((event, index) => (
+                <View key={`${event.type}-${event.ref_id ?? index}`} style={styles.engineeringGateRow}>
+                  <Sans size={11} lineHeight={15} color={c.ink2} numberOfLines={1} style={{ flex: 1 }}>
+                    {event.label ?? event.type}
+                  </Sans>
+                  <Mono size={10} lineHeight={13} letterSpacing={0.1} color={engineeringStatusColor(event.status, c)}>
+                    {engineeringStatusLabel(event.status)}
+                  </Mono>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={styles.actionRow}>
         <SmallAction
           label={freezingBlueprint ? 'Fixando' : packet.blueprint_snapshot?.matches_current_content ? 'Blueprint fixado' : 'Fixar blueprint'}
@@ -1525,6 +1578,11 @@ function EngineeringPanel({
           label={formOpen ? 'Fechar evidência' : 'Registrar evidência'}
           disabled={recording}
           onPress={() => setFormOpen((open) => !open)}
+        />
+        <SmallAction
+          label="Benchmarks"
+          disabled={recording || freezingBlueprint}
+          onPress={() => router.push('/engineering')}
         />
       </View>
 
@@ -2625,7 +2683,15 @@ function engineeringGateNeedsAttention(status: string): boolean {
 function engineeringStatusLabel(status: string): string {
   switch (status) {
     case 'ready': return 'pronto'
+    case 'resolved': return 'resolvido'
+    case 'partial': return 'parcial'
+    case 'unresolved': return 'pendente'
+    case 'blocked': return 'bloqueado'
+    case 'unsafe': return 'risco'
     case 'passed': return 'passou'
+    case 'completed': return 'concluído'
+    case 'skipped': return 'pulou'
+    case 'warning': return 'alerta'
     case 'evidence_recorded': return 'evidência'
     case 'needs_human_review': return 'revisar'
     case 'needs_review': return 'revisar'
@@ -2641,11 +2707,19 @@ function engineeringStatusLabel(status: string): string {
 function engineeringStatusColor(status: string, c: ReturnType<typeof usePalette>): string {
   switch (status) {
     case 'ready':
+    case 'resolved':
     case 'passed':
+    case 'completed':
     case 'evidence_recorded':
       return c.moss
     case 'failed':
+    case 'unresolved':
+    case 'unsafe':
       return c.recRed
+    case 'partial':
+    case 'blocked':
+    case 'skipped':
+    case 'warning':
     case 'needs_human_review':
     case 'needs_review':
     case 'manual_qa_required':
@@ -2959,6 +3033,14 @@ const styles = StyleSheet.create({
   },
   engineeringEvidence: {
     gap: 3,
+  },
+  engineeringHarnessRun: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    gap: 5,
+  },
+  engineeringTimeline: {
+    gap: 4,
   },
   engineeringForm: {
     borderTopWidth: StyleSheet.hairlineWidth,

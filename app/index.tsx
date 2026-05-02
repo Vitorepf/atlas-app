@@ -4,12 +4,12 @@ import { useRouter } from 'expo-router'
 import * as Location from 'expo-location'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
-import { Tile } from '../components/Tile'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { BronzeDiamond } from '../components/console/BronzeDiamond'
 import { usePalette } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 import { useShell } from '../components/AtlasShell'
+import { buildMemoryHomeSummary } from '../lib/memoryHomeSummary'
 import {
   deviceTimezone,
   formatPassiveSignal,
@@ -27,12 +27,14 @@ import {
   generateDueRoutines,
   listTaskAgenda,
   listTaskEvents,
+  listAtlasMemoryReviewQueue,
   planTaskAgenda,
   planTaskWeekAgenda,
   patchTask,
   scheduleTask,
   type AtlasAgendaTask,
   type AtlasCheckin,
+  type AtlasMemoryReviewQueue,
   type AtlasTaskAgendaResponse,
   type AtlasTaskEvent,
 } from '../lib/api/client'
@@ -102,6 +104,9 @@ export default function HomeScreen() {
   const [agendaPlanning, setAgendaPlanning] = useState(false)
   const [weekPlanning, setWeekPlanning] = useState(false)
   const [agendaExpanded, setAgendaExpanded] = useState(false)
+  const [memoryReviewQueue, setMemoryReviewQueue] = useState<AtlasMemoryReviewQueue | null>(null)
+  const [memoryReviewLoading, setMemoryReviewLoading] = useState(false)
+  const [memoryReviewUnavailable, setMemoryReviewUnavailable] = useState(false)
 
   const captureCountToday = useMemo(() => {
     const today = new Date().toDateString()
@@ -149,6 +154,17 @@ export default function HomeScreen() {
       .filter((behavior) => !behavior.archived_at && behavior.show_in_morning_briefing)
       .length
   ), [behaviors, queuedBehaviors])
+  const memoryHome = useMemo(
+    () => buildMemoryHomeSummary(
+      memoryReviewQueue,
+      memoryReviewLoading && !memoryReviewQueue
+        ? 'loading'
+        : memoryReviewUnavailable
+          ? 'unavailable'
+          : 'ready',
+    ),
+    [memoryReviewLoading, memoryReviewQueue, memoryReviewUnavailable],
+  )
 
   const loadAgenda = async () => {
     setAgendaLoading(true)
@@ -210,6 +226,28 @@ export default function HomeScreen() {
       mounted = false
     }
   }, [currentLevelState?.energy_level])
+
+  useEffect(() => {
+    let mounted = true
+
+    setMemoryReviewLoading(true)
+    void listAtlasMemoryReviewQueue({ limit: 6 })
+      .then((response) => {
+        if (!mounted) return
+        setMemoryReviewQueue(response.review_queue)
+        setMemoryReviewUnavailable(false)
+      })
+      .catch(() => {
+        if (mounted) setMemoryReviewUnavailable(true)
+      })
+      .finally(() => {
+        if (mounted) setMemoryReviewLoading(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const saveCheckin = async () => {
     if (!checkinState || !energyLevel || !moodLevel) return
@@ -854,6 +892,57 @@ export default function HomeScreen() {
         ) : null}
       </View>
 
+      <Pressable
+        onPress={() => router.push('/memory')}
+        accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}. ${memoryHome.detail}.`}
+        style={({ pressed }) => [
+          styles.engineeringEntry,
+          {
+            backgroundColor: pressed ? c.premium : c.surface,
+            borderColor: c.border,
+            borderLeftColor: c.bronze,
+          },
+        ]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Atlas Memory</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
+            {memoryHome.title}
+          </Sans>
+          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
+            {memoryHome.detail}
+          </Mono>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
+          abrir
+        </Mono>
+      </Pressable>
+
+      <Pressable
+        onPress={() => router.push('/engineering')}
+        style={({ pressed }) => [
+          styles.engineeringEntry,
+          {
+            backgroundColor: pressed ? c.premium : c.surface,
+            borderColor: c.border,
+            borderLeftColor: c.prussian,
+          },
+        ]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Atlas Engineering</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
+            Harness Runner e Atlas-Bench
+          </Sans>
+          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
+            suites · pass rate · últimos runs · resultados por case
+          </Mono>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
+          abrir
+        </Mono>
+      </Pressable>
+
       <SectionHeader label="Como você está agora" />
       {currentLevelState && !checkinEditing && !(checkinState || energyLevel || moodLevel) ? (
         <Pressable
@@ -954,6 +1043,11 @@ export default function HomeScreen() {
           label="bitácula"
           value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
           onPress={() => router.push('/bitacula')}
+        />
+        <Doorway
+          label="memória"
+          value={memoryHome.doorwayValue}
+          onPress={() => router.push('/memory')}
         />
         <Doorway
           label="saúde"
@@ -1452,6 +1546,18 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 18,
     marginBottom: 4,
+  },
+  engineeringEntry: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 3,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   agendaPanel: {
     borderRadius: 12,

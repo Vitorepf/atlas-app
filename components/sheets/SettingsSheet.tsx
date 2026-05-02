@@ -1,24 +1,30 @@
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Constants from 'expo-constants'
 import { SideSheet } from './SideSheet'
 import { ScreenTimeSelectionSheet } from '../ScreenTimeSelectionSheet'
 import { CreateDomainPanel } from '../domains/CreateDomainPanel'
 import { Frau, Label, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
+import { useShell } from '../AtlasShell'
 import { useOverlays } from '../../lib/overlays'
 import { domainColor } from '../../lib/domains'
 import {
   type AiProvidersStatusResponse,
+  type AtlasAiJob,
+  type AtlasAiStatus,
   type AtlasHealth,
+  cancelAiJob,
   getApiConfig,
   getAiProvidersStatus,
   getHealth,
   hydrateApiConfig,
+  listAiJobs,
   listCaptures,
   setBackendHost,
   setBackendPort,
   setBackendToken,
+  updateAiProviderSettings,
 } from '../../lib/api/client'
 import { formatRelativeSync, localQueueCounts, useAtlasStore } from '../../lib/atlasStore'
 import {
@@ -29,8 +35,10 @@ import {
 export function SettingsSheet() {
   const open = useOverlays((s) => s.open)
   const close = useOverlays((s) => s.close)
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const visible = open === 'settings'
   const { c, mode, setMode } = useTheme()
+  const { showToast } = useShell()
   const sync = useAtlasStore((s) => s.sync)
   const syncing = useAtlasStore((s) => s.syncing)
   const requestHealthKitPermissions = useAtlasStore((s) => s.requestHealthKitPermissions)
@@ -81,8 +89,18 @@ export function SettingsSheet() {
   const [serverHealth, setServerHealth] = useState<AtlasHealth | null>(null)
   const [aiStatus, setAiStatus] = useState<AiProvidersStatusResponse | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const [aiSaving, setAiSaving] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [activeAiJobs, setActiveAiJobs] = useState<AtlasAiJob[]>([])
+  const [activeJobsLoading, setActiveJobsLoading] = useState(false)
+  const [activeJobAction, setActiveJobAction] = useState<string | null>(null)
+  const [aiSessionsPanelOpen, setAiSessionsPanelOpen] = useState(false)
   const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (visible) return
+    setAiSessionsPanelOpen(false)
+  }, [visible])
 
   useEffect(() => {
     if (!visible) return
@@ -104,6 +122,15 @@ export function SettingsSheet() {
       .catch(() => setServerHealth(null))
     void refreshAiStatus({ silent: true })
   }, [visible, apiConfigLoaded])
+
+  useEffect(() => {
+    if (!visible || !apiConfigLoaded) return
+    const interval = setInterval(() => {
+      void refreshAiStatus({ silent: true })
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [apiConfigLoaded, visible])
 
   const queue = queuedCaptures
     + queuedCheckins
@@ -155,33 +182,152 @@ export function SettingsSheet() {
   }
 
   const refreshAiStatus = async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!silent) setAiLoading(true)
+    const showActiveJobsLoading = !silent || activeAiJobs.length === 0
+    if (!silent) {
+      setAiLoading(true)
+    }
+    if (showActiveJobsLoading) {
+      setActiveJobsLoading(true)
+    }
     setAiError(null)
 
     try {
       await saveApiConfig()
-      const status = await getAiProvidersStatus()
+      let statusError: unknown = null
+      let jobsError: unknown = null
+      const [status, activeJobs] = await Promise.all([
+        getAiProvidersStatus().catch((error) => {
+          statusError = error
+          return null
+        }),
+        listActiveAiRuntimeJobs().catch((error) => {
+          jobsError = error
+          return null
+        }),
+      ])
+      if (status) {
+        setAiStatus(status)
+      }
+      setActiveAiJobs(activeJobs ?? [])
+      if (statusError || jobsError) {
+        setAiError(humanAiError(jobsError ?? statusError, 'Falha ao ler Atlas'))
+      }
+    } catch (error) {
+      setActiveAiJobs([])
+      setAiError(humanAiError(error, 'Falha ao ler Atlas'))
+    } finally {
+      if (!silent) {
+        setAiLoading(false)
+      }
+      if (showActiveJobsLoading) {
+        setActiveJobsLoading(false)
+      }
+    }
+  }
+
+  const saveAiRuntimeSettings = async (patch: Parameters<typeof updateAiProviderSettings>[0]) => {
+    setAiSaving(true)
+    setAiError(null)
+
+    try {
+      await saveApiConfig()
+      const status = await updateAiProviderSettings(patch)
       setAiStatus(status)
     } catch (error) {
-      setAiError(humanAiError(error, 'Falha ao ler Atlas AI'))
+      setAiError(humanAiError(error, 'Falha ao salvar Atlas'))
     } finally {
-      if (!silent) setAiLoading(false)
+      setAiSaving(false)
     }
+  }
+
+  const refreshAiSessionsPanel = async ({ silent = false }: { silent?: boolean } = {}) => {
+    await refreshAiStatus({ silent })
+  }
+
+  const openAiSessionsPanel = () => {
+    setAiSessionsPanelOpen(true)
+    void refreshAiSessionsPanel()
+  }
+
+  const openActiveAiJob = (job: AtlasAiJob) => {
+    const threadId = job.trace?.thread_id
+    if (!threadId) {
+      showToast('Execução sem conversa vinculada')
+      return
+    }
+
+    openAtlasAi(threadId)
+  }
+
+  const cancelActiveAiJob = async (job: AtlasAiJob) => {
+    setActiveJobAction(job.id)
+    setAiError(null)
+
+    try {
+      await saveApiConfig()
+      await cancelAiJob(job.id)
+      setActiveAiJobs((current) => current.filter((item) => item.id !== job.id))
+      await refreshAiStatus({ silent: true })
+      showToast('Execução cancelada')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao cancelar execução')
+      setAiError(message)
+      showToast(message)
+    } finally {
+      setActiveJobAction(null)
+    }
+  }
+
+  const confirmCancelActiveAiJob = (job: AtlasAiJob) => {
+    Alert.alert(
+      'Cancelar execução?',
+      activeAiJobTitle(job, aiStatus),
+      [
+        { text: 'Voltar', style: 'cancel' },
+        {
+          text: 'Cancelar execução',
+          style: 'destructive',
+          onPress: () => {
+            void cancelActiveAiJob(job)
+          },
+        },
+      ],
+    )
   }
 
   return (
     <>
     <SideSheet visible={visible}>
+      {visible ? (
+      <>
       <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <Pressable onPress={close} style={({ pressed }) => [styles.slot, { opacity: pressed ? 0.65 : 1 }]}>
-          <Sans weight="med" size={15} color={c.ink}>← Voltar</Sans>
+        <Pressable
+          onPress={aiSessionsPanelOpen ? () => setAiSessionsPanelOpen(false) : close}
+          style={({ pressed }) => [styles.slot, { opacity: pressed ? 0.65 : 1 }]}
+        >
+          <Sans weight="med" size={15} color={c.ink}>
+            {aiSessionsPanelOpen ? '← Ajustes' : '← Voltar'}
+          </Sans>
         </Pressable>
         <Frau size={24} lineHeight={28} letterSpacing={-0.36} align="center" color={c.ink}>
-          Configurações
+          {aiSessionsPanelOpen ? 'Sessões AI' : 'Configurações'}
         </Frau>
         <View style={styles.slot} />
       </View>
 
+      {aiSessionsPanelOpen ? (
+        <AiSessionsDashboard
+          jobs={activeAiJobs}
+          status={aiStatus}
+          jobsLoading={activeJobsLoading}
+          busyJobId={activeJobAction}
+          onRefresh={() => {
+            void refreshAiSessionsPanel()
+          }}
+          onOpenJob={openActiveAiJob}
+          onCancelJob={confirmCancelActiveAiJob}
+        />
+      ) : (
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
         <Section label="Aparência">
           <Row first name="Tema" desc="Dia, noite ou seguir o sistema">
@@ -271,15 +417,175 @@ export function SettingsSheet() {
           </Row>
         </Section>
 
-        <Section label="Atlas AI">
+        <Section label="Atlas">
           <Row first name="Gateway" desc={aiGatewayDescription(aiStatus, aiError)}>
             <StatusBadge status={aiGatewayStatus(aiStatus, aiError, aiLoading)} />
+          </Row>
+          <Row name="Provider padrão" desc={defaultProviderDescription(aiStatus)}>
+            <Mono
+              size={12}
+              letterSpacing={0.48}
+              color={(aiStatus?.default_provider ?? 'claude_cli') === 'claude_cli' ? c.moss : c.bronze}
+            >
+              {providerLabel(aiStatus?.default_provider ?? 'claude_cli')}
+            </Mono>
+          </Row>
+          <Row name="Modelo padrão" desc={defaultModelDescription(aiStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {defaultModelValue(aiStatus)}
+            </Mono>
+          </Row>
+          <Row name="Default AI" desc={runtimeSettingsDescription(aiStatus)}>
+            <Segmented
+              value={
+                (aiStatus?.default_provider ?? 'claude_cli') === 'codex_cli'
+                  ? 'codex_cli'
+                  : (aiStatus?.default_provider ?? 'claude_cli') === 'gemini_cli'
+                    ? 'gemini_cli'
+                    : 'claude_cli'
+              }
+              options={[
+                { key: 'claude_cli', label: 'Claude' },
+                { key: 'codex_cli', label: 'Codex' },
+                { key: 'gemini_cli', label: 'Gemini' },
+              ]}
+              onChange={(provider) => {
+                void saveAiRuntimeSettings({ default_provider: provider })
+              }}
+            />
+          </Row>
+          <Row name="Modelo Claude" desc={providerModelDescription(aiStatus, 'claude_cli')}>
+            <Segmented
+              value={providerModelChoice(aiStatus, 'claude_cli')}
+              options={providerModelOptions('claude_cli')}
+              onChange={(choice) => {
+                void saveAiRuntimeSettings({ providers: { claude_cli: modelPatchForChoice('claude_cli', choice) } })
+              }}
+            />
+          </Row>
+          <Row name="Modelo Codex" desc={providerModelDescription(aiStatus, 'codex_cli')}>
+            <Segmented
+              value={providerModelChoice(aiStatus, 'codex_cli')}
+              options={providerModelOptions('codex_cli')}
+              onChange={(choice) => {
+                void saveAiRuntimeSettings({ providers: { codex_cli: modelPatchForChoice('codex_cli', choice) } })
+              }}
+            />
+          </Row>
+          <Row name="Modelo Gemini" desc={providerModelDescription(aiStatus, 'gemini_cli')}>
+            <Segmented
+              value={providerModelChoice(aiStatus, 'gemini_cli')}
+              options={providerModelOptions('gemini_cli')}
+              onChange={(choice) => {
+                void saveAiRuntimeSettings({ providers: { gemini_cli: modelPatchForChoice('gemini_cli', choice) } })
+              }}
+            />
+          </Row>
+          <Row name="Codex automático" desc={providerAutomationDescription(aiStatus, 'codex_cli')}>
+            <Segmented
+              value={modelPolicyByProvider(aiStatus, 'codex_cli')?.allow_auto ? 'on' : 'off'}
+              options={[
+                { key: 'off', label: 'OFF' },
+                { key: 'on', label: 'ON' },
+              ]}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ providers: { codex_cli: { allow_auto: value === 'on' } } })
+              }}
+            />
+          </Row>
+          <Row name="Gemini automático" desc={providerAutomationDescription(aiStatus, 'gemini_cli')}>
+            <Segmented
+              value={modelPolicyByProvider(aiStatus, 'gemini_cli')?.allow_auto ? 'on' : 'off'}
+              options={[
+                { key: 'off', label: 'OFF' },
+                { key: 'on', label: 'ON' },
+              ]}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ providers: { gemini_cli: { allow_auto: value === 'on' } } })
+              }}
+            />
+          </Row>
+          <Row name="Budget AI" desc={aiBudgetDescription(aiStatus)}>
+            <Segmented
+              value={aiStatus?.budget?.enabled ? 'on' : 'off'}
+              options={[
+                { key: 'off', label: 'OFF' },
+                { key: 'on', label: 'ON' },
+              ]}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ budget: { enabled: value === 'on', mode: 'block', window_hours: 24 } })
+              }}
+            />
+          </Row>
+          <Row name="Limite Claude" desc={providerBudgetDescription(aiStatus, 'claude_cli')}>
+            <Segmented
+              value={providerBudgetChoice(aiStatus, 'claude_cli')}
+              options={budgetPresetOptions()}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ budget: { providers: { claude_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
+              }}
+            />
+          </Row>
+          <Row name="Limite Codex" desc={providerBudgetDescription(aiStatus, 'codex_cli')}>
+            <Segmented
+              value={providerBudgetChoice(aiStatus, 'codex_cli')}
+              options={budgetPresetOptions()}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ budget: { providers: { codex_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
+              }}
+            />
+          </Row>
+          <Row name="Limite Gemini" desc={providerBudgetDescription(aiStatus, 'gemini_cli')}>
+            <Segmented
+              value={providerBudgetChoice(aiStatus, 'gemini_cli')}
+              options={budgetPresetOptions()}
+              onChange={(value) => {
+                void saveAiRuntimeSettings({ budget: { providers: { gemini_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
+              }}
+            />
+          </Row>
+          <Row name="Worker Claude" desc={providerWorkerDescription(aiStatus, 'claude_cli')}>
+            <StatusBadge status={providerWorkerStatus(aiStatus, 'claude_cli')} />
+          </Row>
+          <Row name="Worker Codex" desc={providerWorkerDescription(aiStatus, 'codex_cli')}>
+            <StatusBadge status={providerWorkerStatus(aiStatus, 'codex_cli')} />
+          </Row>
+          <Row name="Worker Gemini" desc={providerWorkerDescription(aiStatus, 'gemini_cli')}>
+            <StatusBadge status={providerWorkerStatus(aiStatus, 'gemini_cli')} />
+          </Row>
+          <Row name="Fila AI" desc={aiQueueDescription(aiStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={aiQueueHasWork(aiStatus) ? c.bronze : c.ink2}>
+              {aiQueueValue(aiStatus)}
+            </Mono>
+          </Row>
+          <Row name="Execução AI" desc={activeAiJobDescription(aiStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={activeAiJobValue(aiStatus) === 'nada' ? c.ink2 : c.bronze}>
+              {activeAiJobValue(aiStatus)}
+            </Mono>
+          </Row>
+          <Row name="Uso Claude 24h" desc={providerUsageDescription(aiStatus, 'claude_cli')}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {providerUsageValue(aiStatus, 'claude_cli')}
+            </Mono>
+          </Row>
+          <Row name="Uso Codex 24h" desc={providerUsageDescription(aiStatus, 'codex_cli')}>
+            <Mono size={12} letterSpacing={0.48} color={providerUsageHasActivity(aiStatus, 'codex_cli') ? c.bronze : c.ink2}>
+              {providerUsageValue(aiStatus, 'codex_cli')}
+            </Mono>
+          </Row>
+          <Row name="Uso Gemini 24h" desc={providerUsageDescription(aiStatus, 'gemini_cli')}>
+            <Mono size={12} letterSpacing={0.48} color={providerUsageHasActivity(aiStatus, 'gemini_cli') ? c.bronze : c.ink2}>
+              {providerUsageValue(aiStatus, 'gemini_cli')}
+            </Mono>
           </Row>
           <Row name="Claude CLI" desc={providerDescription(aiStatus, 'claude_cli')}>
             <StatusBadge status={providerStatus(aiStatus, 'claude_cli')} />
           </Row>
           <Row name="Codex CLI" desc={providerDescription(aiStatus, 'codex_cli')}>
             <StatusBadge status={providerStatus(aiStatus, 'codex_cli')} />
+          </Row>
+          <Row name="Gemini CLI" desc={providerDescription(aiStatus, 'gemini_cli')}>
+            <StatusBadge status={providerStatus(aiStatus, 'gemini_cli')} />
           </Row>
           <Row name="Último evento" desc={lastAiEventDescription(aiStatus)}>
             <Mono size={12} letterSpacing={0.48} color={c.ink2}>
@@ -288,13 +594,36 @@ export function SettingsSheet() {
           </Row>
           <View style={styles.apiActions}>
             <MiniButton
-              label={aiLoading ? 'Atualizando…' : 'Atualizar AI'}
-              disabled={aiLoading}
+              label={aiLoading || aiSaving ? 'Atualizando…' : 'Atualizar AI'}
+              disabled={aiLoading || aiSaving}
               onPress={() => {
                 void refreshAiStatus()
               }}
             />
           </View>
+        </Section>
+
+        <Section label="Sessões AI">
+          <Row first name="Consumindo agora" desc={activeAiSessionsDescription(activeAiJobs, activeJobsLoading)}>
+            <Mono size={12} letterSpacing={0.48} color={activeAiJobs.length > 0 ? c.bronze : c.ink2}>
+              {activeJobsLoading ? '...' : String(activeAiJobs.length)}
+            </Mono>
+          </Row>
+          <Row name="Painel de execuções" desc="Somente o que pode consumir token agora">
+            <MiniButton
+              label="Abrir painel"
+              disabled={activeJobsLoading}
+              onPress={openAiSessionsPanel}
+            />
+          </Row>
+          <ActiveAiSessionsList
+            jobs={activeAiJobs}
+            status={aiStatus}
+            loading={activeJobsLoading}
+            busyJobId={activeJobAction}
+            onOpen={openActiveAiJob}
+            onCancel={confirmCancelActiveAiJob}
+          />
         </Section>
 
         <Section label="Saúde Apple">
@@ -444,6 +773,9 @@ export function SettingsSheet() {
           </Row>
         </Section>
       </ScrollView>
+      )}
+      </>
+      ) : null}
     </SideSheet>
     <ScreenTimeSelectionSheet
       visible={visible && screenTimeSelectionBucket !== null}
@@ -492,6 +824,37 @@ async function syncNow(
   } catch (error) {
     setApiStatus(error instanceof Error ? error.message : 'Falha ao sincronizar')
   }
+}
+
+async function listActiveAiRuntimeJobs(): Promise<AtlasAiJob[]> {
+  const statuses: AtlasAiStatus[] = ['processing', 'queued', 'awaiting_user_choice']
+  const responses = await Promise.all(statuses.map((status) => listAiJobs({ status, limit: 24 })))
+  const byId = new Map<string, AtlasAiJob>()
+
+  responses.forEach((response) => {
+    response.jobs.forEach((job) => {
+      byId.set(job.id, job)
+    })
+  })
+
+  return [...byId.values()].sort((left, right) => {
+    const statusDelta = activeStatusRank(left.status) - activeStatusRank(right.status)
+    if (statusDelta !== 0) return statusDelta
+    return activeJobTime(right) - activeJobTime(left)
+  })
+}
+
+function activeStatusRank(status: string): number {
+  if (status === 'processing') return 0
+  if (status === 'awaiting_user_choice') return 1
+  if (status === 'queued') return 2
+  return 3
+}
+
+function activeJobTime(job: AtlasAiJob): number {
+  const date = job.started_at ?? job.reserved_at ?? job.available_at ?? job.updated_at ?? job.created_at
+  const value = date ? new Date(date).getTime() : 0
+  return Number.isFinite(value) ? value : 0
 }
 
 type ConnectionStatusKind = 'online' | 'pending' | 'offline'
@@ -615,6 +978,613 @@ function transcriptionQueueDescription(health: AtlasHealth | null): string {
   return `${jobs.queued} aguardando · ${jobs.processing} processando · ${jobs.failed} falhas · ${queue.connection}/${queue.transcription_queue}`
 }
 
+function providerLabel(provider: string | null | undefined): string {
+  if (provider === 'claude_cli') return 'Claude CLI'
+  if (provider === 'codex_cli') return 'Codex CLI'
+  if (provider === 'gemini_cli') return 'Gemini CLI'
+  if (provider === 'claude_codex') return 'Conselho'
+  return provider ?? 'padrão'
+}
+
+function activeAiSessionsDescription(jobs: AtlasAiJob[], loading: boolean): string {
+  if (loading && jobs.length === 0) return 'Verificando execuções que podem consumir'
+  if (jobs.length === 0) return 'Nada consumindo agora'
+
+  const processing = jobs.filter((job) => job.status === 'processing').length
+  const queued = jobs.filter((job) => job.status === 'queued').length
+  const choices = jobs.filter((job) => job.status === 'awaiting_user_choice').length
+  const tokens = jobs.reduce((sum, job) => sum + estimateActiveJobTokens(job), 0)
+  const parts = [
+    processing > 0 ? `${processing} rodando` : null,
+    queued > 0 ? `${queued} aguardando` : null,
+    choices > 0 ? `${choices} pedindo escolha` : null,
+    tokens > 0 ? `~${formatCompactNumber(tokens)} tokens estimados` : null,
+  ].filter(Boolean)
+
+  return parts.join(' · ') || `${jobs.length} execução ativa`
+}
+
+function activeAiJobTitle(job: AtlasAiJob, status: AiProvidersStatusResponse | null): string {
+  const origin = activeAiJobOriginLabel(job)
+  const resolvedProvider = activeAiJobProvider(job)
+  const provider = providerLabel(resolvedProvider)
+  const model = activeAiJobModelLabel(job, status)
+  const runtime = model ? `${provider} · ${model}` : provider
+
+  return `${origin} · ${runtime}`
+}
+
+function activeAiJobModelLabel(job: AtlasAiJob, status: AiProvidersStatusResponse | null): string {
+  const metadata = objectRecord(job.metadata)
+  const payload = objectRecord(job.payload)
+  const traceMetadata = objectRecord(job.trace?.metadata)
+  const explicit = firstText(
+    metadata.model_label,
+    payload.model_label,
+    traceMetadata.model_label,
+    job.model,
+    job.trace?.model,
+  )
+
+  if (explicit) return explicit
+
+  return providerModelLabel(status, activeAiJobProvider(job) ?? '', firstText(job.model, job.trace?.model))
+}
+
+function activeAiJobProvider(job: AtlasAiJob): string | null {
+  return firstText(job.provider, job.trace?.provider)
+}
+
+function activeAiJobSubtitle(job: AtlasAiJob): string {
+  const context = activeAiJobContextLabel(job)
+  const elapsed = activeAiJobElapsed(job)
+  const tokens = estimateActiveJobTokens(job)
+  const metadata = objectRecord(job.metadata)
+  const processPid = firstNumber(metadata.process_pid)
+  const worker = job.worker_id ? ` · worker ${job.worker_id}` : ''
+  const pid = processPid ? ` · pid ${processPid}` : ''
+  const tokenText = tokens > 0 ? ` · ~${formatCompactNumber(tokens)} tokens` : ''
+
+  return `${context} · ${elapsed}${tokenText}${pid}${worker}`
+}
+
+function activeAiJobOriginLabel(job: AtlasAiJob): string {
+  const source = job.trace?.source_type
+  const surface = activeAiJobSurface(job)
+  const workflow = activeAiJobWorkflow(job)
+
+  if (source === 'scheduled' || surface === 'atlas_cli_schedule' || workflow === 'scheduled') return 'Agendado'
+  if (workflow === 'dev' && (surface === 'atlas_cli' || source === 'manual')) return 'Atlas dev CLI'
+  if (workflow === 'dev' && (surface === 'atlas_ai_sheet' || source === 'app')) return 'Atlas dev app'
+  if (workflow === 'dev') return 'Atlas dev'
+  if (source === 'system' || surface === 'worker' || surface === 'server') return 'Sistema'
+  if (surface === 'atlas_cli' || source === 'manual') return 'Terminal'
+  if (surface === 'mobile' || surface === 'mobile_thread') return 'Mobile'
+  if (surface === 'atlas_ai_sheet' || source === 'app') return 'App'
+
+  return surface ? humanAiSurface(surface) : 'Atlas'
+}
+
+function activeAiJobContextLabel(job: AtlasAiJob): string {
+  const thread = job.trace?.thread
+  const session = job.trace?.session
+  const surface = activeAiJobSurface(job)
+  const workspace = firstText(thread?.workspace, job.client_id)
+  const title = firstText(thread?.title)
+  const parts = [
+    surface ? humanAiSurface(surface) : activeAiJobOriginLabel(job),
+    title && title !== surface ? title : null,
+    workspace,
+    session?.id ? `sessão ${shortId(session.id)}` : null,
+  ].filter(Boolean)
+
+  return parts.join(' · ') || 'Atlas'
+}
+
+function activeAiJobCanOpen(job: AtlasAiJob): boolean {
+  return Boolean(job.trace?.thread_id)
+}
+
+function activeAiJobSurface(job: AtlasAiJob): string | null {
+  const payload = objectRecord(job.payload)
+  const metadata = objectRecord(job.metadata)
+  const traceMetadata = objectRecord(job.trace?.metadata)
+
+  return firstText(
+    job.trace?.thread?.surface,
+    payload.app_surface,
+    payload.surface,
+    metadata.app_surface,
+    metadata.surface,
+    traceMetadata.app_surface,
+    traceMetadata.surface,
+  )
+}
+
+function activeAiJobWorkflow(job: AtlasAiJob): string | null {
+  const payload = objectRecord(job.payload)
+  const metadata = objectRecord(job.metadata)
+  const traceMetadata = objectRecord(job.trace?.metadata)
+
+  return firstText(
+    payload.atlas_workflow_mode,
+    metadata.atlas_workflow_mode,
+    traceMetadata.atlas_workflow_mode,
+  )
+}
+
+function humanAiSurface(surface: string): string {
+  if (surface === 'atlas_ai_sheet') return 'App chat'
+  if (surface === 'atlas_cli') return 'Terminal'
+  if (surface === 'atlas_cli_schedule') return 'Scheduler CLI'
+  if (surface === 'mobile_thread') return 'Mobile thread'
+  if (surface === 'mobile') return 'Mobile'
+  if (surface === 'worker') return 'Worker'
+  if (surface === 'server') return 'Servidor'
+
+  return surface.replace(/_/g, ' ')
+}
+
+function shortId(value: string): string {
+  return value.length <= 8 ? value : value.slice(0, 8)
+}
+
+interface AiRuntimeModelGroup {
+  key: string
+  provider: string | null
+  modelLabel: string
+  activeJobs: number
+  tokens: number
+  origins: string[]
+  originSet: Set<string>
+}
+
+function aiRuntimeModelGroups(
+  jobs: AtlasAiJob[],
+  status: AiProvidersStatusResponse | null,
+): AiRuntimeModelGroup[] {
+  const groups = new Map<string, AiRuntimeModelGroup>()
+
+  const ensure = (provider: string | null, modelLabel: string): AiRuntimeModelGroup => {
+    const key = `${provider ?? 'default'}::${modelLabel}`
+    const existing = groups.get(key)
+    if (existing) return existing
+
+    const group: AiRuntimeModelGroup = {
+      key,
+      provider,
+      modelLabel,
+      activeJobs: 0,
+      tokens: 0,
+      origins: [],
+      originSet: new Set<string>(),
+    }
+    groups.set(key, group)
+    return group
+  }
+
+  const addOrigin = (group: AiRuntimeModelGroup, origin: string) => {
+    if (group.originSet.has(origin)) return
+    group.originSet.add(origin)
+    group.origins.push(origin)
+  }
+
+  jobs.forEach((job) => {
+    const provider = activeAiJobProvider(job)
+    const group = ensure(provider, activeAiJobModelLabel(job, status))
+    group.activeJobs += 1
+    group.tokens += estimateActiveJobTokens(job)
+    addOrigin(group, activeAiJobOriginLabel(job))
+  })
+
+  return [...groups.values()]
+    .map((group) => ({ ...group, origins: group.origins.length ? group.origins : ['Atlas'] }))
+    .sort((left, right) => {
+      const activeDelta = right.activeJobs - left.activeJobs
+      if (activeDelta !== 0) return activeDelta
+      return providerLabel(left.provider).localeCompare(providerLabel(right.provider))
+    })
+}
+
+function activeAiJobElapsed(job: AtlasAiJob): string {
+  const date = job.started_at ?? job.reserved_at ?? job.available_at ?? job.updated_at ?? job.created_at
+  if (!date) return 'tempo desconhecido'
+  const elapsedMs = Math.max(0, Date.now() - new Date(date).getTime())
+  if (!Number.isFinite(elapsedMs)) return formatRelativeSync(date)
+  const seconds = Math.floor(elapsedMs / 1000)
+  if (seconds < 60) return `${Math.max(1, seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m${seconds % 60 ? `${seconds % 60}s` : ''}`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h${minutes % 60 ? `${minutes % 60}m` : ''}`
+}
+
+function activeAiJobPrompt(job: AtlasAiJob): string {
+  const input = firstText(job.trace?.operator_input, job.input_text)
+  if (!input) return ''
+  const normalized = input.replace(/\s+/g, ' ').trim()
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized
+}
+
+function activeAiJobStatusLabel(status: string): string {
+  if (status === 'processing') return 'RODANDO'
+  if (status === 'queued') return 'FILA'
+  if (status === 'awaiting_user_choice') return 'ESCOLHA'
+  return status.toUpperCase()
+}
+
+function estimateActiveJobTokens(job: AtlasAiJob): number {
+  const metadata = objectRecord(job.metadata)
+  const payload = objectRecord(job.payload)
+  const traceMetadata = objectRecord(job.trace?.metadata)
+  const direct = firstNumber(
+    metadata.visible_tokens,
+    metadata.estimated_tokens,
+    metadata.token_estimate,
+    payload.visible_tokens,
+    payload.estimated_tokens,
+    payload.token_estimate,
+    traceMetadata.visible_tokens,
+    traceMetadata.estimated_tokens,
+    traceMetadata.token_estimate,
+  )
+  if (direct != null) return direct
+
+  const input = firstText(job.input_text, job.trace?.operator_input) ?? ''
+  const output = firstText(job.result_text, job.trace?.response_text) ?? ''
+
+  return Math.ceil((input.length + output.length) / 4)
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function firstText(...values: unknown[]): string | null {
+  for (const value of values) {
+    if ((typeof value === 'string' || typeof value === 'number') && String(value).trim()) {
+      return String(value).trim()
+    }
+  }
+
+  return null
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+    if (Number.isFinite(number) && number > 0) return Math.round(number)
+  }
+
+  return null
+}
+
+function defaultProviderDescription(status: AiProvidersStatusResponse | null): string {
+  if (!status) return 'Ainda não verificado'
+  const model = status.default_model
+  const label = model?.model_label || model?.model || 'modelo padrão do CLI'
+  const tier = model?.model_tier ? ` · tier ${model.model_tier}` : ''
+  return `${providerLabel(status.default_provider ?? 'claude_cli')} será usado quando nenhum provider for escolhido · ${label}${tier}`
+}
+
+function modelPolicyByProvider(status: AiProvidersStatusResponse | null, provider: string) {
+  return status?.model_policy?.providers.find((item) => item.provider === provider)
+    ?? status?.providers.find((item) => item.provider === provider)
+    ?? null
+}
+
+function defaultModelValue(status: AiProvidersStatusResponse | null): string {
+  const model = status?.default_model
+  if (!model) return '-'
+  return model.model_label || model.model || 'CLI default'
+}
+
+function defaultModelDescription(status: AiProvidersStatusResponse | null): string {
+  if (!status?.default_model) return 'Modelo ainda não verificado'
+  const model = status.default_model
+  const id = model.model ? `id ${model.model}` : 'sem id explícito'
+  const source = model.model_source ? ` · origem ${model.model_source}` : ''
+  const tier = model.model_tier ? ` · tier ${model.model_tier}` : ''
+  return `${id}${tier}${source}`
+}
+
+function runtimeSettingsDescription(status: AiProvidersStatusResponse | null): string {
+  if (!status) return 'Ainda não carregado'
+  const source = status.model_policy?.source ?? status.runtime_settings?.source ?? 'config'
+  const updated = status.model_policy?.updated_at ?? status.runtime_settings?.updated_at
+  const when = updated ? ` · atualizado ${formatRelativeSync(updated)}` : ''
+  return source === 'database'
+    ? `Persistido no Atlas DB${when}`
+    : `Usando .env/config como fallback${when}`
+}
+
+function providerModelDescription(status: AiProvidersStatusResponse | null, provider: string): string {
+  const policy = modelPolicyByProvider(status, provider)
+  if (!policy) return 'Modelo ainda não verificado'
+  const label = policy.model_label || policy.model || 'CLI default'
+  const tier = policy.model_tier ? ` · tier ${policy.model_tier}` : ''
+  return `${label}${tier} · id ${policy.model ?? 'default'}`
+}
+
+const CLAUDE_MODEL_CHOICES = {
+  default: { model: 'claude-sonnet-4-6', model_label: 'Claude Sonnet 4.6', model_tier: 'daily' },
+  premium: { model: 'claude-opus-4-7', model_label: 'Claude Opus 4.7', model_tier: 'premium' },
+  fallback: { model: 'claude-haiku-4-5', model_label: 'Claude Haiku 4.5', model_tier: 'daily' },
+} as const
+
+const CODEX_MODEL_CHOICES = {
+  default: { model: 'gpt-5.3-codex-spark', model_label: 'GPT-5.3-Codex-Spark', model_tier: 'daily' },
+  premium: { model: 'gpt-5.5', model_label: 'GPT-5.5', model_tier: 'premium' },
+  fallback: { model: 'gpt-5.4-mini', model_label: 'GPT-5.4-Mini', model_tier: 'daily' },
+} as const
+
+const GEMINI_MODEL_CHOICE = {
+  model: 'gemini-3.1-pro-preview',
+  model_label: 'Gemini 3.1 Pro Preview',
+  model_tier: 'premium',
+} as const
+
+function providerModelChoice(status: AiProvidersStatusResponse | null, provider: string): string {
+  const model = modelPolicyByProvider(status, provider)?.model
+  if (provider === 'claude_cli') {
+    if (model === CLAUDE_MODEL_CHOICES.premium.model) return 'premium'
+    if (model === CLAUDE_MODEL_CHOICES.fallback.model) return 'fallback'
+    return 'default'
+  }
+  if (provider === 'codex_cli') {
+    if (model === CODEX_MODEL_CHOICES.premium.model) return 'premium'
+    if (model === CODEX_MODEL_CHOICES.fallback.model) return 'fallback'
+    return 'default'
+  }
+  if (provider === 'gemini_cli') return 'default'
+  return 'default'
+}
+
+function providerModelOptions(provider: string): SegOption[] {
+  if (provider === 'gemini_cli') {
+    return [{ key: 'default', label: '3.1 Pro' }]
+  }
+
+  if (provider === 'claude_cli') {
+    return [
+      { key: 'default', label: 'Sonnet' },
+      { key: 'premium', label: 'Opus' },
+      { key: 'fallback', label: 'Haiku' },
+    ]
+  }
+
+  return [
+    { key: 'default', label: 'Spark' },
+    { key: 'premium', label: '5.5' },
+    { key: 'fallback', label: 'Mini' },
+  ]
+}
+
+function modelPatchForChoice(provider: string, choice: string) {
+  if (provider === 'gemini_cli') {
+    return modelPatch(GEMINI_MODEL_CHOICE)
+  }
+
+  if (provider === 'claude_cli') {
+    const model = choice === 'premium'
+      ? CLAUDE_MODEL_CHOICES.premium
+      : choice === 'fallback'
+        ? CLAUDE_MODEL_CHOICES.fallback
+        : CLAUDE_MODEL_CHOICES.default
+    return modelPatch(model)
+  }
+
+  const model = choice === 'premium'
+    ? CODEX_MODEL_CHOICES.premium
+    : choice === 'fallback'
+      ? CODEX_MODEL_CHOICES.fallback
+      : CODEX_MODEL_CHOICES.default
+  return modelPatch(model)
+}
+
+function modelPatch(model: { model: string; model_label: string; model_tier: string }) {
+  return {
+    model: model.model,
+    model_identity: model.model,
+    model_label: model.model_label,
+    model_tier: model.model_tier,
+  }
+}
+
+function providerModelLabel(status: AiProvidersStatusResponse | null, provider: string, fallbackModel?: string | null): string {
+  const policy = modelPolicyByProvider(status, provider)
+  if (fallbackModel && policy?.model === fallbackModel) return policy.model_label || fallbackModel
+  return policy?.model_label || fallbackModel || policy?.model || 'CLI default'
+}
+
+function providerAutomationStatus(status: AiProvidersStatusResponse | null, provider: string): ConnectionStatusKind {
+  const policy = modelPolicyByProvider(status, provider)
+  if (!policy) return 'offline'
+  return policy.allow_auto ? 'pending' : 'online'
+}
+
+function providerAutomationDescription(status: AiProvidersStatusResponse | null, provider: string): string {
+  const policy = modelPolicyByProvider(status, provider)
+  if (!policy) return 'Política de modelo ainda não verificada'
+  const manual = policy.allow_manual ? 'manual permitido' : 'manual bloqueado'
+  const automatic = policy.allow_auto ? 'automático permitido' : 'automático bloqueado'
+  const model = policy.model_label || policy.model || 'CLI default'
+  return `${automatic} · ${manual} · default ${model}`
+}
+
+function workerByProvider(status: AiProvidersStatusResponse | null, provider: string) {
+  return status?.workers?.find((item) => item.provider === provider) ?? null
+}
+
+function providerWorkerStatus(status: AiProvidersStatusResponse | null, provider: string): ConnectionStatusKind {
+  const worker = workerByProvider(status, provider)
+  if (!worker) return 'offline'
+  if (worker.status === 'running') return 'online'
+  if (worker.status === 'stale') return 'pending'
+  return 'offline'
+}
+
+function providerWorkerDescription(status: AiProvidersStatusResponse | null, provider: string): string {
+  const worker = workerByProvider(status, provider)
+  if (!worker) return 'Sem evento de worker registrado'
+
+  const when = formatRelativeSync(worker.occurred_at)
+  if (worker.status === 'running') return `${worker.event_type ?? 'worker'} · rodando · ${when}`
+  if (worker.status === 'stale') return `${worker.event_type ?? 'worker'} · visto recentemente · ${when}`
+  if (worker.status === 'stopped') return `${worker.event_type ?? 'worker'} · parado · ${when}`
+  return worker.message ? `${worker.message} · ${when}` : `Sem heartbeat recente · ${when}`
+}
+
+function aiQueueHasWork(status: AiProvidersStatusResponse | null): boolean {
+  return !!status && (status.queue.queued > 0 || status.queue.processing > 0 || (status.queue.awaiting_user_choice ?? 0) > 0 || status.queue.failed > 0)
+}
+
+function aiQueueValue(status: AiProvidersStatusResponse | null): string {
+  if (!status) return '-'
+  return `${status.queue.queued}/${status.queue.processing}/${status.queue.awaiting_user_choice ?? 0}/${status.queue.failed}`
+}
+
+function aiQueueDescription(status: AiProvidersStatusResponse | null): string {
+  if (!status) return 'Fila ainda não verificada'
+  const active = (status.queue.by_provider ?? [])
+    .filter((item) => item.queued + item.processing + (item.awaiting_user_choice ?? 0) + item.failed > 0)
+    .map((item) => `${providerLabel(item.provider)} ${item.queued}/${item.processing}/${item.awaiting_user_choice ?? 0}/${item.failed}`)
+
+  if (active.length === 0) return '0 aguardando · 0 processando · 0 escolha · 0 falhas'
+  return active.join(' · ')
+}
+
+function activeAiJob(status: AiProvidersStatusResponse | null) {
+  return status?.active_jobs?.find((job) => job.status === 'processing')
+    ?? null
+}
+
+function activeAiJobValue(status: AiProvidersStatusResponse | null): string {
+  const job = activeAiJob(status)
+  if (!job) return 'nada'
+  return providerLabel(job.provider)
+}
+
+function activeAiJobDescription(status: AiProvidersStatusResponse | null): string {
+  if (!status) return 'Jobs ativos ainda não verificados'
+  const job = activeAiJob(status)
+  if (!job) {
+    const waiting = status.active_jobs?.find((item) => item.status === 'queued' || item.status === 'awaiting_user_choice')
+    if (!waiting) return 'Nada processando agora'
+    return `Nada processando · ${providerLabel(waiting.provider)} ${waiting.status} · atualizado ${formatRelativeSync(waiting.updated_at)}`
+  }
+  const model = job.model_label || providerModelLabel(status, job.provider ?? '', job.model)
+  const tier = job.model_tier ? ` · tier ${job.model_tier}` : ''
+  const worker = job.worker_id ? ` · ${job.worker_id}` : ''
+  return `${job.status} · ${model}${tier}${worker} · atualizado ${formatRelativeSync(job.updated_at)}`
+}
+
+function usageByProvider(status: AiProvidersStatusResponse | null, provider: string) {
+  return status?.usage_24h?.by_provider.find((item) => item.provider === provider) ?? null
+}
+
+function providerUsageHasActivity(status: AiProvidersStatusResponse | null, provider: string): boolean {
+  const usage = usageByProvider(status, provider)
+  return !!usage && usage.traces > 0
+}
+
+function providerUsageValue(status: AiProvidersStatusResponse | null, provider: string): string {
+  if (!status?.usage_24h?.available) return 'sem dados'
+  const usage = usageByProvider(status, provider)
+  if (!usage) return '0 tok'
+  const tokens = usage.visible_tokens || usage.estimated_tokens || usage.total_tokens
+  return `${formatCompactNumber(tokens)} tok`
+}
+
+function providerUsageDescription(status: AiProvidersStatusResponse | null, provider: string): string {
+  if (!status?.usage_24h?.available) return 'Telemetria de tokens ainda não disponível'
+  const usage = usageByProvider(status, provider)
+  if (!usage) return '0 execuções nas últimas 24h'
+
+  const failures = usage.failed_traces > 0 ? ` · ${usage.failed_traces} falhas` : ''
+  const cost = usage.cost_usd_estimate > 0
+    ? ` · ~US$ ${usage.cost_usd_estimate.toFixed(4)}`
+    : usage.unknown_cost_count > 0
+      ? ` · ${usage.unknown_cost_count} sem custo calculado`
+      : ''
+
+  const modelUsage = (status.usage_24h.by_model ?? [])
+    .filter((item) => item.provider === provider)
+    .filter((item) => item.traces > 0)
+    .map((item) => `${providerModelLabel(status, provider, item.model)} ${formatCompactNumber(item.visible_tokens || item.estimated_tokens || item.total_tokens)} tok`)
+    .slice(0, 2)
+    .join(' · ')
+  const models = modelUsage ? ` · ${modelUsage}` : ''
+
+  return `${usage.traces} execuções${failures}${cost}${models} · atualizado ${formatRelativeSync(usage.last_computed_at)}`
+}
+
+function aiBudgetDescription(status: AiProvidersStatusResponse | null): string {
+  const budget = status?.budget
+  if (!budget) return 'Budget ainda não carregado'
+  if (!budget.available) return 'Tabela de telemetria ainda não disponível'
+
+  const mode = budget.enabled
+    ? budget.mode === 'block' ? 'bloqueia no limite' : 'monitora'
+    : 'desligado'
+  const used = formatCompactNumber(budget.totals.visible_tokens)
+  const max = budget.totals.max_visible_tokens ? `/${formatCompactNumber(budget.totals.max_visible_tokens)}` : ''
+  return `${mode} · janela ${budget.window_hours}h · ${used}${max} tok visíveis`
+}
+
+function budgetByProvider(status: AiProvidersStatusResponse | null, provider: string) {
+  return status?.budget?.providers.find((item) => item.provider === provider) ?? null
+}
+
+function providerBudgetDescription(status: AiProvidersStatusResponse | null, provider: string): string {
+  const budget = budgetByProvider(status, provider)
+  if (!status?.budget?.available) return 'Sem telemetria para medir limite'
+  if (!budget) return 'Sem budget configurado para provider'
+
+  const used = formatCompactNumber(budget.visible_tokens)
+  const max = budget.max_visible_tokens ? formatCompactNumber(budget.max_visible_tokens) : 'sem limite'
+  const remaining = budget.remaining_visible_tokens == null ? '' : ` · resta ${formatCompactNumber(budget.remaining_visible_tokens)}`
+  const state = budget.status === 'blocked' ? 'bloqueado' : budget.status === 'warning' ? 'atenção' : 'ok'
+  return `${state} · ${used}/${max} tok em ${status.budget.window_hours}h${remaining}`
+}
+
+function budgetPresetOptions(): SegOption[] {
+  return [
+    { key: 'none', label: 'Sem' },
+    { key: '50k', label: '50k' },
+    { key: '100k', label: '100k' },
+    { key: '250k', label: '250k' },
+  ]
+}
+
+function providerBudgetChoice(status: AiProvidersStatusResponse | null, provider: string): string {
+  const max = budgetByProvider(status, provider)?.max_visible_tokens ?? null
+  if (max === 50_000) return '50k'
+  if (max === 100_000) return '100k'
+  if (max === 250_000) return '250k'
+  return 'none'
+}
+
+function budgetValueForChoice(choice: string): number | null {
+  if (choice === '50k') return 50_000
+  if (choice === '100k') return 100_000
+  if (choice === '250k') return 250_000
+  return null
+}
+
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  if (value >= 1_000_000) return `${trimFixed(value / 1_000_000)}M`
+  if (value >= 1_000) return `${trimFixed(value / 1_000)}k`
+  return String(Math.round(value))
+}
+
+function trimFixed(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '')
+}
+
 function providerByKey(status: AiProvidersStatusResponse | null, provider: string): ProviderHealth | null {
   return status?.providers.find((item) => item.provider === provider) ?? null
 }
@@ -667,6 +1637,7 @@ function aiWorkerState(status: AiProvidersStatusResponse): AiWorkerState {
   const workerEvent = status.recent_events.find((event) => event.event_type.startsWith('worker_'))
   if (!workerEvent) return 'unknown'
   if (workerEvent.event_type === 'worker_stopped') return 'stopped'
+  if (!workerEvent.occurred_at) return 'unknown'
 
   const occurredAt = new Date(workerEvent.occurred_at).getTime()
   if (!Number.isFinite(occurredAt)) return 'unknown'
@@ -693,25 +1664,29 @@ function providerDescription(status: AiProvidersStatusResponse | null, providerK
   const provider = providerByKey(status, providerKey)
   if (!provider) return 'Sem health check registrado'
 
+  const model = providerModelLabel(status, providerKey, provider.model)
+  const tier = provider.model_tier ? `/${provider.model_tier}` : ''
   const message = provider.message ? ` · ${provider.message}` : ''
+  const modelText = ` · modelo ${model}${tier}`
   const recentEvent = recentProviderEvent(status, providerKey)
   if (recentEvent?.event_type === 'job_succeeded') {
-    return `Último job ok · ${formatRelativeSync(recentEvent.occurred_at)}${message}`
+    return `Último job ok · ${formatRelativeSync(recentEvent.occurred_at)}${modelText}${message}`
   }
   if (recentEvent && ['job_failed', 'timeout', 'auth_expired', 'rate_limited'].includes(recentEvent.event_type)) {
-    return `${recentEvent.message} · ${formatRelativeSync(recentEvent.occurred_at)}${message}`
+    return `${recentEvent.message} · ${formatRelativeSync(recentEvent.occurred_at)}${modelText}${message}`
   }
 
   if (!providerHealthIsFresh(provider)) {
-    return `Health check desatualizado · ${formatRelativeSync(provider.checked_at)}${message}`
+    return `Health check desatualizado · ${formatRelativeSync(provider.checked_at)}${modelText}${message}`
   }
 
-  return `${providerPainLabel(provider.operational_pain_score)} · ${formatRelativeSync(provider.checked_at)}${message}`
+  return `${providerPainLabel(provider.operational_pain_score)} · ${formatRelativeSync(provider.checked_at)}${modelText}${message}`
 }
 
 function recentProviderEvent(status: AiProvidersStatusResponse | null, provider: string) {
   const event = status?.recent_events.find((item) => item.provider === provider)
   if (!event) return null
+  if (!event.occurred_at) return null
 
   const occurredAt = new Date(event.occurred_at).getTime()
   if (!Number.isFinite(occurredAt)) return null
@@ -719,6 +1694,8 @@ function recentProviderEvent(status: AiProvidersStatusResponse | null, provider:
 }
 
 function providerHealthIsFresh(provider: ProviderHealth): boolean {
+  if (!provider.checked_at) return false
+
   const checkedAt = new Date(provider.checked_at).getTime()
   if (!Number.isFinite(checkedAt)) return false
 
@@ -760,7 +1737,7 @@ function firstQueueError(errors: Array<string | null | undefined>): string | nul
 function humanAiError(error: unknown, fallback: string): string {
   const message = error instanceof Error ? error.message : fallback
   if (message.includes('route ai/') || message.includes('rota ai/')) {
-    return 'Atlas AI não está carregado no servidor. Rebuild/restart o atlas-server.'
+    return 'Atlas não está carregado no servidor. Rebuild/restart o atlas-server.'
   }
 
   return message
@@ -888,6 +1865,10 @@ function ApiTextInput({
       placeholderTextColor={c.ink3}
       autoCapitalize="none"
       autoCorrect={false}
+      spellCheck={false}
+      autoComplete="off"
+      textContentType="none"
+      importantForAutofill="no"
       keyboardType={keyboardType}
       secureTextEntry={secureTextEntry}
       selectionColor={c.prussian}
@@ -941,6 +1922,247 @@ function MiniButton({
       ]}
     >
       <Sans weight="med" size={13} color={c.prussian} align="center">
+        {label}
+      </Sans>
+    </Pressable>
+  )
+}
+
+function AiSessionsDashboard({
+  jobs,
+  status,
+  jobsLoading,
+  busyJobId,
+  onRefresh,
+  onOpenJob,
+  onCancelJob,
+}: {
+  jobs: AtlasAiJob[]
+  status: AiProvidersStatusResponse | null
+  jobsLoading: boolean
+  busyJobId: string | null
+  onRefresh: () => void
+  onOpenJob: (job: AtlasAiJob) => void
+  onCancelJob: (job: AtlasAiJob) => void
+}) {
+  const { c } = useTheme()
+  const runningThreadCount = new Set(
+    jobs.map((job) => job.trace?.thread_id).filter((id): id is string => typeof id === 'string'),
+  ).size
+
+  return (
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 32 }}>
+      <Section label="Controle">
+        <Row first name="Atualização" desc="Somente execuções que podem consumir token">
+          <MiniButton label={jobsLoading ? 'Atualizando...' : 'Atualizar'} disabled={jobsLoading} onPress={onRefresh} />
+        </Row>
+        <Row name="Consumindo agora" desc={activeAiSessionsDescription(jobs, jobsLoading)}>
+          <Mono size={12} letterSpacing={0.48} color={jobs.length > 0 ? c.bronze : c.ink2}>
+            {jobsLoading ? '...' : String(jobs.length)}
+          </Mono>
+        </Row>
+        <Row name="Conversas em execução" desc="Conversas só aparecem aqui se tiverem job em fila, rodando ou aguardando escolha">
+          <Mono size={12} letterSpacing={0.48} color={jobs.length > 0 ? c.bronze : c.ink2}>
+            {jobsLoading ? '...' : String(runningThreadCount)}
+          </Mono>
+        </Row>
+      </Section>
+
+      <Section label="Modelos consumindo">
+        <AiRuntimeModelSummary jobs={jobs} status={status} loading={jobsLoading} />
+      </Section>
+
+      <Section label="Execuções consumindo">
+        <ActiveAiSessionsList
+          jobs={jobs}
+          status={status}
+          loading={jobsLoading}
+          busyJobId={busyJobId}
+          onOpen={onOpenJob}
+          onCancel={onCancelJob}
+        />
+      </Section>
+    </ScrollView>
+  )
+}
+
+function AiRuntimeModelSummary({
+  jobs,
+  status,
+  loading,
+}: {
+  jobs: AtlasAiJob[]
+  status: AiProvidersStatusResponse | null
+  loading: boolean
+}) {
+  const { c } = useTheme()
+  const groups = aiRuntimeModelGroups(jobs, status)
+
+  if (groups.length === 0) {
+    return (
+      <View style={styles.activeJobEmpty}>
+        <Sans size={13} lineHeight={18} color={c.ink2}>
+          {loading ? 'Montando visão por modelo...' : 'Nenhum modelo consumindo agora'}
+        </Sans>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.activeJobList}>
+      {groups.map((group, index) => (
+        <View
+          key={group.key}
+          style={[
+            styles.modelGroupItem,
+            index > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth },
+          ]}
+        >
+          <View style={styles.activeJobHeader}>
+            <View style={styles.activeJobTitleBlock}>
+              <Sans weight="med" size={15} lineHeight={19} color={c.ink}>
+                {providerLabel(group.provider)} · {group.modelLabel}
+              </Sans>
+              <Sans size={12} lineHeight={16} color={c.ink2}>
+                {group.origins.join(' · ')}
+              </Sans>
+            </View>
+            <Mono size={10.5} letterSpacing={0.36} color={group.activeJobs > 0 ? c.bronze : c.ink2}>
+              CONSUMINDO
+            </Mono>
+          </View>
+          <View style={styles.modelMetricRow}>
+            <ModelMetric label="execuções" value={String(group.activeJobs)} />
+            <ModelMetric label="origens" value={String(group.origins.length)} />
+            <ModelMetric label="tokens ativos" value={`~${formatCompactNumber(group.tokens)}`} />
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function ModelMetric({ label, value }: { label: string; value: string }) {
+  const { c } = useTheme()
+
+  return (
+    <View style={styles.modelMetric}>
+      <Mono size={9.5} letterSpacing={0.35} color={c.ink2}>
+        {label.toUpperCase()}
+      </Mono>
+      <Sans weight="med" size={13} lineHeight={17} color={c.ink}>
+        {value}
+      </Sans>
+    </View>
+  )
+}
+
+function ActiveAiSessionsList({
+  jobs,
+  status,
+  loading,
+  busyJobId,
+  onOpen,
+  onCancel,
+}: {
+  jobs: AtlasAiJob[]
+  status: AiProvidersStatusResponse | null
+  loading: boolean
+  busyJobId: string | null
+  onOpen: (job: AtlasAiJob) => void
+  onCancel: (job: AtlasAiJob) => void
+}) {
+  const { c } = useTheme()
+
+  if (jobs.length === 0) {
+    return (
+      <View style={styles.activeJobEmpty}>
+        <Sans size={13} lineHeight={18} color={c.ink2}>
+          {loading ? 'Verificando execuções ativas...' : 'Nada rodando agora'}
+        </Sans>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.activeJobList}>
+      {jobs.map((job, index) => {
+        const title = activeAiJobTitle(job, status)
+        const subtitle = activeAiJobSubtitle(job)
+        const prompt = activeAiJobPrompt(job)
+        const canOpen = activeAiJobCanOpen(job)
+        const busy = busyJobId === job.id
+        const statusColor = job.status === 'processing'
+          ? c.bronze
+          : job.status === 'queued'
+            ? c.prussian
+            : c.ink2
+
+        return (
+          <View
+            key={job.id}
+            style={[
+              styles.activeJobItem,
+              index > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth },
+            ]}
+          >
+            <View style={styles.activeJobHeader}>
+              <View style={styles.activeJobTitleBlock}>
+                <Sans weight="med" size={15} lineHeight={19} color={c.ink}>
+                  {title}
+                </Sans>
+                <Sans size={12} lineHeight={16} color={c.ink2}>
+                  {subtitle}
+                </Sans>
+              </View>
+              <Mono size={10.5} letterSpacing={0.36} color={statusColor}>
+                {activeAiJobStatusLabel(job.status)}
+              </Mono>
+            </View>
+            {prompt ? (
+              <Sans size={12} lineHeight={17} color={c.ink2}>
+                {prompt}
+              </Sans>
+            ) : null}
+            <View style={styles.activeJobActions}>
+              <RuntimeButton label={canOpen ? 'Entrar' : 'Sem conversa'} disabled={!canOpen || busy} onPress={() => onOpen(job)} />
+              <RuntimeButton label={busy ? 'Cancelando...' : 'Cancelar'} disabled={busy} danger onPress={() => onCancel(job)} />
+            </View>
+          </View>
+        )
+      })}
+    </View>
+  )
+}
+
+function RuntimeButton({
+  label,
+  disabled,
+  danger,
+  onPress,
+}: {
+  label: string
+  disabled?: boolean
+  danger?: boolean
+  onPress: () => void
+}) {
+  const { c } = useTheme()
+  const color = danger ? c.recRed : c.prussian
+
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.runtimeButton,
+        {
+          borderColor: color,
+          backgroundColor: pressed ? c.surface : 'transparent',
+          opacity: disabled ? 0.45 : 1,
+        },
+      ]}
+    >
+      <Sans weight="med" size={12} color={color} align="center">
         {label}
       </Sans>
     </Pressable>
@@ -1071,6 +2293,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 10,
     paddingBottom: 14,
+  },
+  activeJobEmpty: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  activeJobList: {
+    paddingHorizontal: 22,
+    paddingBottom: 14,
+  },
+  activeJobItem: {
+    paddingVertical: 12,
+    gap: 8,
+  },
+  activeJobHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  activeJobTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  activeJobActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modelGroupItem: {
+    paddingVertical: 12,
+    gap: 10,
+  },
+  modelMetricRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  modelMetric: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  runtimeButton: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   miniButton: {
     flex: 1,

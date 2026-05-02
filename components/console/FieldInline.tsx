@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Pressable, StyleSheet, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, {
   Easing,
   cancelAnimation,
@@ -21,6 +21,10 @@ interface Props {
   placeholder?: string
   disabled?: boolean
   multiline?: boolean
+  onAttachmentPress?: () => void
+  attachmentCount?: number
+  canSubmit?: boolean
+  onFocus?: () => void
 }
 
 // Console input. No rectangular box. A single hairline underline at rest;
@@ -34,10 +38,14 @@ export function FieldInline({
   placeholder = 'continuar…',
   disabled = false,
   multiline = true,
+  onAttachmentPress,
+  attachmentCount = 0,
+  canSubmit = false,
+  onFocus,
 }: Props) {
   const c = usePalette()
   const hasText = value.trim().length > 0
-  const ready = hasText && !disabled
+  const ready = (hasText || canSubmit) && !disabled
 
   const sendOpacity = useSharedValue(0)
   const sendScale = useSharedValue(0.7)
@@ -86,6 +94,29 @@ export function FieldInline({
 
   return (
     <View style={[styles.wrap, { borderTopColor: c.border }]}>
+      {onAttachmentPress ? (
+        <Pressable
+          onPress={onAttachmentPress}
+          disabled={disabled}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={attachmentCount > 0 ? `${attachmentCount} anexos` : 'adicionar anexo'}
+          style={({ pressed }) => [
+            styles.attachHit,
+            {
+              borderColor: c.border,
+              opacity: disabled ? 0.35 : pressed ? 0.55 : 1,
+            },
+          ]}
+        >
+          <Text style={[styles.attachGlyph, { color: c.ink }]}>+</Text>
+          {attachmentCount > 0 ? (
+            <View style={[styles.attachBadge, { backgroundColor: c.ink }]}>
+              <Text style={[styles.attachBadgeText, { color: c.bg }]}>{attachmentCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+      ) : null}
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -93,16 +124,20 @@ export function FieldInline({
         placeholderTextColor={c.ink3}
         multiline={multiline}
         editable={!disabled}
+        onFocus={onFocus}
         textAlignVertical="top"
         style={[styles.input, { color: c.ink }]}
         returnKeyType="default"
+        keyboardType="default"
+        inputMode="text"
+        secureTextEntry={false}
+        submitBehavior={multiline ? 'newline' : 'blurAndSubmit'}
         autoCorrect
         spellCheck
         autoCapitalize="sentences"
         textContentType="none"
         autoComplete="off"
         importantForAutofill="no"
-        passwordRules=""
       />
       <Animated.View style={[styles.send, sendStyle]} pointerEvents={ready ? 'auto' : 'none'}>
         <Pressable
@@ -142,6 +177,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     minHeight: 32,
     maxHeight: 140,
+  },
+  attachHit: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 0,
+  },
+  attachGlyph: {
+    fontFamily: fonts.sans,
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '300',
+  },
+  attachBadge: {
+    position: 'absolute',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    right: -5,
+    top: -5,
+    paddingHorizontal: 4,
+  },
+  attachBadgeText: {
+    fontFamily: fonts.sans,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
   },
   send: {
     paddingBottom: 2,

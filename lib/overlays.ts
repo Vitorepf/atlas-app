@@ -40,6 +40,7 @@ interface OverlayState {
   // Capture settings — current values and update callback
   captureSettings: CaptureSettings | null
   onUpdateCaptureSettings: ((next: Partial<CaptureSettings>) => void) | null
+  atlasAiThreadId: string | null
 
   openDetail: (item: InboxItem) => void
   openDomain: (cb: (d: DomainKey | null) => void) => void
@@ -47,7 +48,7 @@ interface OverlayState {
   openEdit: (item: InboxItem) => void
   openSettings: () => void
   openMic: () => void
-  openAtlasAi: () => void
+  openAtlasAi: (threadId?: string | null) => void
   openInboxDomainFilter: (
     current: InboxDomainFilter,
     cb: (d: InboxDomainFilter) => void,
@@ -85,6 +86,7 @@ export const useOverlays = create<OverlayState>((set) => ({
   providerChoiceErrorCode: null,
   providerChoiceResetHint: null,
   providerChoiceOptions: [],
+  atlasAiThreadId: null,
 
   openDetail: (item) => set({ open: 'detail', item }),
   openDomain: (cb) => set({ open: 'domain', onPickDomain: cb }),
@@ -92,7 +94,7 @@ export const useOverlays = create<OverlayState>((set) => ({
   openEdit: (item) => set({ open: 'edit', item }),
   openSettings: () => set({ open: 'settings' }),
   openMic: () => set({ open: 'mic' }),
-  openAtlasAi: () => set({ open: 'atlasAi' }),
+  openAtlasAi: (threadId = null) => set({ open: 'atlasAi', atlasAiThreadId: threadId ?? null }),
   openInboxDomainFilter: (current, cb) =>
     set({
       open: 'inboxDomainFilter',
@@ -108,6 +110,7 @@ export const useOverlays = create<OverlayState>((set) => ({
   close: () =>
     set({
       open: null,
+      atlasAiThreadId: null,
       onPickDomain: null,
       onConfirmDelete: null,
       onPickInboxDomainFilter: null,

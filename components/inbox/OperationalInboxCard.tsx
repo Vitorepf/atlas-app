@@ -35,16 +35,16 @@ export function OperationalInboxCard({ item, busy, onOpen, onAction }: Props) {
             {item.severity}
           </Sans>
           <Sans weight="sb" size={10.5} lineHeight={14} letterSpacing={1.05} color={c.prussian} style={styles.uppercase}>
-            {typeLabel(item.type)}
+            {typeLabel(item)}
           </Sans>
         </View>
 
         <Sans weight="med" size={15.5} lineHeight={21} color={c.ink} numberOfLines={2}>
           {item.title}
         </Sans>
-        {item.summary || item.body ? (
+        {summaryLabel(item) ? (
           <Sans size={13} lineHeight={19} color={c.ink2} numberOfLines={4} style={styles.summary}>
-            {item.summary ?? item.body}
+            {summaryLabel(item)}
           </Sans>
         ) : null}
       </Pressable>
@@ -90,8 +90,11 @@ function formatTime(value: string | null): string {
   return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function typeLabel(type: string): string {
-  switch (type) {
+function typeLabel(item: AtlasOperationalInboxItem): string {
+  if (isTelemetryHealthInsight(item)) return 'saude atlas'
+  if (item.category === 'atlas_ai_recommendation') return 'recomendacao'
+
+  switch (item.type) {
     case 'self_diagnostic':
       return 'auto-diagnostico'
     case 'job_result':
@@ -99,8 +102,29 @@ function typeLabel(type: string): string {
     case 'thread_update':
       return 'thread'
     default:
-      return type.replace(/_/g, ' ')
+      return item.type.replace(/_/g, ' ')
   }
+}
+
+function summaryLabel(item: AtlasOperationalInboxItem): string | null {
+  if (!isTelemetryHealthInsight(item)) return item.summary ?? item.body
+
+  const score = scoreFromSummary(item.summary)
+  const status = item.severity === 'critical' ? 'critica' : 'em atencao'
+  return `Saude ${status} do Atlas${score == null ? '' : `, score ${score}/100`}. Toque para ver causas e proximos passos.`
+}
+
+function isTelemetryHealthInsight(item: AtlasOperationalInboxItem): boolean {
+  const kind = typeof item.payload?.insight_kind === 'string' ? item.payload.insight_kind : null
+  return item.type === 'insight'
+    && (kind === 'atlas_ai_telemetry_health' || (item.dedupe_key?.includes('atlas-ai-telemetry-health') ?? false))
+}
+
+function scoreFromSummary(summary: string | null): number | null {
+  const match = summary?.match(/score\s+(\d+(?:\.\d+)?)\/100/i)
+  if (!match?.[1]) return null
+  const score = Number(match[1])
+  return Number.isFinite(score) ? score : null
 }
 
 function toneColor(severity: string, c: ReturnType<typeof usePalette>): string {

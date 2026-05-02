@@ -18,8 +18,12 @@ import {
   getMobileDeviceSession,
   hydrateApiConfig,
   listMobileDevices,
+  recoverMobileDeviceSession,
   revokeMobileDevice,
+  updateMobileNotificationPreferences,
   type AtlasMobileDevice,
+  type AtlasNotificationPreferences,
+  type MobileDevicesResponse,
   type MobileDeviceSession,
 } from '../lib/api/client'
 
@@ -29,7 +33,7 @@ export default function MobilePairingScreen() {
   const { showToast } = useShell()
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState<'pair' | 'push' | 'revoke' | null>(null)
+  const [busy, setBusy] = useState<'pair' | 'push' | 'prefs' | 'revoke' | null>(null)
   const [session, setSession] = useState<MobileDeviceSession | null>(null)
   const [device, setDevice] = useState<AtlasMobileDevice | null>(null)
   const [serverLabel, setServerLabel] = useState('Atlas server')
@@ -48,7 +52,7 @@ export default function MobilePairingScreen() {
       const apiConfig = getApiConfig()
       setServerLabel(`${apiConfig.apiHost}:${apiConfig.apiPort}`)
 
-      const currentSession = getMobileDeviceSession()
+      const currentSession = getMobileDeviceSession() ?? await recoverMobileDeviceSession()
       setSession(currentSession)
       if (!currentSession) {
         setDevice(null)
@@ -56,7 +60,7 @@ export default function MobilePairingScreen() {
       }
 
       const response = await listMobileDevices()
-      setDevice(response.devices.find((candidate) => candidate.id === currentSession.deviceId) ?? response.devices[0] ?? null)
+      setDevice(currentDeviceFromResponse(response, currentSession.deviceId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar pareamento mobile.')
     } finally {
@@ -148,6 +152,25 @@ export default function MobilePairingScreen() {
     }
   }
 
+  const updatePreferences = async (patch: Partial<AtlasNotificationPreferences>) => {
+    if (!device || busy) return
+
+    setBusy('prefs')
+    setError(null)
+    try {
+      const response = await updateMobileNotificationPreferences({
+        ...notificationPreferences(device),
+        ...patch,
+      })
+      setDevice(response.device)
+      showToast('preferências atualizadas', { durationMs: 1800 })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar preferências.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <Screen topExtra={18}>
       <View style={styles.topBar}>
@@ -169,7 +192,7 @@ export default function MobilePairingScreen() {
           Pareamento seguro
         </Frau>
         <Sans size={14} lineHeight={20} color={c.ink2} style={{ marginTop: 10 }}>
-          Use o código gerado pelo Atlas CLI para habilitar Inbox operacional, push e deep links contextuais neste app.
+          Conecte este app ao seu Atlas server pra ativar Inbox operacional, push e deep links.
         </Sans>
       </View>
 
@@ -191,6 +214,18 @@ export default function MobilePairingScreen() {
 
           {!paired ? (
             <View style={[styles.formPanel, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <Label>Como obter o código</Label>
+
+              <View style={styles.steps}>
+                <Step number={1} text="No seu Mac, abra o terminal." />
+                <View style={[styles.stepDivider, { backgroundColor: c.border }]} />
+                <Step number={2} text="Rode o comando:" command="atlas mobile pair" />
+                <View style={[styles.stepDivider, { backgroundColor: c.border }]} />
+                <Step number={3} text="O CLI mostra um código (ex.: ABCD2345). Digite ele aqui em baixo." />
+              </View>
+
+              <View style={[styles.formDivider, { backgroundColor: c.border }]} />
+
               <Sans weight="med" size={14} lineHeight={18} color={c.ink}>
                 Código de pareamento
               </Sans>
@@ -214,9 +249,9 @@ export default function MobilePairingScreen() {
                   },
                 ]}
               />
-              <Sans size={12} lineHeight={17} color={c.ink2}>
-                Gere um código no servidor com `atlas mobile pair` e informe aqui antes de expirar.
-              </Sans>
+              <Frau italic size={13} lineHeight={18} color={c.ink2}>
+                O código expira em alguns minutos — gere e use logo.
+              </Frau>
               <PrimaryButton
                 label={busy === 'pair' ? 'Pareando...' : 'Parear este app'}
                 onPress={canPair ? () => void pairDevice() : undefined}
@@ -224,22 +259,30 @@ export default function MobilePairingScreen() {
               />
             </View>
           ) : (
-            <View style={styles.actions}>
-              <PrimaryButton
-                label={busy === 'push' ? 'Registrando push...' : 'Registrar push novamente'}
-                variant="secondary"
-                onPress={busy ? undefined : () => void registerPush()}
+            <>
+              <NotificationPreferencesPanel
+                device={device}
+                disabled={busy !== null}
+                updating={busy === 'prefs'}
+                onToggle={(key, value) => void updatePreferences({ [key]: value })}
               />
-              <PrimaryButton
-                label={busy === 'revoke' ? 'Revogando...' : 'Revogar este device'}
-                variant="ghost"
-                onPress={busy ? undefined : () => void revokePairing()}
-              />
-              <PrimaryButton
-                label="Voltar para Inbox"
-                onPress={() => router.replace('/inbox')}
-              />
-            </View>
+              <View style={styles.actions}>
+                <PrimaryButton
+                  label={busy === 'push' ? 'Registrando push...' : 'Registrar push novamente'}
+                  variant="secondary"
+                  onPress={busy ? undefined : () => void registerPush()}
+                />
+                <PrimaryButton
+                  label={busy === 'revoke' ? 'Revogando...' : 'Revogar este device'}
+                  variant="ghost"
+                  onPress={busy ? undefined : () => void revokePairing()}
+                />
+                <PrimaryButton
+                  label="Voltar para Inbox"
+                  onPress={() => router.replace('/inbox')}
+                />
+              </View>
+            </>
           )}
         </View>
       )}
@@ -289,6 +332,142 @@ function StatusPanel({
   )
 }
 
+type VisibleNotificationPreferenceKey =
+  | 'critical_push_enabled'
+  | 'telemetry_health_push_enabled'
+  | 'daily_report_push_enabled'
+
+function NotificationPreferencesPanel({
+  device,
+  disabled,
+  updating,
+  onToggle,
+}: {
+  device: AtlasMobileDevice | null
+  disabled: boolean
+  updating: boolean
+  onToggle: (key: VisibleNotificationPreferenceKey, value: boolean) => void
+}) {
+  const c = usePalette()
+  if (!device) return null
+
+  const preferences = notificationPreferences(device)
+
+  return (
+    <View style={[styles.preferencePanel, { borderColor: c.border, backgroundColor: c.surface }]}>
+      <View style={styles.preferenceHeader}>
+        <Label>Notificações</Label>
+        {updating ? <ActivityIndicator color={c.prussian} size="small" /> : null}
+      </View>
+      <View style={styles.preferenceRows}>
+        <PreferenceRow
+          label="Alertas críticos"
+          detail="interrupção imediata"
+          enabled={preferences.critical_push_enabled}
+          disabled={disabled}
+          onPress={() => onToggle('critical_push_enabled', !preferences.critical_push_enabled)}
+        />
+        <PreferenceRow
+          label="Saúde do Atlas"
+          detail="diagnóstico operacional"
+          enabled={preferences.telemetry_health_push_enabled}
+          disabled={disabled}
+          onPress={() => onToggle('telemetry_health_push_enabled', !preferences.telemetry_health_push_enabled)}
+        />
+        <PreferenceRow
+          label="Relatório da manhã"
+          detail="resumo diário"
+          enabled={preferences.daily_report_push_enabled}
+          disabled={disabled}
+          onPress={() => onToggle('daily_report_push_enabled', !preferences.daily_report_push_enabled)}
+        />
+      </View>
+    </View>
+  )
+}
+
+function PreferenceRow({
+  label,
+  detail,
+  enabled,
+  disabled,
+  onPress,
+}: {
+  label: string
+  detail: string
+  enabled: boolean
+  disabled: boolean
+  onPress: () => void
+}) {
+  const c = usePalette()
+
+  return (
+    <Pressable
+      onPress={disabled ? undefined : onPress}
+      style={({ pressed }) => [
+        styles.preferenceRow,
+        {
+          borderTopColor: c.border,
+          opacity: disabled ? 0.58 : pressed ? 0.72 : 1,
+        },
+      ]}
+    >
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Sans weight="med" size={14} lineHeight={18} color={c.ink}>
+          {label}
+        </Sans>
+        <Mono size={11} lineHeight={15} color={c.ink2} letterSpacing={0.32} style={{ marginTop: 2 }}>
+          {detail}
+        </Mono>
+      </View>
+      <View
+        style={[
+          styles.toggleTrack,
+          {
+            backgroundColor: enabled ? c.prussian : c.premium,
+            borderColor: enabled ? c.prussian : c.border,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.toggleKnob,
+            {
+              backgroundColor: enabled ? c.onInk : c.ink3,
+              transform: [{ translateX: enabled ? 18 : 0 }],
+            },
+          ]}
+        />
+      </View>
+    </Pressable>
+  )
+}
+
+function Step({ number, text, command }: { number: number; text: string; command?: string }) {
+  const c = usePalette()
+  return (
+    <View style={styles.step}>
+      <View style={styles.stepNumber}>
+        <Mono size={13} lineHeight={18} color={c.bronze} letterSpacing={0.4}>
+          {number}
+        </Mono>
+      </View>
+      <View style={styles.stepBody}>
+        <Sans size={14} lineHeight={20} color={c.ink}>
+          {text}
+        </Sans>
+        {command ? (
+          <View style={[styles.commandBox, { backgroundColor: c.bg, borderColor: c.border }]}>
+            <Mono size={13.5} lineHeight={18} color={c.ink} letterSpacing={0.2}>
+              {command}
+            </Mono>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  )
+}
+
 function StatusRow({ label, value }: { label: string; value: string }) {
   const c = usePalette()
   return (
@@ -301,6 +480,20 @@ function StatusRow({ label, value }: { label: string; value: string }) {
       </Sans>
     </View>
   )
+}
+
+const DEFAULT_NOTIFICATION_PREFERENCES: AtlasNotificationPreferences = {
+  critical_push_enabled: true,
+  telemetry_health_push_enabled: true,
+  daily_report_push_enabled: true,
+  quiet_hours_enabled: false,
+}
+
+function notificationPreferences(device: AtlasMobileDevice): AtlasNotificationPreferences {
+  return {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    ...(device.notification_preferences ?? {}),
+  }
 }
 
 function normalizePairingCode(value: string): string {
@@ -321,6 +514,14 @@ function appVersion(): string | null {
 
 function osVersion(): string | null {
   return Device.osVersion ?? String(Platform.Version)
+}
+
+function currentDeviceFromResponse(response: MobileDevicesResponse, deviceId: string): AtlasMobileDevice | null {
+  if (response.current_device?.id) return response.current_device
+  return response.devices.find((candidate) => candidate.id === (response.current_device_id ?? deviceId))
+    ?? response.devices.find((candidate) => candidate.id === deviceId)
+    ?? response.devices.find((candidate) => !candidate.revoked_at)
+    ?? null
 }
 
 function pairedDescription(device: AtlasMobileDevice | null, session: MobileDeviceSession | null): string {
@@ -415,11 +616,86 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 16,
   },
+  preferencePanel: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 8,
+  },
+  preferenceHeader: {
+    minHeight: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  preferenceRows: {
+    gap: 0,
+  },
+  preferenceRow: {
+    minHeight: 62,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  toggleTrack: {
+    width: 46,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 3,
+  },
+  toggleKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
   formPanel: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     padding: 16,
     gap: 14,
+  },
+  steps: {
+    gap: 0,
+    marginTop: 4,
+  },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingVertical: 12,
+  },
+  stepNumber: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  stepBody: {
+    flex: 1,
+    gap: 8,
+  },
+  stepDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 36,
+  },
+  commandBox: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 2,
+  },
+  formDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 4,
   },
   codeInput: {
     minHeight: 58,

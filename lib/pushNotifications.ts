@@ -6,9 +6,11 @@ import * as Notifications from 'expo-notifications'
 import { useRootNavigationState, useRouter } from 'expo-router'
 import {
   getMobileDeviceSession,
+  recoverMobileDeviceSession,
   updateMobilePushToken,
 } from './api/client'
 import { openAtlasDeepLink } from './deepLinks'
+import { useOverlays } from './overlays'
 
 export const ATLAS_NOTIFICATION_SOUND = 'atlas-bronze.wav'
 
@@ -34,7 +36,7 @@ export async function registerAtlasPushNotifications(): Promise<AtlasPushRegistr
     return { status: 'simulator', permissionStatus: 'web' }
   }
 
-  const session = getMobileDeviceSession()
+  const session = getMobileDeviceSession() ?? await recoverMobileDeviceSession().catch(() => null)
   if (!session) return { status: 'unpaired' }
 
   try {
@@ -100,6 +102,7 @@ export async function syncAtlasBadge(unreadCount: number): Promise<void> {
 export function useAtlasPushNotifications(): void {
   const router = useRouter()
   const rootNavigationState = useRootNavigationState()
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const pendingDeepLinkRef = useRef<string | null>(null)
   const handledResponseIdsRef = useRef<Set<string>>(new Set())
 
@@ -110,8 +113,8 @@ export function useAtlasPushNotifications(): void {
     }
 
     pendingDeepLinkRef.current = null
-    if (!openAtlasDeepLink(deepLink, router)) router.push('/inbox')
-  }, [rootNavigationState?.key, router])
+    if (!openAtlasDeepLink(deepLink, router, { openAtlasAi })) router.push('/inbox')
+  }, [openAtlasAi, rootNavigationState?.key, router])
 
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse | null | undefined) => {
     if (!response) return

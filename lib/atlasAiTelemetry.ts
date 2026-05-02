@@ -50,7 +50,7 @@ export async function recordAtlasAiEvent(input: AtlasAiMobileTelemetryInput): Pr
       void flushAtlasAiTelemetry()
     })
     .catch(() => {
-      // Telemetry must never block the Atlas AI interaction path.
+      // Telemetry must never block the Atlas interaction path.
     })
 
   try {

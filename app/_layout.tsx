@@ -87,6 +87,7 @@ function ThemedRoot() {
           <Stack.Screen name="ritual"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="review"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="projects" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
+          <Stack.Screen name="engineering" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="routines" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="bitacula" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="memory"   options={{ animation: 'slide_from_right', animationDuration: 320 }} />

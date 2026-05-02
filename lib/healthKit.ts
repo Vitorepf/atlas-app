@@ -12,6 +12,7 @@ import type {
   QueryOptionsWithSortOrderAndUnit,
   QueryStatisticsResponse,
   SampleTypeIdentifier,
+  UnitForIdentifier,
 } from '@kingstinct/react-native-healthkit'
 import type { StorePassiveSignalInput } from './api/client'
 
@@ -372,6 +373,10 @@ interface DailyStatisticDefinition {
   unit: string
 }
 
+type NormalizedQuantityUnits = {
+  readonly [Identifier in QuantityTypeIdentifier]?: UnitForIdentifier<Identifier>
+}
+
 const DAILY_CUMULATIVE_STATISTICS = [
   {
     identifier: 'HKQuantityTypeIdentifierStepCount',
@@ -449,7 +454,7 @@ const MOST_RECENT_QUANTITY_TYPES = [
   'HKQuantityTypeIdentifierWaistCircumference',
 ] as const satisfies readonly QuantityTypeIdentifier[]
 
-const NORMALIZED_QUANTITY_UNITS: Partial<Record<QuantityTypeIdentifier, string>> = {
+const NORMALIZED_QUANTITY_UNITS: NormalizedQuantityUnits = {
   HKQuantityTypeIdentifierActiveEnergyBurned: 'kcal',
   HKQuantityTypeIdentifierAppleExerciseTime: 'min',
   HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances: 'count',
@@ -460,7 +465,7 @@ const NORMALIZED_QUANTITY_UNITS: Partial<Record<QuantityTypeIdentifier, string>>
   HKQuantityTypeIdentifierBodyMass: 'kg',
   HKQuantityTypeIdentifierBodyMassIndex: 'count',
   HKQuantityTypeIdentifierDistanceWalkingRunning: 'm',
-  HKQuantityTypeIdentifierEstimatedWorkoutEffortScore: 'count',
+  HKQuantityTypeIdentifierEstimatedWorkoutEffortScore: 'appleEffortScore',
   HKQuantityTypeIdentifierHeartRate: 'count/min',
   HKQuantityTypeIdentifierHeartRateVariabilitySDNN: 'ms',
   HKQuantityTypeIdentifierHeight: 'm',
@@ -471,7 +476,7 @@ const NORMALIZED_QUANTITY_UNITS: Partial<Record<QuantityTypeIdentifier, string>>
   HKQuantityTypeIdentifierStepCount: 'count',
   HKQuantityTypeIdentifierVO2Max: 'ml/(kg*min)',
   HKQuantityTypeIdentifierWaistCircumference: 'cm',
-  HKQuantityTypeIdentifierWorkoutEffortScore: 'count',
+  HKQuantityTypeIdentifierWorkoutEffortScore: 'appleEffortScore',
 }
 
 export interface HealthKitLocalStatus {
@@ -1014,13 +1019,13 @@ async function requestReadTypes(healthKit: HealthKitModule, types: readonly Obje
   }
 }
 
-function quantityAnchorOptions(
-  identifier: QuantityTypeIdentifier,
+function quantityAnchorOptions<TIdentifier extends QuantityTypeIdentifier>(
+  identifier: TIdentifier,
   anchor: string | undefined,
   limit: number,
   filter?: FilterForSamples,
-): QueryOptionsWithAnchorAndUnit {
-  const unit = NORMALIZED_QUANTITY_UNITS[identifier]
+): QueryOptionsWithAnchorAndUnit<UnitForIdentifier<TIdentifier>> {
+  const unit = normalizedQuantityUnit(identifier)
 
   return {
     anchor,
@@ -1030,16 +1035,22 @@ function quantityAnchorOptions(
   }
 }
 
-function quantityLatestOptions(
-  identifier: QuantityTypeIdentifier,
-): QueryOptionsWithSortOrderAndUnit {
-  const unit = NORMALIZED_QUANTITY_UNITS[identifier]
+function quantityLatestOptions<TIdentifier extends QuantityTypeIdentifier>(
+  identifier: TIdentifier,
+): QueryOptionsWithSortOrderAndUnit<UnitForIdentifier<TIdentifier>> {
+  const unit = normalizedQuantityUnit(identifier)
 
   return {
     limit: 1,
     ascending: false,
     ...(unit ? { unit } : {}),
   }
+}
+
+function normalizedQuantityUnit<TIdentifier extends QuantityTypeIdentifier>(
+  identifier: TIdentifier,
+): UnitForIdentifier<TIdentifier> | undefined {
+  return NORMALIZED_QUANTITY_UNITS[identifier]
 }
 
 function recentSampleFilter(days: number): FilterForSamples {

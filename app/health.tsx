@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
 import { Tile } from '../components/Tile'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { Frau, Label, Mono, Sans } from '../design/Type'
-import { usePalette } from '../design/theme'
+import { usePalette, useTheme } from '../design/theme'
 import {
   formatRelativeSync,
   latestCheckin,
@@ -38,6 +38,11 @@ import {
 } from '../lib/checkinFreshness'
 import { moodLevelLabel } from '../lib/checkinScale'
 import type { ScreenTimeLocalStatus } from '../lib/screenTime'
+import {
+  buildAtlasPhysiologicalAge,
+  type AtlasPhysiologicalAgeModel,
+  type PhysiologicalAgeReading,
+} from '../lib/physiologicalAge'
 
 type HealthSignal = Pick<
   AtlasPassiveSignal,
@@ -50,6 +55,34 @@ const PHYSIOLOGICAL_FRESHNESS_HOURS = 36
 const SLEEP_RECOVERY_FRESHNESS_HOURS = 48
 const STATE_OF_MIND_FRESHNESS_HOURS = 24
 
+type ManualBodyMetricKey = 'height' | 'waist_circumference'
+
+const MANUAL_BODY_METRICS: Record<ManualBodyMetricKey, {
+  label: string
+  signalType: ManualBodyMetricKey
+  unit: string
+  min: number
+  max: number
+  placeholder: string
+}> = {
+  height: {
+    label: 'Altura',
+    signalType: 'height',
+    unit: 'm',
+    min: 0.5,
+    max: 2.5,
+    placeholder: '1,75',
+  },
+  waist_circumference: {
+    label: 'Cintura',
+    signalType: 'waist_circumference',
+    unit: 'cm',
+    min: 30,
+    max: 250,
+    placeholder: '82',
+  },
+}
+
 interface MetricValue {
   value: number | null
   text?: string | null
@@ -57,6 +90,7 @@ interface MetricValue {
   date?: string | null
   confidence?: number | null
   qualityLabel?: string | null
+  source?: string | null
 }
 
 interface MetricRowModel {
@@ -83,6 +117,12 @@ interface MetricDetail {
   evidence?: string[]
   confidence?: number | null
   axisQuality?: ReadinessAxisQuality | null
+}
+
+interface MetricGroupModel {
+  label: string
+  caption: string
+  rows: MetricRowModel[]
 }
 
 type DigitalMetricKey =
@@ -147,6 +187,10 @@ export default function HealthScreen() {
   const c = usePalette()
   const router = useRouter()
   const [selectedMetric, setSelectedMetric] = useState<MetricRowModel | null>(null)
+  const [manualMetric, setManualMetric] = useState<ManualBodyMetricKey | null>(null)
+  const [manualValue, setManualValue] = useState('')
+  const [manualError, setManualError] = useState<string | null>(null)
+  const [manualSaving, setManualSaving] = useState(false)
   const passiveSignals = useAtlasStore((s) => s.passiveSignals)
   const queuedPassiveSignals = useAtlasStore((s) => s.queuedPassiveSignals)
   const healthSnapshots = useAtlasStore((s) => s.healthSnapshots)
@@ -161,6 +205,7 @@ export default function HealthScreen() {
   const screenTime = useAtlasStore((s) => s.screenTime)
   const sync = useAtlasStore((s) => s.sync)
   const syncing = useAtlasStore((s) => s.syncing)
+  const createPassiveSignal = useAtlasStore((s) => s.createPassiveSignal)
 
   const allSignals = useMemo(() => (
     mergeSignals([
@@ -171,6 +216,10 @@ export default function HealthScreen() {
 
   const healthSignals = useMemo(() => (
     allSignals.filter((signal) => signal.source === 'healthkit')
+  ), [allSignals])
+
+  const compositionSignals = useMemo(() => (
+    allSignals.filter((signal) => signal.source === 'healthkit' || signal.source === 'manual')
   ), [allSignals])
 
   const latestState = useMemo(
@@ -199,9 +248,57 @@ export default function HealthScreen() {
   )
 
   const model = useMemo(
-    () => buildHealthModel(allSignals, healthSignals, visibleSnapshots, digitalActivitySnapshots, digitalSessions, checkins, latestState, screenTime),
-    [allSignals, checkins, digitalActivitySnapshots, digitalSessions, healthSignals, latestState, screenTime, visibleSnapshots],
+    () => buildHealthModel(allSignals, healthSignals, compositionSignals, visibleSnapshots, digitalActivitySnapshots, digitalSessions, checkins, latestState, screenTime),
+    [allSignals, checkins, compositionSignals, digitalActivitySnapshots, digitalSessions, healthSignals, latestState, screenTime, visibleSnapshots],
   )
+
+  const openManualMetric = (metric: ManualBodyMetricKey, current: MetricValue): void => {
+    const config = MANUAL_BODY_METRICS[metric]
+    setManualMetric(metric)
+    setManualError(null)
+    setManualValue(typeof current.value === 'number' ? manualDisplayValue(current.value, config.unit) : '')
+  }
+
+  const closeManualMetric = (): void => {
+    if (manualSaving) return
+    setManualMetric(null)
+    setManualValue('')
+    setManualError(null)
+  }
+
+  const submitManualMetric = async (): Promise<void> => {
+    if (!manualMetric) return
+    const config = MANUAL_BODY_METRICS[manualMetric]
+    const parsed = parseManualBodyValue(manualValue, config)
+    if (parsed === null) {
+      setManualError(`Informe ${config.label.toLowerCase()} entre ${manualDisplayValue(config.min, config.unit)} e ${manualDisplayValue(config.max, config.unit)}.`)
+      return
+    }
+
+    setManualSaving(true)
+    setManualError(null)
+    try {
+      await createPassiveSignal({
+        source: 'manual',
+        signalType: config.signalType,
+        valueNumeric: parsed,
+        unit: config.unit,
+        metadata: {
+          manual: {
+            kind: 'body_composition',
+            metric: config.signalType,
+            source: 'operator_entry',
+            version: 'body_manual_v1',
+          },
+        },
+      })
+      closeManualMetric()
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : 'Não foi possível registrar a medida.')
+    } finally {
+      setManualSaving(false)
+    }
+  }
 
   return (
     <Screen>
@@ -299,8 +396,26 @@ export default function HealthScreen() {
       <SectionHeader label="Check-in" />
       <MetricList rows={model.subjectiveRows} />
 
+      <SectionHeader label="Healthspan Atlas" />
+      <MetricList
+        rows={model.healthspanRows}
+        onRowLongPress={(item) => {
+          if (item.detail) setSelectedMetric(item)
+        }}
+      />
+
       <SectionHeader label="Composição corporal" />
-      <MetricList rows={model.bodyRows} />
+      <BodyMetricGroups
+        rows={model.bodyRows}
+        onRowPress={(item) => {
+          const metric = editableBodyMetricKey(item)
+          if (metric) openManualMetric(metric, item.value)
+        }}
+        canPressRow={(item) => editableBodyMetricKey(item) !== null}
+        onRowLongPress={(item) => {
+          if (item.detail) setSelectedMetric(item)
+        }}
+      />
 
       <View style={[styles.syncPanel, { borderTopColor: c.border, borderBottomColor: c.border }]}>
         <Mono size={11} letterSpacing={0.44} color={c.ink2} align="center">
@@ -319,6 +434,17 @@ export default function HealthScreen() {
         item={selectedMetric}
         onClose={() => setSelectedMetric(null)}
       />
+      <ManualBodyMetricModal
+        metric={manualMetric}
+        value={manualValue}
+        error={manualError}
+        saving={manualSaving}
+        onChangeValue={setManualValue}
+        onSubmit={() => {
+          void submitManualMetric()
+        }}
+        onClose={closeManualMetric}
+      />
     </Screen>
   )
 }
@@ -326,6 +452,7 @@ export default function HealthScreen() {
 function buildHealthModel(
   allSignals: HealthSignal[],
   healthSignals: HealthSignal[],
+  compositionSignals: HealthSignal[],
   healthSnapshots: AtlasHealthSnapshot[],
   digitalActivitySnapshots: AtlasDigitalActivitySnapshot[],
   digitalSessions: AtlasDigitalSession[],
@@ -418,8 +545,8 @@ function buildHealthModel(
   )
   const workoutEffortToday = snapshotOrSignal(
     coalesceMetricValue(
-      snapshotJsonMetric(latestSnapshot, 'load', 'workout_effort_score', 'count'),
-      snapshotJsonMetric(latestSnapshot, 'load', 'estimated_workout_effort_score', 'count'),
+      snapshotJsonMetric(latestSnapshot, 'load', 'workout_effort_score', 'appleEffortScore'),
+      snapshotJsonMetric(latestSnapshot, 'load', 'estimated_workout_effort_score', 'appleEffortScore'),
     ),
     dailyMax(healthSignals, ['workout_effort_score', 'estimated_workout_effort_score']),
   )
@@ -476,40 +603,52 @@ function buildHealthModel(
   )
   const mindfulToday = dailyDuration(healthSignals, ['HKCategoryTypeIdentifierMindfulSession'])
 
-  const bodyMassNow = snapshotOrSignal(
+  const bodyMassNow = withMetricQuality(snapshotOrSignal(
     latestSnapshotMetric(latestSnapshot, 'body_mass_kg', 'kg'),
-    latestValue(healthSignals, ['body_mass']),
-  )
-  const bodyFatNow = snapshotOrSignal(
+    latestValue(compositionSignals, ['body_mass']),
+  ), bodyMetricQualityLabel(latestSnapshot, 'body_mass_source', 'medida'), 0.9)
+  const bodyFatNow = withMetricQuality(snapshotOrSignal(
     latestSnapshotMetric(latestSnapshot, 'body_fat_percentage', '%'),
-    normalizedPercentValue(latestValue(healthSignals, ['body_fat_percentage'])),
-  )
-  const leanMassNow = snapshotOrSignal(
+    normalizedPercentValue(latestValue(compositionSignals, ['body_fat_percentage'])),
+  ), bodyMetricQualityLabel(latestSnapshot, 'body_fat_source', 'medida externa'), 0.72)
+  const leanMassNow = withMetricQuality(snapshotOrSignal(
     latestSnapshotMetric(latestSnapshot, 'lean_body_mass_kg', 'kg'),
-    latestValue(healthSignals, ['lean_body_mass']),
-  )
-  const musclePercentNow = snapshotOrSignal(
-    latestSnapshotMetric(latestSnapshot, 'muscle_mass_percentage', '%'),
-    musclePercentValue(healthSignals),
-  )
-  const bodyAgeNow = latestValue(healthSignals, ['body_age', 'metabolic_age'])
-  const heightNow = latestValue(healthSignals, ['height'])
-  const bmiNow = snapshotOrSignal(
+    leanMassMetric(bodyMassNow, bodyFatNow, latestValue(compositionSignals, ['lean_body_mass'])),
+  ), bodyMetricQualityLabel(latestSnapshot, 'lean_mass_source', 'medida externa'), 0.74)
+  const leanMassPercentNow = withMetricQuality(snapshotOrSignal(
+    snapshotJsonMetric(latestSnapshot, 'body', 'lean_mass_percentage', '%'),
+    leanMassPercentMetric(bodyMassNow, leanMassNow),
+  ), 'derivada', 0.76)
+  const heightNow = withMetricQuality(latestValue(compositionSignals, ['height']), 'estável', 0.95)
+  const bmiNow = withMetricQuality(snapshotOrSignal(
     latestSnapshotMetric(latestSnapshot, 'body_mass_index', null),
-    latestValue(healthSignals, ['body_mass_index']),
-  )
-  const physicalAgeNow = physicalAgeMetric({
-    dateOfBirth: latestValue(healthSignals, ['date_of_birth']),
-    biologicalSex: latestValue(healthSignals, ['biological_sex']),
-    vo2max: vo2maxNow,
-    bodyFat: bodyFatNow,
-    bmi: bmiNow,
-  })
-  const waistNow = snapshotOrSignal(
+    bmiMetric(bodyMassNow, heightNow, latestValue(compositionSignals, ['body_mass_index'])),
+  ), bodyMetricQualityLabel(latestSnapshot, 'bmi_source', 'derivado'), 0.9)
+  const waistNow = withMetricQuality(snapshotOrSignal(
     latestSnapshotMetric(latestSnapshot, 'waist_circumference_cm', 'cm'),
-    latestValue(healthSignals, ['waist_circumference']),
-  )
-  const fatMassNow = fatMassMetric(bodyMassNow, bodyFatNow)
+    latestValue(compositionSignals, ['waist_circumference']),
+  ), bodyMetricQualityLabel(latestSnapshot, 'waist_source', 'manual'), 0.85)
+  const fatMassNow = withMetricQuality(fatMassMetric(bodyMassNow, bodyFatNow), 'derivada', 0.78)
+  const bmrNow = withMetricQuality(snapshotOrSignal(
+    snapshotJsonMetric(latestSnapshot, 'body', 'basal_metabolic_rate_kcal', 'kcal'),
+    basalMetabolicRateMetric({
+      weight: bodyMassNow,
+      height: heightNow,
+      dateOfBirth: latestValue(healthSignals, ['date_of_birth']),
+      biologicalSex: latestValue(healthSignals, ['biological_sex']),
+    }),
+  ), bodyMetricQualityLabel(latestSnapshot, 'bmr_source', 'estimada'), 0.68)
+  const atlasPhysiologicalAge = buildAtlasPhysiologicalAge({
+    signals: allSignals,
+    snapshots: healthSnapshots,
+    now: computedNow,
+    current: {
+      sleepScore: physiologicalReadingFromMetric(scoreMetric(readinessV1.sleep.score, readinessV1.computedAt), 'readiness_v1'),
+      sleepRegularityScore: physiologicalReadingFromMetric(snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'regularity_score', '%'), 'sleep_snapshot'),
+      vo2max: physiologicalReadingFromMetric(vo2maxNow, 'HealthKit'),
+    },
+  })
+  const atlasPhysiologicalAgeNow = atlasPhysiologicalAgeMetric(atlasPhysiologicalAge)
   const sleepDebtToday = snapshotOrSignal(
     snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'sleep_debt_hours', 'h'),
     typeof sleepNow.value === 'number'
@@ -524,9 +663,17 @@ function buildHealthModel(
   const deepPercentReference = sleepStageReference(healthSnapshots, 'deep_hours', readinessV1.sleepTargetHours, 0.13, 0.23, 'percent')
   const coreHoursReference = sleepStageReference(healthSnapshots, 'core_hours', readinessV1.sleepTargetHours, 0.45, 0.55, 'hours')
   const corePercentReference = sleepStageReference(healthSnapshots, 'core_hours', readinessV1.sleepTargetHours, 0.45, 0.55, 'percent')
+  const sleepRegularityNow = snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'regularity_score', '%')
+  const sleepEfficiencyNow = snapshotSleepMetric(latestSleepSnapshot, 'sleep_efficiency', '%')
+  const sleepContinuityNow = snapshotSleepContinuityMetric(latestSleepSnapshot)
   const digitalToday = latestDigitalSnapshot(digitalActivitySnapshots)
   const algorithmicPressureKeys: DigitalMetricKey[] = ['algorithmic_input_min', 'default_entertainment_min', 'communication_shallow_min']
   const intentionalDigitalKeys: DigitalMetricKey[] = ['deep_work_total_min', 'curated_input_min', 'intentional_entertainment_min', 'communication_primary_min']
+  const algorithmicPressureToday = digitalSumMetric(digitalToday, algorithmicPressureKeys, 'duration')
+  const algorithmicPressurePercentToday = digitalRatioMetric(digitalToday, algorithmicPressureKeys, 'total_screen_time_min')
+  const intentionalityToday = digitalRatioMetric(digitalToday, intentionalDigitalKeys, 'total_screen_time_min')
+  const deepWorkToday = latestDigitalMetric(digitalActivitySnapshots, 'deep_work_total_min', 'duration')
+  const fragmentationToday = digitalFragmentationMetric(digitalToday)
   const firstOffensiveUse = firstOffensiveUseMetric({
     snapshot: digitalToday,
     sessions: digitalSessions,
@@ -535,15 +682,73 @@ function buildHealthModel(
     now: computedNow,
   })
   const stateOfMindNow = latestValueWithMaxAge(healthSignals, ['state_of_mind_valence'], STATE_OF_MIND_FRESHNESS_HOURS)
+  const overloadRisk = overloadRiskMetric({
+    readiness: readinessV1,
+    strain: strainToday,
+    highZoneMinutes: sumMetricValues(workoutZoneHighToday, wakingZoneHighToday, 'min'),
+    sleepDebt: { value: readinessV1.sleepDebtHours, unit: 'h', date: readinessV1.computedAt },
+  })
+  const cardiovascularEfficiency = cardiovascularEfficiencyMetric({
+    wakingHrAvg: wakingHrAvgToday,
+    workoutHrAvg: workoutHrAvgToday,
+    steps: stepsToday,
+    distance: distanceToday,
+    activeEnergy: activeEnergyToday,
+    cardioLoad: sumMetricValues(cardioLoadToday, wakingCardioLoadToday, 'a.u.'),
+    vo2max: vo2maxNow,
+  })
+  const sleepStability = sleepStabilityMetric({
+    sleepScore: scoreMetric(readinessV1.sleep.score, readinessV1.computedAt),
+    regularity: sleepRegularityNow,
+    efficiency: sleepEfficiencyNow,
+    continuity: sleepContinuityNow,
+    sleepDebt7d: { value: readinessV1.sleepDebtHours, unit: 'h', date: readinessV1.computedAt },
+    observedNights: readinessV1.axisQuality.sleep.baselineDays ?? null,
+  })
+  const cognitivePressure = cognitivePressureMetric({
+    algorithmicPressurePercent: algorithmicPressurePercentToday,
+    fragmentation: fragmentationToday,
+    firstOffensiveUse,
+    intentionality: intentionalityToday,
+    deepWork: deepWorkToday,
+    cognitivePenalty: readinessV1.diagnostics.cognitivePenalty,
+    computedAt: dynamicComputedAt,
+  })
+  const performanceWindow = performanceWindowMetric({
+    readiness: readinessV1,
+    overloadRisk,
+    cognitivePressure,
+    computedAt: dynamicComputedAt,
+  })
+  const paceOfAging = paceOfAgingMetric(healthSnapshots, atlasPhysiologicalAge)
+  const metabolicProfile = metabolicProfileMetric({
+    waist: waistNow,
+    height: heightNow,
+    bmi: bmiNow,
+    bodyFat: bodyFatNow,
+    leanMassPercent: leanMassPercentNow,
+    biologicalSex: latestValue(healthSignals, ['biological_sex']),
+    computedAt: dynamicComputedAt,
+  })
+  const bodyDataQuality = bodyCompositionQualityMetric({
+    weight: bodyMassNow,
+    bodyFat: bodyFatNow,
+    leanMass: leanMassNow,
+    waist: waistNow,
+    height: heightNow,
+    bmi: bmiNow,
+    computedAt: dynamicComputedAt,
+  })
 
   return {
     readinessV1,
     sleepNow,
     hrvNow,
     scoreRows: [
-      row('Prontidão do dia', scoreMetric(readinessV1.base.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.base, 'Resultado principal', 'Resumo da capacidade do dia antes do dreno intra-dia.', 'Importa porque condensa recuperação, carga e estado percebido em uma decisão operacional simples.', ['Sono', 'Sinais de recuperação', 'Margem de carga', 'Estado percebido', 'Estabilidade fisiológica'], 'Snapshot diário quando disponível; no dia atual usa dados recalculados a partir do store local.', 'Sono 48h; fisiologia 36h; check-in 12h; digital 24h.', 'Boa quando sono + HRV/FC repouso + atividade + check-in recente estão presentes.', 'Média-alta para decisão diária; não é diagnóstico clínico.', ['Pode cair para baseline quando sinais críticos faltam.', 'Ainda é heurístico e precisa validação longitudinal por outcomes reais.'], readinessV1.axisQuality.base)),
-      row('Capacidade agora', scoreMetric(readinessV1.current.score, dynamicComputedAt), null, 'absolute', true, axisDetail(readinessV1.current, 'Resultado em tempo real', 'Estimativa de capacidade neste momento, ajustada por dreno do dia e penalidade cognitiva.', 'Importa porque separa o que você acordou podendo fazer do que ainda consegue fazer agora.', ['Prontidão do dia', 'Dreno do dia', 'Horas acordado', 'Estado percebido', 'Pressão digital'], 'Sempre cálculo vivo no dia atual; snapshot não congela este eixo.', 'Carga e digital do dia; sono até 48h; check-in de estado até 6h.', 'Boa quando HealthKit sincronizou hoje e existe check-in/digital recente.', 'Média; é propositalmente mais volátil que prontidão.', ['Pode oscilar ao longo do dia.', 'Não deve ser comparada isoladamente com média semanal.'], readinessV1.axisQuality.current)),
-      row('Recuperação noturna', scoreMetric(readinessV1.nightRecovery.score, readinessV1.computedAt), null, 'absolute', true, nightRecoveryDetail(readinessV1), 'ideal >= 85%'),
+	      row('Prontidão do dia', scoreMetric(readinessV1.base.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.base, 'Resultado principal', 'Resumo da capacidade do dia antes do dreno intra-dia.', 'Importa porque condensa recuperação, carga e estado percebido em uma decisão operacional simples.', ['Sono', 'Sinais de recuperação', 'Margem de carga', 'Estado percebido', 'Estabilidade fisiológica'], 'Snapshot diário quando disponível; no dia atual usa dados recalculados a partir do store local.', 'Sono 48h; fisiologia 36h; check-in 12h; digital 24h.', 'Boa quando sono + HRV/FC repouso + atividade + check-in recente estão presentes.', 'Média-alta para decisão diária; não é diagnóstico clínico.', ['Pode cair para baseline quando sinais críticos faltam.', 'Ainda é heurístico e precisa validação longitudinal por outcomes reais.'], readinessV1.axisQuality.base)),
+	      row('Capacidade agora', scoreMetric(readinessV1.current.score, dynamicComputedAt), null, 'absolute', true, axisDetail(readinessV1.current, 'Resultado em tempo real', 'Estimativa de capacidade neste momento, ajustada por dreno do dia e penalidade cognitiva.', 'Importa porque separa o que você acordou podendo fazer do que ainda consegue fazer agora.', ['Prontidão do dia', 'Dreno do dia', 'Horas acordado', 'Estado percebido', 'Pressão digital'], 'Sempre cálculo vivo no dia atual; snapshot não congela este eixo.', 'Carga e digital do dia; sono até 48h; check-in de estado até 6h.', 'Boa quando HealthKit sincronizou hoje e existe check-in/digital recente.', 'Média; é propositalmente mais volátil que prontidão.', ['Pode oscilar ao longo do dia.', 'Não deve ser comparada isoladamente com média semanal.'], readinessV1.axisQuality.current)),
+	      row('Janela de alta performance', performanceWindow, null, 'absolute', true, compositeMetricDetail('Decisão', 'Leitura de oportunidade para trabalho profundo, treino forte ou execução crítica agora.', 'Combina capacidade atual com risco de sobrecarga e pressão cognitiva para não recomendar intensidade quando o custo está alto.', ['Capacidade agora', 'Capacidade de foco', 'Recuperação corporal', 'Margem de carga', 'Risco de sobrecarga', 'Pressão cognitiva líquida'], 'Cálculo vivo a partir dos scores já auditados no readiness e das métricas compostas novas.', 'Atualiza no dia atual conforme saúde, carga, check-in e digital mudam.', 'Boa quando há sono, carga e digital recentes; parcial quando a fonte digital ou check-in faltam.', 'Média-alta para decisão operacional; não mede performance real concluída.', ['Pode ficar conservadora quando dados de carga ou digital estão parciais.', 'Não substitui contexto de calendário, dor, doença ou prioridade estratégica.'], compositeMetricEvidence(['Capacidade agora', scoreMetric(readinessV1.current.score, dynamicComputedAt)], ['Foco', scoreMetric(readinessV1.focus.score, dynamicComputedAt)], ['Risco de sobrecarga', overloadRisk], ['Pressão cognitiva', cognitivePressure]), performanceWindow.confidence), '>= 75%'),
+	      row('Recuperação noturna', scoreMetric(readinessV1.nightRecovery.score, readinessV1.computedAt), null, 'absolute', true, nightRecoveryDetail(readinessV1), 'ideal >= 85%'),
       row('Recuperação corporal', scoreMetric(readinessV1.body.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.body, 'Eixo composto', 'Estado físico de recuperação, combinando sono, sinais autonômicos, carga e estabilidade.', 'Importa para decidir treino, esforço físico e volume de execução.', ['Sono', 'Sinais de recuperação', 'Margem de carga', 'Estabilidade fisiológica'], 'Snapshot diário com fallback vivo quando necessário.', 'Sono 48h; fisiologia 36h; carga do dia.', 'Alta quando Apple Watch coletou sono, HRV, FC repouso e atividade recentes.', 'Média-alta para recuperação física operacional.', ['Não inclui dor muscular ou percepção direta de fadiga muscular.', 'Composição corporal e VO2max aparecem em detalhes, mas não movem este eixo diário.'], readinessV1.axisQuality.body)),
       row('Clareza mental', scoreMetric(readinessV1.mind.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.mind, 'Eixo mental', 'Capacidade cognitiva estimada a partir de estado percebido, sono, recuperação e sinais digitais.', 'Importa para escolher trabalho profundo, decisões difíceis e exposição a estímulos.', ['Estado percebido', 'Sono', 'Sinais de recuperação', 'Deep work', 'Pressão algorítmica', 'Fragmentação digital'], 'Cálculo local com digital snapshot quando existe para o dia.', 'Digital 24h; check-in 12h; fisiologia 36h.', 'Boa quando há check-in e snapshot digital recente; parcial sem Rize/digital.', 'Média; melhora com histórico de produtividade real.', ['Ainda não aprende pesos pessoais automaticamente.', 'Minutos de foco não provam clareza, apenas ajudam como evidência.'], readinessV1.axisQuality.mind)),
       row('Energia de execução', scoreMetric(readinessV1.drive.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.drive, 'Eixo de impulso', 'Energia prática para iniciar e sustentar ação hoje.', 'Importa porque um corpo recuperado ainda pode ter baixa tração para executar.', ['Energia do check-in', 'Estado atual', 'Margem de carga', 'Sono'], 'Cálculo vivo com expiração agressiva do check-in.', 'Energia/humor até 12h; estado atual até 6h; sono até 48h.', 'Boa se o check-in foi feito recentemente; baixa sem check-in.', 'Média-baixa sem hábito consistente de check-in.', ['Não deve ser lida como motivação fixa.', 'Check-in antigo expira em vez de continuar empurrando o score.'], readinessV1.axisQuality.drive)),
@@ -555,9 +760,10 @@ function buildHealthModel(
       row('Estabilidade fisiológica', scoreMetric(readinessV1.stability.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.stability, 'Driver de alerta', 'Sinais de desvio fisiológico que pedem observação.', 'Importa para detectar instabilidade que pode vir de doença, estresse, álcool, calor ou noite ruim.', ['Temperatura de pulso', 'Respiração', 'Oxigênio'], 'Snapshot diário ou cálculo local quando há dados recentes.', 'Fisiologia 36h; temperatura de pulso depende de noites com Apple Watch.', 'Média; boa como alerta, não como diagnóstico.', 'Média para triagem de tendência.', ['Temperatura de pulso costuma ser noturna, não contínua no dia.', 'Oxigênio pode não estar disponível dependendo de região/aparelho.'], readinessV1.axisQuality.stability)),
       row('Qualidade dos dados', scoreMetric(readinessV1.confidence.value, dynamicComputedAt), null, 'absolute', true, axisDetail({ score: readinessV1.confidence.value, confidence: readinessV1.confidence.value / 100, label: readinessV1.confidence.label, display: readinessV1.confidence.label }, 'Metadado do modelo', 'Cobertura e frescor dos sinais usados pelo readiness.', 'Importa porque score sem dados suficientes não deve ser tratado como verdade.', ['Cobertura dos eixos', 'Frescor', 'Baseline disponível', 'Presença de check-in/digital'], 'Cálculo vivo no dia atual; snapshots antigos são apenas histórico.', 'Agrega TTLs por fonte: sono, fisiologia, check-in e digital.', 'Alta para medir cobertura; não mede verdade clínica.', 'Alta para qualidade operacional dos dados.', ['Não é métrica de saúde.', 'Mostra confiabilidade operacional, não prova causalidade.'], readinessV1.axisQuality.dataQuality)),
     ],
-    sleepRows: [
-      row('Score do sono', scoreMetric(readinessV1.sleep.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.sleep, 'Sono', 'Score operacional da última noite principal, separado de cochilos.', 'Importa porque resume quantidade, regularidade, continuidade, fases e qualidade do dado em uma leitura rápida.', ['Duração', 'Déficit 7d', 'Regularidade', 'Eficiência', 'REM + profundo', 'Latência', 'Despertares'], 'Analisador único de sono usado por snapshot, readiness e tela Sono.', 'Última noite válida até 48h.', 'Alta com estágios do Apple Watch; parcial quando só existe duração.', 'Alta para duração; média para fases e despertares.', ['Não é polissonografia.', 'Cochilos entram separados e não inflam a noite principal.'], readinessV1.axisQuality.sleep), 'ideal >= 85%'),
-      row('Duração', sleepNow, previousWeekSnapshotAverage(healthSnapshots, 'sleep_duration_hours', 'h') ?? previousWeekLatestByEnd(healthSignals, ['sleep_duration_hours']), 'absolute', true, sleepMetricDetail('Tempo dormido na noite principal.', 'É o maior driver simples de recuperação e déficit.', ['Estágios REM/core/profundo/asleep do Apple Watch', 'Fallback: duração de sono'], 'Boa quando há estágios; parcial com duração isolada.', 'Alta para tempo total quando a noite principal foi detectada.'), `alvo ${formatHours(readinessV1.sleepTargetHours)}`),
+	    sleepRows: [
+	      row('Score do sono', scoreMetric(readinessV1.sleep.score, readinessV1.computedAt), null, 'absolute', true, axisDetail(readinessV1.sleep, 'Sono', 'Score operacional da última noite principal, separado de cochilos.', 'Importa porque resume quantidade, regularidade, continuidade, fases e qualidade do dado em uma leitura rápida.', ['Duração', 'Déficit 7d', 'Regularidade', 'Eficiência', 'REM + profundo', 'Latência', 'Despertares'], 'Analisador único de sono usado por snapshot, readiness e tela Sono.', 'Última noite válida até 48h.', 'Alta com estágios do Apple Watch; parcial quando só existe duração.', 'Alta para duração; média para fases e despertares.', ['Não é polissonografia.', 'Cochilos entram separados e não inflam a noite principal.'], readinessV1.axisQuality.sleep), 'ideal >= 85%'),
+	      row('Estabilidade do sono', sleepStability, null, 'absolute', true, compositeMetricDetail('Sono', 'Score composto de estabilidade: rotina, continuidade, eficiência e dívida recente.', 'Diferencia uma noite boa isolada de um padrão de sono realmente estável para performance.', ['Score do sono', 'Regularidade', 'Eficiência', 'Continuidade', 'Déficit observado 7d', 'Noites usadas'], 'Cálculo local sobre snapshot de sono e readiness_v1.', 'Última noite válida até 48h; déficit e regularidade usam histórico recente observado.', 'Boa com 5+ noites e estágios; parcial com poucas noites ou sem regularidade.', 'Alta para direção de rotina; fases e despertares continuam estimativas de wearable.', ['Não é diagnóstico de sono.', 'Não tenta preencher noites ausentes; cobertura baixa reduz confiança.'], compositeMetricEvidence(['Score', scoreMetric(readinessV1.sleep.score, readinessV1.computedAt)], ['Regularidade', sleepRegularityNow], ['Eficiência', sleepEfficiencyNow], ['Continuidade', sleepContinuityNow], ['Déficit 7d', { value: readinessV1.sleepDebtHours, unit: 'h', date: readinessV1.computedAt }]), sleepStability.confidence), '>= 85%'),
+	      row('Duração', sleepNow, previousWeekSnapshotAverage(healthSnapshots, 'sleep_duration_hours', 'h') ?? previousWeekLatestByEnd(healthSignals, ['sleep_duration_hours']), 'absolute', true, sleepMetricDetail('Tempo dormido na noite principal.', 'É o maior driver simples de recuperação e déficit.', ['Estágios REM/core/profundo/asleep do Apple Watch', 'Fallback: duração de sono'], 'Boa quando há estágios; parcial com duração isolada.', 'Alta para tempo total quando a noite principal foi detectada.'), `alvo ${formatHours(readinessV1.sleepTargetHours)}`),
       row(sleepTargetRowLabel(readinessV1.sleepTargetEvidence), { value: readinessV1.sleepTargetHours, unit: 'h', date: readinessV1.computedAt }, null, 'absolute', true, sleepMetricDetail('Alvo pessoal inferido a partir do histórico disponível.', 'Evita tratar 7h30 como meta fixa universal; 7h30 é só mínimo quando não há evidência pessoal.', ['Noites recentes', 'Check-in', 'Foco/produtividade', 'Recuperação'], 'Boa quando há noites com resultado; baseline quando só há duração.', 'Média: melhora com mais noites e outcomes consistentes.')),
       row('Déficit da noite', sleepDebtToday, null, 'absolute', false, sleepMetricDetail('Diferença entre o alvo atual e o sono da última noite.', 'Mostra o quanto a noite ficou abaixo do necessário para você.', ['Duração da noite principal', 'Alvo de sono'], 'Boa quando duração e alvo estão disponíveis.', 'Alta para cálculo aritmético; depende da precisão do alvo.'), 'ideal 0min'),
       row('Déficit observado 7d', { value: readinessV1.sleepDebtHours, unit: 'h', date: readinessV1.computedAt }, null, 'absolute', false, sleepMetricDetail('Soma dos déficits das noites observadas nos últimos 7 dias.', 'Evita uma noite isolada esconder uma dívida acumulada.', ['Duração por noite principal', 'Alvo de sono'], 'Boa com 5+ noites; parcial com menos noites.', 'Média-alta; é observado, não inventa noites ausentes.'), 'ideal 0min'),
@@ -567,7 +773,7 @@ function buildHealthModel(
       row('Distúrbios', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'disturbance_count', 'vezes'), null, 'absolute', false, sleepMetricDetail('Blocos breves de vigília detectados dentro do sono.', 'Aproxima a ideia de disturbance count: uma noite pode ter poucos despertares longos, mas muitas interrupções curtas.', ['Estágios awake após início do sono'], 'Boa quando há estágios awake detalhados.', 'Média; wearables podem subdetectar microdespertares.'), 'ideal <= 8'),
       row('Ciclos de sono', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'sleep_cycle_count', 'ciclos'), null, 'absolute', true, sleepMetricDetail('Quantidade aproximada de ciclos observados por episódios REM.', 'Ajuda interpretar se a noite completou arquitetura suficiente, especialmente quando foi curta.', ['Episódios REM', 'Janela principal'], 'Parcial: usa REM como marcador de ciclo.', 'Média-baixa para ciclo exato; útil como tendência.'), 'ideal 4-6'),
       row('Cochilos', snapshotSleepNapMetric(latestSleepSnapshot), null, 'absolute', null, sleepMetricDetail('Sono fora do episódio principal da noite.', 'Separa recuperação extra de cochilos para não distorcer duração, fases e déficit da noite.', ['Episódios de sono separados por lacunas longas'], 'Boa quando há horários/estágios; parcial com duração isolada.', 'Média-alta para separar noite vs cochilo.'), 'separado da noite'),
-      row('Eficiência', snapshotSleepMetric(latestSleepSnapshot, 'sleep_efficiency', '%'), null, 'absolute', true, sleepMetricDetail('Percentual do tempo na cama que foi sono.', 'Mostra se a noite foi contínua ou teve vigília relevante.', ['Duração dormida', 'Na cama', 'Acordado'], 'Boa quando há estágio awake ou in bed.', 'Média-alta; depende de estágios do Watch.'), 'ideal >= 90%'),
+	      row('Eficiência', sleepEfficiencyNow, null, 'absolute', true, sleepMetricDetail('Percentual do tempo na cama que foi sono.', 'Mostra se a noite foi contínua ou teve vigília relevante.', ['Duração dormida', 'Na cama', 'Acordado'], 'Boa quando há estágio awake ou in bed.', 'Média-alta; depende de estágios do Watch.'), 'ideal >= 90%'),
       row('REM', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'rem_hours', 'h'), null, 'absolute', true, sleepMetricDetail('Tempo em sono REM na noite principal.', 'REM ajuda consolidação cognitiva e regulação emocional.', ['Estágio REM do Apple Watch', 'Duração total'], 'Parcial: fases por wearable são estimativas.', 'Média; use tendência, não um dia isolado.'), remHoursReference),
       row('REM %', snapshotSleepStagePercentMetric(latestSleepSnapshot, 'rem_hours'), null, 'absolute', true, sleepMetricDetail('Percentual da noite em REM.', 'Normaliza REM pela duração total da noite.', ['REM', 'Duração'], 'Parcial: depende da classificação de estágios.', 'Média para tendência.'), remPercentReference),
       row('Profundo', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'deep_hours', 'h'), null, 'absolute', true, sleepMetricDetail('Tempo em sono profundo na noite principal.', 'Sono profundo pesa para recuperação física e pressão homeostática.', ['Estágio deep do Apple Watch', 'Duração total'], 'Parcial: estimativa de wearable.', 'Média para tendência.'), deepHoursReference),
@@ -576,7 +782,7 @@ function buildHealthModel(
       row('Core %', snapshotSleepStagePercentMetric(latestSleepSnapshot, 'core_hours'), null, 'absolute', true, sleepMetricDetail('Percentual da noite em core/leve.', 'Ajuda detectar se REM/profundo estão comprimidos.', ['Core', 'Duração'], 'Parcial: depende da classificação de estágios.', 'Média para tendência.'), corePercentReference),
       row('Acordado', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'awake_hours', 'h'), null, 'absolute', false, sleepMetricDetail('Tempo acordado dentro da janela de sono principal.', 'Mostra vigília real durante a noite, não apenas quanto tempo você dormiu.', ['Estágio awake', 'Janela principal'], 'Boa quando o Watch marcou awake.', 'Média-alta para vigília detectada.'), `ideal <= ${formatHours(sleepTargetInBedHours * 0.1)}`),
       row('Vigília %', snapshotSleepAwakePercentMetric(latestSleepSnapshot), null, 'absolute', false, sleepMetricDetail('Percentual da janela na cama em vigília.', 'Compara fragmentação entre noites de tamanhos diferentes.', ['Acordado', 'Na cama'], 'Boa quando há awake e in bed/estágios.', 'Média-alta para tendência.'), 'ideal <= 10%'),
-      row('Continuidade', snapshotSleepContinuityMetric(latestSleepSnapshot), null, 'absolute', true, sleepMetricDetail('Complemento da vigília: quanto da janela foi contínua.', 'Facilita ver se a noite foi estável.', ['Vigília %'], 'Boa quando vigília foi medida.', 'Média-alta para tendência.'), 'ideal >= 90%'),
+	      row('Continuidade', sleepContinuityNow, null, 'absolute', true, sleepMetricDetail('Complemento da vigília: quanto da janela foi contínua.', 'Facilita ver se a noite foi estável.', ['Vigília %'], 'Boa quando vigília foi medida.', 'Média-alta para tendência.'), 'ideal >= 90%'),
       row('Na cama', inBedNow, null, 'absolute', null, sleepMetricDetail('Tempo observado na janela principal de sono.', 'Ajuda separar oportunidade de sono de sono real.', ['In bed quando existe', 'Sono + awake', 'Janela de estágios'], 'Boa com in bed/awake; parcial quando inferido por estágios.', 'Média; não deve virar meta rígida.'), `ideal ~${formatHours(sleepTargetInBedHours)}`),
       row('FC sono média', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'sleep_hr_avg_bpm', 'bpm'), null, 'absolute', false, sleepMetricDetail('Frequência cardíaca média dentro da janela principal de sono.', 'É um sinal direto de carga fisiológica noturna; alto contra seu baseline costuma indicar estresse, álcool, calor, doença ou recuperação ruim.', ['Amostras de FC que caem dentro da janela de sono'], 'Agregado local; o app não persiste FC batimento a batimento.', 'Alta para tendência quando há amostras suficientes.'), 'ideal <= seu normal'),
       row('FC sono mínima', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'sleep_hr_min_bpm', 'bpm'), null, 'absolute', false, sleepMetricDetail('Menor FC observada durante o sono principal.', 'Ajuda ver se o corpo chegou a um estado de repouso profundo.', ['Amostras de FC no sono'], 'Agregado local sem salvar série bruta.', 'Média-alta; depende da frequência de amostragem do Apple Watch.'), 'ideal estável'),
@@ -589,7 +795,7 @@ function buildHealthModel(
       row('Cobertura de fases', snapshotSleepStageCoverageMetric(latestSleepSnapshot), null, 'absolute', true, sleepMetricDetail('Quanto do sono dormido tem estágio detalhado REM/core/profundo.', 'Indica se a arquitetura da noite é confiável ou se veio só duração genérica.', ['REM', 'Core', 'Profundo', 'Asleep genérico'], 'Alta quando estágios cobrem quase toda a noite.', 'Alta para qualidade do dado, não para saúde.'), 'ideal >= 85%'),
       row('Qualidade dados sono', snapshotSleepDataQualityMetric(latestSleepSnapshot), null, 'absolute', true, sleepMetricDetail('Confiança operacional da noite analisada.', 'Evita tratar uma noite com dados incompletos como verdade forte.', ['Cobertura de fases', 'Eficiência', 'Latência', 'Despertares'], 'Alta quando há estágios completos e vigília.', 'Alta para auditar dado; não mede saúde.'), 'ideal >= 75%'),
       row('Status captura', snapshotSleepCaptureStatusMetric(latestSleepSnapshot), null, 'absolute', true, sleepMetricDetail('Classificação da captura usada na noite.', 'Mostra rapidamente se o sono veio completo, parcial ou só por duração.', ['Cobertura de estágios', 'Fonte do sono'], 'Alta para auditoria de dados.', 'Alta para explicar a confiabilidade operacional.'), 'ideal completo'),
-      row('Regularidade', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'regularity_score', '%'), null, 'absolute', true, sleepMetricDetail('Score de consistência dos horários recentes de sono.', 'Regularidade circadiana melhora previsibilidade de sono, energia e foco.', ['Hora de dormir', 'Hora de acordar', 'Ponto médio do sono', 'Jetlag social'], 'Boa com 3+ noites recentes; melhor com 7.', 'Média-alta para rotina.'), 'ideal >= 85%'),
+	      row('Regularidade', sleepRegularityNow, null, 'absolute', true, sleepMetricDetail('Score de consistência dos horários recentes de sono.', 'Regularidade circadiana melhora previsibilidade de sono, energia e foco.', ['Hora de dormir', 'Hora de acordar', 'Ponto médio do sono', 'Jetlag social'], 'Boa com 3+ noites recentes; melhor com 7.', 'Média-alta para rotina.'), 'ideal >= 85%'),
       row('Dormir ±', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'bedtime_regularity_minutes', 'min'), null, 'absolute', false, sleepMetricDetail('Desvio médio do horário de dormir em relação ao seu padrão recente.', 'Mostra se a rotina de início do sono está estável.', ['Bedtime das últimas noites'], 'Boa com 3+ noites.', 'Média-alta para rotina.'), 'ideal <= 30min'),
       row('Acordar ±', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'wake_regularity_minutes', 'min'), null, 'absolute', false, sleepMetricDetail('Desvio médio do horário de acordar em relação ao padrão recente.', 'Horário de acordar estável ancora ritmo circadiano e energia do dia.', ['Wake time das últimas noites'], 'Boa com 3+ noites.', 'Média-alta para rotina.'), 'ideal <= 30min'),
       row('Meio do sono ±', snapshotJsonMetric(latestSleepSnapshot, 'sleep', 'midpoint_regularity_minutes', 'min'), null, 'absolute', false, sleepMetricDetail('Variação do ponto médio da noite de sono.', 'É mais robusto que olhar só dormir ou acordar, porque resume o deslocamento da janela inteira.', ['Bedtime', 'Wake time'], 'Boa com 3+ noites.', 'Média-alta para rotina.'), 'ideal <= 30min'),
@@ -607,9 +813,11 @@ function buildHealthModel(
       row('VO2max', vo2maxNow, previousWeekSnapshotLatest(healthSnapshots, 'vo2max', 'ml/(kg*min)') ?? previousWeekLatest(healthSignals, ['vo2max']), 'absolute', true, recoveryMetricDetail('VO2max', 'Estimativa de aptidão cardiorrespiratória.', 'Não é uma métrica que muda toda noite, mas contextualiza capacidade física e idade física.', ['VO2max Apple Health', 'Treinos/caminhadas/corridas qualificadas'], 'Atualiza quando a Apple gera nova estimativa, normalmente após atividades compatíveis; Atlas aceita valor recente por até 180 dias.', 'Boa quando há estimativa recente; fica sem dado se estiver velho demais.', 'Média-alta para tendência de aptidão, não para recuperação diária.'), 'quanto maior melhor'),
     ],
     loadRows: [
-      row('Strain do dia', strainToday, null, 'absolute', false, dayStrainDetail(readinessV1.dayStrain), '0-21'),
-      row('Margem de carga', scoreMetric(readinessV1.load.score, dynamicComputedAt), null, 'absolute', true, axisDetail(readinessV1.load, 'Carga', 'Quanto espaço ainda existe hoje antes de passar do seu padrão recente.', 'Evita confundir dia ativo com dia bom: score alto significa margem alta, score baixo significa carga já pesada.', ['Strain do dia', 'Carga relativa', 'Carga aguda/crônica', 'FC ativa', 'Esforço treino', 'Treino recente'], 'Modelo central readiness_v1 com carga acumulada e baseline pessoal.', 'Atualiza ao longo do dia quando chegam passos, energia, exercício, FC acordado ou treino com FC.', 'Alta com zonas de FC; parcial quando só há passos/calorias.', 'Boa para decisão operacional, não para diagnóstico.', ['Carga é acumulativa e muda durante o dia.', 'Sem Apple Watch durante treino, o modelo perde precisão cardiovascular.', 'Sem score de esforço, musculação ainda depende de duração, energia e FC.'], readinessV1.axisQuality.load), 'alto = sobra'),
-      row('Carga relativa', ratioPercentMetric(readinessV1.dayStrain.loadRatio ?? readinessV1.loadRatio, readinessV1.computedAt), null, 'absolute', false, loadMetricDetail('Relação entre a carga observada hoje e seu normal.', 'Mostra se o dia está leve, normal ou acima do padrão pessoal.', ['Cardio load', 'Energia ativa', 'Exercício', 'Passos', 'Distância'], 'Atualiza durante o dia; usa baseline pessoal quando existe.', 'Boa com 7+ dias úteis de baseline.', 'Média-alta; depende da cobertura de sensores.'), 'ideal ~100%'),
+	      row('Strain do dia', strainToday, null, 'absolute', false, dayStrainDetail(readinessV1.dayStrain), '0-21'),
+	      row('Margem de carga', scoreMetric(readinessV1.load.score, dynamicComputedAt), null, 'absolute', true, axisDetail(readinessV1.load, 'Carga', 'Quanto espaço ainda existe hoje antes de passar do seu padrão recente.', 'Evita confundir dia ativo com dia bom: score alto significa margem alta, score baixo significa carga já pesada.', ['Strain do dia', 'Carga relativa', 'Carga aguda/crônica', 'FC ativa', 'Esforço treino', 'Treino recente'], 'Modelo central readiness_v1 com carga acumulada e baseline pessoal.', 'Atualiza ao longo do dia quando chegam passos, energia, exercício, FC acordado ou treino com FC.', 'Alta com zonas de FC; parcial quando só há passos/calorias.', 'Boa para decisão operacional, não para diagnóstico.', ['Carga é acumulativa e muda durante o dia.', 'Sem Apple Watch durante treino, o modelo perde precisão cardiovascular.', 'Sem score de esforço, musculação ainda depende de duração, energia e FC.'], readinessV1.axisQuality.load), 'alto = sobra'),
+	      row('Risco de sobrecarga', overloadRisk, null, 'absolute', false, compositeMetricDetail('Carga', 'Probabilidade operacional de excesso hoje, combinando carga, intensidade e recuperação recente.', 'Mostra quando a carga está alta demais para a base atual, mesmo que a motivação ou o treino pareçam bons.', ['Strain do dia', 'Carga relativa', 'Aguda/crônica', 'Zonas 4-5', 'Déficit observado 7d', 'Recuperação noturna'], 'Cálculo local sobre readiness_v1 e agregados de carga do dia.', 'Atualiza durante o dia; sono e recuperação usam a última noite válida.', 'Boa com zonas de FC e histórico de carga; parcial sem FC de treino.', 'Média-alta para gestão de carga; não prevê lesão individual.', ['Musculação pesada sem FC alta pode subestimar risco muscular.', 'Dor, doença e volume externo não registrado precisam ser considerados fora do score.'], compositeMetricEvidence(['Strain', strainToday], ['Carga relativa', ratioPercentMetric(readinessV1.dayStrain.loadRatio ?? readinessV1.loadRatio, readinessV1.computedAt)], ['Aguda/crônica', ratioPercentMetric(readinessV1.dayStrain.acuteChronic, readinessV1.computedAt)], ['Zonas altas', sumMetricValues(workoutZoneHighToday, wakingZoneHighToday, 'min')], ['Déficit 7d', { value: readinessV1.sleepDebtHours, unit: 'h', date: readinessV1.computedAt }]), overloadRisk.confidence), '<= 35%'),
+	      row('Eficiência cardiovascular', cardiovascularEfficiency, null, 'absolute', true, compositeMetricDetail('Carga', 'Score de economia cardiovascular: quanto movimento/carga você produziu para a resposta de FC observada.', 'Diferencia capacidade máxima de eficiência diária. VO2max entra só como contexto leve; o motor principal é FC por volume de movimento.', ['FC ativa média', 'FC treino média', 'Passos', 'Distância', 'Energia ativa', 'Carga cardio', 'VO2max como contexto'], 'Cálculo local com pesos limitados para não transformar eficiência em outro VO2max.', 'Atualiza no dia atual; fica melhor com várias semanas de comparação pessoal.', 'Boa com FC acordado/treino e volume de movimento; parcial se só houver passos ou só houver FC.', 'Média para leitura diária; melhor como tendência semanal.', ['Não substitui teste de esforço.', 'Sem pace ou potência externa, a eficiência é aproximação por sensores disponíveis.'], compositeMetricEvidence(['FC ativa média', wakingHrAvgToday], ['FC treino média', workoutHrAvgToday], ['Passos', stepsToday], ['Distância', distanceToday], ['VO2max', vo2maxNow]), cardiovascularEfficiency.confidence), '>= 75%'),
+	      row('Carga relativa', ratioPercentMetric(readinessV1.dayStrain.loadRatio ?? readinessV1.loadRatio, readinessV1.computedAt), null, 'absolute', false, loadMetricDetail('Relação entre a carga observada hoje e seu normal.', 'Mostra se o dia está leve, normal ou acima do padrão pessoal.', ['Cardio load', 'Energia ativa', 'Exercício', 'Passos', 'Distância'], 'Atualiza durante o dia; usa baseline pessoal quando existe.', 'Boa com 7+ dias úteis de baseline.', 'Média-alta; depende da cobertura de sensores.'), 'ideal ~100%'),
       row('Aguda/crônica', ratioPercentMetric(readinessV1.dayStrain.acuteChronic, readinessV1.computedAt), null, 'absolute', false, loadMetricDetail('Relação entre carga recente e carga crônica.', 'Ajuda detectar salto de carga que aumenta risco de excesso mesmo quando o treino parece normal.', ['Últimos 7 dias', 'Histórico anterior de até 28 dias'], 'Atualiza quando existe histórico suficiente.', 'Boa com várias semanas de dados.', 'Média; é tendência, não regra clínica.'), 'ideal <= 130%'),
       row('Carga cardio treino', cardioLoadToday, previousWeekDailyAverage(healthSignals, ['workout_cardio_load']), 'relative', false, loadMetricDetail('Carga cardiovascular derivada de zonas de frequência cardíaca em treinos.', 'É o melhor sinal de esforço real quando o Apple Watch registrou FC durante treino.', ['FC treino', 'Duração', 'Zonas 1-5'], 'Atualiza após treinos com FC suficiente.', 'Alta com 3+ amostras de FC por treino; sem FC vira sem dado.', 'Alta para treino; não mede musculação sem resposta cardiovascular.'), 'quanto menor, mais leve'),
       row('Carga FC ativa', wakingCardioLoadToday, previousWeekDailyAverage(healthSignals, ['waking_cardio_load']), 'relative', false, loadMetricDetail('Carga cardiovascular fora de sono e fora de treinos.', 'Aproxima o strain de dia inteiro: captura esforço físico que não virou workout formal sem salvar batimento bruto.', ['FC do dia agregada', 'Sono excluído', 'Treinos excluídos', 'Zonas pessoais'], 'Atualiza por agregados recentes de HealthKit; não importa samples brutos para o banco.', 'Boa quando há amostragem suficiente de FC acordado; sem amostras vira sem dado.', 'Média-alta para tendência de carga diária; melhor junto com treino e energia ativa.'), 'vs normal'),
@@ -651,9 +859,10 @@ function buildHealthModel(
       row('Notif. tratadas %', digitalRatioMetric(digitalToday, ['notifications_actioned'], 'notifications_received'), null, 'absolute', true, digitalMetricDetail(digitalToday, ['notifications_actioned', 'notifications_received'], 'Percentual de notificações que viraram ação.', 'Mostra quanto do input externo conseguiu puxar sua atenção.', ['Notificações recebidas', 'Notificações tratadas'], 'Sem dado enquanto notificações não forem capturadas.', 'Sem precisão até existir fonte nativa.'), 'fonte ausente'),
       row('Consumo curado', latestDigitalMetric(digitalActivitySnapshots, 'curated_input_min', 'duration'), previousWeekDigitalAverage(digitalActivitySnapshots, 'curated_input_min', 'duration'), 'absolute', true, digitalMetricDetail(digitalToday, ['curated_input_min'], 'Tempo em leitura, pesquisa ou input escolhido conscientemente.', 'Nem todo consumo é ruim: input curado pode alimentar trabalho e decisões.', ['Categorias curadas', 'Sessões classificadas'], 'Só aparece com mapeamento de apps/domínios.', 'Média-alta com boa taxonomia.'), 'intencional'),
       row('Feed algorítmico', latestDigitalMetric(digitalActivitySnapshots, 'algorithmic_input_min', 'duration'), previousWeekDigitalAverage(digitalActivitySnapshots, 'algorithmic_input_min', 'duration'), 'absolute', false, digitalMetricDetail(digitalToday, ['algorithmic_input_min'], 'Tempo em feeds e superfícies que escolhem o próximo estímulo por você.', 'É uma das formas mais fortes de pressão atencional e perda de direção.', ['Apps/domínios classe algorítmica'], 'Depende de classificação.', 'Boa se redes/feeds estiverem mapeados; sem mapeamento vira sem dado.'), 'menor = melhor'),
-      row('Pressão algorítmica', digitalSumMetric(digitalToday, algorithmicPressureKeys, 'duration'), null, 'absolute', false, digitalMetricDetail(digitalToday, algorithmicPressureKeys, 'Soma de feed algorítmico, entretenimento automático e comunicação rasa.', 'Resume o volume de estímulo digital que tende a drenar foco sem gerar execução.', ['Feed algorítmico', 'Entretenimento automático', 'Comunicação rasa'], 'Depende de classificação; sem classificação fica sem dado.', 'Boa como proxy de pressão, não como causalidade perfeita.'), 'menor = melhor'),
-      row('Pressão algorítmica %', digitalRatioMetric(digitalToday, algorithmicPressureKeys, 'total_screen_time_min'), null, 'absolute', false, digitalMetricDetail(digitalToday, [...algorithmicPressureKeys, 'total_screen_time_min'], 'Percentual da tela gasto em pressão algorítmica.', 'Normaliza a pressão pelo total: pouco tempo de tela ruim ainda pode pesar se for quase todo feed.', ['Pressão algorítmica', 'Tempo de tela'], 'Depende de classificação.', 'Boa quando a maior parte do tempo está classificada.'), '<= 25%'),
-      row('Intencionalidade digital', digitalRatioMetric(digitalToday, intentionalDigitalKeys, 'total_screen_time_min'), null, 'absolute', true, digitalMetricDetail(digitalToday, [...intentionalDigitalKeys, 'total_screen_time_min'], 'Percentual do tempo de tela que foi intencional ou produtivo.', 'É a leitura mais importante da seção: não pune tela usada para trabalho real.', ['Trabalho profundo', 'Consumo curado', 'Entretenimento intencional', 'Comunicação primária'], 'Depende de classificação e mapeamento consistente.', 'Média-alta quando a taxonomia está coberta.'), '>= 50%'),
+	      row('Pressão algorítmica', algorithmicPressureToday, null, 'absolute', false, digitalMetricDetail(digitalToday, algorithmicPressureKeys, 'Soma de feed algorítmico, entretenimento automático e comunicação rasa.', 'Resume o volume de estímulo digital que tende a drenar foco sem gerar execução.', ['Feed algorítmico', 'Entretenimento automático', 'Comunicação rasa'], 'Depende de classificação; sem classificação fica sem dado.', 'Boa como proxy de pressão, não como causalidade perfeita.'), 'menor = melhor'),
+	      row('Pressão cognitiva líquida', cognitivePressure, null, 'absolute', false, compositeMetricDetail('Atividade digital', 'Pressão líquida de atenção no dia: estímulo algorítmico e fragmentação menos sinais de intenção e trabalho profundo.', 'Ajuda separar um dia digital produtivo de um dia digital que drena clareza, mesmo com o mesmo tempo de tela.', ['Pressão algorítmica %', 'Fragmentação digital', 'Primeira distração', 'Intencionalidade digital', 'Trabalho profundo', 'Penalidade cognitiva'], 'Cálculo local sobre snapshot digital e readiness atual.', 'Usa o snapshot digital do dia; check-in/penalidade cognitiva expiram pelo readiness.', 'Boa com classificação digital; parcial quando só há tempo de tela bruto.', 'Média-alta para decisão operacional; não mede cognição clínica.', ['Sem Screen Time nativo, pickups e notificações ainda ficam fora.', 'Taxonomia ruim pode distorcer pressão algorítmica e intencionalidade.'], compositeMetricEvidence(['Pressão algorítmica %', algorithmicPressurePercentToday], ['Fragmentação', fragmentationToday], ['Primeira distração', firstOffensiveUse], ['Intencionalidade', intentionalityToday], ['Trabalho profundo', deepWorkToday]), cognitivePressure.confidence), '<= 35%'),
+	      row('Pressão algorítmica %', algorithmicPressurePercentToday, null, 'absolute', false, digitalMetricDetail(digitalToday, [...algorithmicPressureKeys, 'total_screen_time_min'], 'Percentual da tela gasto em pressão algorítmica.', 'Normaliza a pressão pelo total: pouco tempo de tela ruim ainda pode pesar se for quase todo feed.', ['Pressão algorítmica', 'Tempo de tela'], 'Depende de classificação.', 'Boa quando a maior parte do tempo está classificada.'), '<= 25%'),
+	      row('Intencionalidade digital', intentionalityToday, null, 'absolute', true, digitalMetricDetail(digitalToday, [...intentionalDigitalKeys, 'total_screen_time_min'], 'Percentual do tempo de tela que foi intencional ou produtivo.', 'É a leitura mais importante da seção: não pune tela usada para trabalho real.', ['Trabalho profundo', 'Consumo curado', 'Entretenimento intencional', 'Comunicação primária'], 'Depende de classificação e mapeamento consistente.', 'Média-alta quando a taxonomia está coberta.'), '>= 50%'),
       row('Entretenimento intencional', latestDigitalMetric(digitalActivitySnapshots, 'intentional_entertainment_min', 'duration'), previousWeekDigitalAverage(digitalActivitySnapshots, 'intentional_entertainment_min', 'duration'), 'absolute', true, digitalMetricDetail(digitalToday, ['intentional_entertainment_min'], 'Lazer escolhido de forma deliberada.', 'Descanso digital planejado é diferente de cair em feed automático.', ['Sessões de entretenimento intencional'], 'Depende de classificação.', 'Média: intenção ainda precisa de curadoria manual ou contexto.'), 'planejado'),
       row('Entretenimento automático', latestDigitalMetric(digitalActivitySnapshots, 'default_entertainment_min', 'duration'), previousWeekDigitalAverage(digitalActivitySnapshots, 'default_entertainment_min', 'duration'), 'absolute', false, digitalMetricDetail(digitalToday, ['default_entertainment_min'], 'Lazer iniciado por padrão/hábito, sem intenção clara.', 'Costuma ser dreno leve ou moderado quando aparece em blocos longos.', ['Sessões classe entretenimento default'], 'Depende de classificação.', 'Média; intenção real pode exigir confirmação pelo usuário.'), 'menor = melhor'),
       row('Comunicação primária', latestDigitalMetric(digitalActivitySnapshots, 'communication_primary_min', 'duration'), previousWeekDigitalAverage(digitalActivitySnapshots, 'communication_primary_min', 'duration'), 'absolute', true, digitalMetricDetail(digitalToday, ['communication_primary_min'], 'Comunicação essencial: trabalho, família, coordenação importante.', 'Ajuda não punir mensagens necessárias como se fossem distração.', ['Apps/canais classificados como comunicação primária'], 'Depende de classificação.', 'Média; pode exigir ajustes por contato/projeto.'), 'útil'),
@@ -669,18 +878,22 @@ function buildHealthModel(
         : []),
       row('Penalidade cognitiva', { value: readinessV1.diagnostics.cognitivePenalty, unit: 'pts', date: readinessV1.computedAt, confidence: readinessV1.axisQuality.current.confidence, qualityLabel: readinessV1.diagnostics.cognitivePenalty > 0 ? 'ativa' : 'sem penalidade' }, null, 'absolute', false, cognitivePenaltyDetail(readinessV1, currentCheckinState, checkinStateFreshnessValue), 'ideal 0'),
     ],
-    bodyRows: [
-      row('Gordura corporal', bodyFatNow, previousWeekSnapshotLatest(healthSnapshots, 'body_fat_percentage', '%') ?? normalizedPercentValue(previousWeekLatest(healthSignals, ['body_fat_percentage'])), 'absolute', false),
-      row('Massa gorda', fatMassNow, null, 'absolute', false),
-      row('Músculo %', musclePercentNow, previousWeekSnapshotLatest(healthSnapshots, 'muscle_mass_percentage', '%') ?? previousWeekMusclePercent(healthSignals), 'absolute', true),
-      row('Idade física', physicalAgeNow, null, 'absolute', false),
-      row('Idade corporal', bodyAgeNow, previousWeekLatest(healthSignals, ['body_age', 'metabolic_age']), 'absolute', false),
-      row('Massa magra', leanMassNow, previousWeekSnapshotLatest(healthSnapshots, 'lean_body_mass_kg', 'kg') ?? previousWeekLatest(healthSignals, ['lean_body_mass']), 'absolute', true),
-      row('Peso', bodyMassNow, previousWeekSnapshotLatest(healthSnapshots, 'body_mass_kg', 'kg') ?? previousWeekLatest(healthSignals, ['body_mass']), 'absolute', false),
-      row('Altura', heightNow, previousWeekLatest(healthSignals, ['height']), 'absolute', null),
-      row('IMC', bmiNow, previousWeekSnapshotLatest(healthSnapshots, 'body_mass_index', null) ?? previousWeekLatest(healthSignals, ['body_mass_index']), 'absolute', false),
-      row('Cintura', waistNow, previousWeekSnapshotLatest(healthSnapshots, 'waist_circumference_cm', 'cm') ?? previousWeekLatest(healthSignals, ['waist_circumference']), 'absolute', false),
-      row('TMB', basalEnergyToday, previousWeekSnapshotAverage(healthSnapshots, 'basal_energy_kcal', 'kcal') ?? previousWeekDailyAverage(healthSignals, ['basal_energy_kcal']), 'relative', true),
+	    healthspanRows: [
+	      row('Idade Fisiológica Atlas', atlasPhysiologicalAgeNow, previousAtlasPhysiologicalAge(healthSnapshots), 'absolute', false, atlasPhysiologicalAgeDetail(atlasPhysiologicalAge), confidenceReference(atlasPhysiologicalAgeNow) ?? physiologicalAgeStatusLabel(atlasPhysiologicalAge.status), 'janela lenta'),
+	      row('Pace of Aging Atlas', paceOfAging, null, 'absolute', false, paceOfAgingDetail(paceOfAging, atlasPhysiologicalAge), '<= 1,0x'),
+	    ],
+	    bodyRows: [
+	      row('Qualidade da composição', bodyDataQuality, null, 'absolute', true, bodyCompositionQualityDetail(bodyDataQuality, bodyMassNow, bodyFatNow, leanMassNow, waistNow, heightNow, bmiNow), '>= 80%'),
+	      row('Perfil metabólico', metabolicProfile, null, 'absolute', true, metabolicProfileDetail(metabolicProfile, waistNow, heightNow, bmiNow, bodyFatNow, leanMassPercentNow), '>= 80%'),
+	      row('Gordura corporal', bodyFatNow, previousWeekSnapshotLatest(healthSnapshots, 'body_fat_percentage', '%') ?? normalizedPercentValue(previousWeekLatest(compositionSignals, ['body_fat_percentage'])), 'absolute', false, bodyCompositionDetail('Gordura corporal', ['Body Fat Percentage'], 'Última medição válida, normalizada para percentual.', 'Métrica de composição corporal; não expira diariamente.', 'HealthKit ou entrada manual validada por faixa fisiológica.'), confidenceReference(bodyFatNow)),
+      row('Massa gorda', fatMassNow, null, 'absolute', false, bodyCompositionDetail('Massa gorda', ['Peso', 'Gordura corporal'], 'Peso multiplicado pelo percentual de gordura.', 'Derivada; muda quando peso ou gordura mudam.', 'Cálculo local a partir das últimas medições válidas.'), confidenceReference(fatMassNow)),
+      row('Massa magra %', leanMassPercentNow, previousWeekLeanMassPercent(healthSnapshots, compositionSignals), 'absolute', true, bodyCompositionDetail('Massa magra %', ['Massa magra', 'Peso'], 'Percentual de massa livre de gordura, não músculo esquelético direto.', 'Última medição/derivação; não deve ser lida como músculo real se a fonte não entrega músculo.', 'Cálculo local ou snapshot validado.'), confidenceReference(leanMassPercentNow)),
+      row('Massa magra', leanMassNow, previousWeekSnapshotLatest(healthSnapshots, 'lean_body_mass_kg', 'kg') ?? previousWeekLatest(compositionSignals, ['lean_body_mass']), 'absolute', true, bodyCompositionDetail('Massa magra', ['Lean Body Mass', 'Peso', 'Gordura corporal'], 'Massa livre de gordura; pode ser medida ou derivada.', 'Última medição válida. Não exige atualização diária.', 'HealthKit ou cálculo peso - massa gorda quando a massa magra direta não existe.'), confidenceReference(leanMassNow)),
+      row('Peso', bodyMassNow, previousWeekSnapshotLatest(healthSnapshots, 'body_mass_kg', 'kg') ?? previousWeekLatest(compositionSignals, ['body_mass']), 'absolute', false, bodyCompositionDetail('Peso', ['Body Mass'], 'Último peso válido em kg.', 'Pode ficar estável até nova pesagem.', 'HealthKit ou entrada manual validada.'), confidenceReference(bodyMassNow)),
+      row('Altura', heightNow, previousWeekLatest(compositionSignals, ['height']), 'absolute', null, bodyCompositionDetail('Altura', ['Height'], 'Última altura válida. É métrica estável.', 'Usada para IMC e TMB estimada; não precisa atualização frequente.', 'HealthKit ou entrada manual validada.'), 'editar'),
+      row('IMC', bmiNow, previousWeekSnapshotLatest(healthSnapshots, 'body_mass_index', null) ?? previousWeekLatest(compositionSignals, ['body_mass_index']), 'absolute', false, bodyCompositionDetail('IMC', ['Peso', 'Altura', 'Body Mass Index'], 'Índice peso/altura ao quadrado.', 'Usa leitura direta quando existe; senão deriva de peso e altura válidos.', 'HealthKit, entrada manual e cálculo local com limites fisiológicos.'), confidenceReference(bmiNow)),
+      row('Cintura', waistNow, previousWeekSnapshotLatest(healthSnapshots, 'waist_circumference_cm', 'cm') ?? previousWeekLatest(compositionSignals, ['waist_circumference']), 'absolute', false, bodyCompositionDetail('Cintura', ['Waist Circumference'], 'Última circunferência de cintura válida.', 'Métrica manual/intermitente; não expira diariamente.', 'HealthKit ou entrada manual validada.'), 'editar'),
+      row('TMB estimada', bmrNow, null, 'absolute', true, bodyCompositionDetail('TMB estimada', ['Peso', 'Altura', 'Idade', 'Sexo biológico'], 'Estimativa pela equação de Mifflin-St Jeor.', 'Não usa energia basal parcial do dia, então não oscila com sincronização incompleta.', 'Cálculo local; fica sem dado se faltar peso, altura, idade ou sexo.'), confidenceReference(bmrNow)),
     ],
   }
 }
@@ -729,10 +942,12 @@ function MetricList({
   rows,
   onRowPress,
   onRowLongPress,
+  canPressRow,
 }: {
   rows: MetricRowModel[]
   onRowPress?: (item: MetricRowModel) => void
   onRowLongPress?: (item: MetricRowModel) => void
+  canPressRow?: (item: MetricRowModel) => boolean
 }) {
   const c = usePalette()
   return (
@@ -742,9 +957,45 @@ function MetricList({
           key={item.label}
           item={item}
           last={index === rows.length - 1}
-          onPress={onRowPress}
+          onPress={onRowPress && (!canPressRow || canPressRow(item)) ? onRowPress : undefined}
           onLongPress={onRowLongPress}
         />
+      ))}
+    </View>
+  )
+}
+
+function BodyMetricGroups({
+  rows,
+  onRowPress,
+  onRowLongPress,
+  canPressRow,
+}: {
+  rows: MetricRowModel[]
+  onRowPress?: (item: MetricRowModel) => void
+  onRowLongPress?: (item: MetricRowModel) => void
+  canPressRow?: (item: MetricRowModel) => boolean
+}) {
+  const c = usePalette()
+  const groups = groupedBodyMetrics(rows)
+
+  return (
+    <View style={styles.bodyGroups}>
+      {groups.map((group) => (
+        <View key={group.label} style={styles.bodyGroup}>
+          <View style={styles.bodyGroupHeader}>
+            <Label>{group.label}</Label>
+            <Sans size={12} lineHeight={17} color={c.ink2}>
+              {group.caption}
+            </Sans>
+          </View>
+          <MetricList
+            rows={group.rows}
+            onRowPress={onRowPress}
+            onRowLongPress={onRowLongPress}
+            canPressRow={canPressRow}
+          />
+        </View>
       ))}
     </View>
   )
@@ -763,8 +1014,10 @@ function MetricRow({
 }) {
   const c = usePalette()
   const trend = trendText(item, c)
+  const referenceColor = metricReferenceColor(item.reference, c)
   const press = onPress ? () => onPress(item) : undefined
   const longPress = onLongPress && item.detail ? () => onLongPress(item) : undefined
+  const editable = Boolean(press) && item.reference === 'editar'
   return (
     <Pressable
       onPress={press}
@@ -787,8 +1040,14 @@ function MetricRow({
         <Mono size={13} letterSpacing={0.26} color={hasValue(item.value) ? c.ink : c.ink3} align="right">
           {formatMetric(item.value)}
         </Mono>
-        {item.reference ? (
-          <Mono size={10.5} letterSpacing={0.1} color={c.ink2} align="right">
+        {item.reference && editable ? (
+          <View style={[styles.editPill, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <Mono size={10.5} letterSpacing={0.1} color={c.prussian} align="right">
+              Editar
+            </Mono>
+          </View>
+        ) : item.reference ? (
+          <Mono size={10.5} letterSpacing={0.1} color={referenceColor} align="right">
             {item.reference}
           </Mono>
         ) : null}
@@ -873,6 +1132,136 @@ function MetricDetailSheet({
           </View>
         ) : null}
       </View>
+    </Modal>
+  )
+}
+
+function ManualBodyMetricModal({
+  metric,
+  value,
+  error,
+  saving,
+  onChangeValue,
+  onSubmit,
+  onClose,
+}: {
+  metric: ManualBodyMetricKey | null
+  value: string
+  error: string | null
+  saving: boolean
+  onChangeValue: (value: string) => void
+  onSubmit: () => void
+  onClose: () => void
+}) {
+  const { c, name } = useTheme()
+  const config = metric ? MANUAL_BODY_METRICS[metric] : null
+  const range = config ? `${manualDisplayValue(config.min, config.unit)}-${manualDisplayValue(config.max, config.unit)} ${config.unit}` : ''
+
+  return (
+    <Modal
+      transparent
+      visible={Boolean(config)}
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <KeyboardAvoidingView
+        style={styles.manualModal}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Pressable style={styles.manualScrim} onPress={saving ? undefined : onClose} />
+        {config ? (
+          <View style={[styles.manualSheet, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <View style={[styles.manualHandle, { backgroundColor: c.border }]} />
+            <View style={styles.manualHeader}>
+              <View style={styles.manualTitleBlock}>
+                <Label color={c.bronze}>Medição manual</Label>
+                <Frau size={30} lineHeight={34} letterSpacing={0} color={c.ink} style={{ marginTop: 6 }}>
+                  {config.label}
+                </Frau>
+              </View>
+              <Pressable
+                accessibilityLabel="Fechar edição"
+                disabled={saving}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.manualClose,
+                  { borderColor: c.border, opacity: pressed || saving ? 0.68 : 1 },
+                ]}
+              >
+                <Sans size={22} lineHeight={24} color={c.ink2} align="center">×</Sans>
+              </Pressable>
+            </View>
+
+            <View style={[styles.manualInputFrame, { backgroundColor: c.bg, borderColor: c.border }]}>
+              <TextInput
+                value={value}
+                onChangeText={(next) => {
+                  onChangeValue(next)
+                }}
+                placeholder={config.placeholder}
+                placeholderTextColor={c.ink3}
+                keyboardType="decimal-pad"
+                keyboardAppearance={name === 'dark' ? 'dark' : 'light'}
+                returnKeyType="done"
+                selectTextOnFocus
+                onSubmitEditing={onSubmit}
+                selectionColor={c.prussian}
+                style={[styles.manualInput, { color: c.ink }]}
+              />
+              <View style={[styles.manualUnitPill, { borderColor: c.border, backgroundColor: c.surface }]}>
+                <Mono size={12} letterSpacing={0.24} color={c.ink2} align="center">
+                  {config.unit}
+                </Mono>
+              </View>
+            </View>
+
+            <View style={styles.manualMetaRow}>
+              <View style={[styles.manualMetaItem, { borderColor: c.border }]}>
+                <Mono size={10.5} letterSpacing={0.35} color={c.ink3}>INTERVALO</Mono>
+                <Mono size={12} letterSpacing={0} color={c.ink}>{range}</Mono>
+              </View>
+              <View style={[styles.manualMetaItem, { borderColor: c.border }]}>
+                <Mono size={10.5} letterSpacing={0.35} color={c.ink3}>ORIGEM</Mono>
+                <Mono size={12} letterSpacing={0} color={c.ink}>manual</Mono>
+              </View>
+            </View>
+
+            <Sans
+              size={12.5}
+              lineHeight={17}
+              color={error ? c.recRed : c.ink2}
+              style={styles.manualMessage}
+            >
+              {error ?? 'Usada como última medição válida até nova atualização.'}
+            </Sans>
+
+            <View style={styles.manualActions}>
+              <Pressable
+                disabled={saving}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.manualButton,
+                  { borderColor: c.border, opacity: pressed || saving ? 0.72 : 1 },
+                ]}
+              >
+                <Sans weight="med" size={14} color={c.ink2}>Cancelar</Sans>
+              </Pressable>
+              <Pressable
+                disabled={saving}
+                onPress={onSubmit}
+                style={({ pressed }) => [
+                  styles.manualButton,
+                  styles.manualButtonPrimary,
+                  { borderColor: c.ink, backgroundColor: c.ink, opacity: pressed || saving ? 0.78 : 1 },
+                ]}
+              >
+                <Sans weight="sb" size={14} color={c.onInk}>{saving ? 'Salvando' : 'Salvar medida'}</Sans>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
@@ -1011,6 +1400,31 @@ function row(
   comparisonLabel?: string | null,
 ): MetricRowModel {
   return { label, value, previous, trendMode, positiveIsGood, detail, reference, comparisonLabel }
+}
+
+function groupedBodyMetrics(rows: MetricRowModel[]): MetricGroupModel[] {
+  const byLabel = new Map(rows.map((item) => [item.label, item]))
+  const pick = (labels: string[]): MetricRowModel[] => (
+    labels.map((label) => byLabel.get(label)).filter((item): item is MetricRowModel => Boolean(item))
+  )
+
+  return [
+    {
+      label: 'Medidas base',
+      caption: 'Entradas auditáveis que podem vir do HealthKit ou de registro manual.',
+      rows: pick(['Qualidade da composição', 'Peso', 'Altura', 'Cintura']),
+    },
+    {
+      label: 'Composição',
+      caption: 'Leituras e cálculos dependentes de gordura corporal e massa magra.',
+      rows: pick(['Gordura corporal', 'Massa gorda', 'Massa magra', 'Massa magra %']),
+    },
+    {
+      label: 'Modelos',
+      caption: 'Cálculos auxiliares sem idade paralela; a idade oficial fica em Healthspan Atlas.',
+      rows: pick(['Perfil metabólico', 'IMC', 'TMB estimada']),
+    },
+  ].filter((group) => group.rows.length > 0)
 }
 
 function axisDetail(
@@ -1546,6 +1960,34 @@ function previousWeekSnapshotLatest(
 
   return {
     value: Number(snapshot[key]),
+    unit,
+    date: snapshot.computed_at,
+  }
+}
+
+function previousWeekSnapshotJsonMetric(
+  snapshots: AtlasHealthSnapshot[],
+  section: SnapshotPayloadKey,
+  key: string,
+  unit: string | null,
+): MetricValue | null {
+  const range = previousWeekDateRange()
+  const snapshot = snapshots
+    .filter((item) => {
+      const date = snapshotDateKey(item.snapshot_date)
+      const payload = item[section]
+      return !item.deleted_at
+        && date >= range.start
+        && date <= range.end
+        && isRecord(payload)
+        && typeof payload[key] === 'number'
+    })
+    .sort((a, b) => snapshotDateKey(b.snapshot_date).localeCompare(snapshotDateKey(a.snapshot_date)))[0]
+
+  if (!snapshot) return null
+  const payload = snapshot[section]
+  return {
+    value: isRecord(payload) && typeof payload[key] === 'number' ? payload[key] : null,
     unit,
     date: snapshot.computed_at,
   }
@@ -2102,30 +2544,833 @@ function fatMassMetric(weight: MetricValue, bodyFat: MetricValue): MetricValue {
   }
 }
 
-function physicalAgeMetric(input: {
-  dateOfBirth: MetricValue
-  biologicalSex: MetricValue
-  vo2max: MetricValue
-  bodyFat: MetricValue
-  bmi: MetricValue
-}): MetricValue {
-  const chronologicalAge = ageYearsFromDate(input.dateOfBirth.text)
-  const sex = biologicalSexLabel(input.biologicalSex.value)
-  const vo2 = input.vo2max.value
+function leanMassMetric(weight: MetricValue, bodyFat: MetricValue, directLean: MetricValue): MetricValue {
+  if (typeof directLean.value === 'number') return { ...directLean, unit: directLean.unit ?? 'kg' }
+  if (typeof weight.value !== 'number' || typeof bodyFat.value !== 'number') return { value: null, unit: 'kg' }
+  return {
+    value: weight.value * (1 - bodyFat.value / 100),
+    unit: 'kg',
+    date: bodyFat.date ?? weight.date,
+    confidence: 0.72,
+    qualityLabel: 'derivada',
+  }
+}
 
-  if (chronologicalAge === null || !sex || typeof vo2 !== 'number') {
-    return { value: null, unit: 'anos' }
+function leanMassPercentMetric(weight: MetricValue, leanMass: MetricValue): MetricValue {
+  if (typeof weight.value !== 'number' || typeof leanMass.value !== 'number' || weight.value <= 0) {
+    return { value: null, unit: '%' }
   }
 
-  const cardioAge = cardioFitnessAgeFromVo2(vo2, sex)
-  const bodyFatAdjustment = bodyFatAgeAdjustment(input.bodyFat.value, sex, chronologicalAge)
-  const bmiAdjustment = bmiAgeAdjustment(input.bmi.value)
-  const estimatedAge = clamp(cardioAge + bodyFatAdjustment + bmiAdjustment, 18, 80)
+  return {
+    value: (leanMass.value / weight.value) * 100,
+    unit: '%',
+    date: leanMass.date ?? weight.date,
+    confidence: leanMass.qualityLabel === 'derivada' ? 0.72 : null,
+    qualityLabel: leanMass.qualityLabel === 'derivada' ? 'derivada' : null,
+  }
+}
+
+function bmiMetric(weight: MetricValue, height: MetricValue, directBmi: MetricValue): MetricValue {
+  if (typeof directBmi.value === 'number') return directBmi
+  if (typeof weight.value !== 'number' || typeof height.value !== 'number' || height.value <= 0) return { value: null }
 
   return {
-    value: Math.round(estimatedAge),
+    value: weight.value / (height.value * height.value),
+    date: weight.date ?? height.date,
+    confidence: 0.9,
+    qualityLabel: 'derivado',
+  }
+}
+
+function withMetricQuality(value: MetricValue, qualityLabel: string, confidence: number): MetricValue {
+  if (!hasValue(value)) return value
+  return {
+    ...value,
+    confidence: value.confidence ?? confidence,
+    qualityLabel: value.qualityLabel ?? metricQualityLabel(value, qualityLabel),
+  }
+}
+
+function metricQualityLabel(value: MetricValue, qualityLabel: string): string {
+  if (qualityLabel.includes(' · ')) return qualityLabel
+  const source = metricSourceLabel(value.source)
+  return source ? `${source} · ${qualityLabel}` : qualityLabel
+}
+
+function metricSourceLabel(source?: string | null): string | null {
+  if (source === 'healthkit') return 'HealthKit'
+  if (source === 'manual') return 'manual'
+  if (source === 'rize') return 'Rize'
+  return null
+}
+
+function bodyMetricQualityLabel(
+  snapshot: AtlasHealthSnapshot | null,
+  key: string,
+  fallback: string,
+): string {
+  const source = bodyQualitySource(snapshot, key)
+  if (!source) return fallback
+  if (source === 'derivada' || source === 'modelo') return `${source} · ${fallback}`
+  return `${source} · ${fallback}`
+}
+
+function bodyQualitySource(snapshot: AtlasHealthSnapshot | null, key: string): string | null {
+  const body = snapshot?.body
+  if (!isRecord(body) || !isRecord(body.body_quality)) return null
+  const value = body.body_quality[key]
+  if (typeof value !== 'string') return null
+  if (value.startsWith('healthkit:')) return 'HealthKit'
+  if (value === 'manual') return 'manual'
+  if (value.startsWith('derived_from_')) return 'derivada'
+  if (value === 'mifflin_st_jeor') return 'modelo'
+  return null
+}
+
+function confidenceReference(value: MetricValue): string | null {
+  if (!hasValue(value) || typeof value.confidence !== 'number') return null
+  if (value.confidence >= 0.85) return 'conf. alta'
+  if (value.confidence >= 0.68) return 'conf. média'
+  return 'conf. baixa'
+}
+
+function compositeMetricDetail(
+  category: string,
+  what: string,
+  why: string,
+  inputs: string[],
+  source: string,
+  freshness: string,
+  quality: string,
+  precision: string,
+  caveats: string[],
+  evidence?: string[],
+  confidence?: number | null,
+): MetricDetail {
+  return {
+    category,
+    what,
+    why,
+    inputs,
+    source,
+    freshness,
+    quality,
+    precision,
+    caveats,
+    evidence,
+    confidence,
+  }
+}
+
+function compositeMetricEvidence(...items: Array<[string, MetricValue | null | undefined]>): string[] {
+  const evidence = items
+    .filter((item): item is [string, MetricValue] => Boolean(item[1]))
+    .map(([label, metric]) => {
+      const confidence = typeof metric.confidence === 'number'
+        ? ` · conf. ${Math.round(metric.confidence * 100)}%`
+        : ''
+      const date = metric.date ? ` · ${formatDateTime(metric.date)}` : ''
+      return `${label}: ${formatMetric(metric)}${date}${confidence}.`
+    })
+
+  return evidence.length > 0 ? evidence : ['Sem sinais suficientes para explicar esta métrica.']
+}
+
+function overloadRiskMetric(input: {
+  readiness: ReadinessV1Model
+  strain: MetricValue
+  highZoneMinutes: MetricValue
+  sleepDebt: MetricValue
+}): MetricValue {
+  const computedAt = input.readiness.computedAt
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(metricScale(input.strain, 8, 18), 0.26, input.strain.confidence ?? input.readiness.dayStrain.confidence),
+    weightedMetricComponent(ratioRiskScore(input.readiness.dayStrain.loadRatio ?? input.readiness.loadRatio, 0.85, 1.35), 0.20, input.readiness.axisQuality.load.confidence),
+    weightedMetricComponent(ratioRiskScore(input.readiness.dayStrain.acuteChronic, 0.9, 1.45), 0.15, input.readiness.axisQuality.load.confidence),
+    weightedMetricComponent(metricScale(input.highZoneMinutes, 8, 45), 0.15, input.highZoneMinutes.confidence ?? input.readiness.axisQuality.load.confidence),
+    weightedMetricComponent(metricScale(input.sleepDebt, 0.75, 5), 0.12, input.readiness.axisQuality.sleep.confidence),
+    weightedMetricComponent(inverseScore(input.readiness.nightRecovery.score), 0.12, input.readiness.axisQuality.nightRecovery.confidence),
+  ]
+  const score = weightedMetricScore(components)
+  if (score === null) return { value: null, unit: '%', date: computedAt, confidence: 0, qualityLabel: 'sem base' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: computedAt,
+    confidence: weightedMetricConfidence(components),
+    qualityLabel: score >= 75 ? 'risco alto' : score >= 55 ? 'risco moderado' : score >= 35 ? 'atenção' : 'baixo risco',
+  }
+}
+
+function cardiovascularEfficiencyMetric(input: {
+  wakingHrAvg: MetricValue
+  workoutHrAvg: MetricValue
+  steps: MetricValue
+  distance: MetricValue
+  activeEnergy: MetricValue
+  cardioLoad: MetricValue
+  vo2max: MetricValue
+}): MetricValue {
+  const hrComponents: WeightedMetricComponent[] = [
+    weightedMetricComponent(inverseMetricScale(input.wakingHrAvg, 65, 105), 0.55, input.wakingHrAvg.confidence),
+    weightedMetricComponent(inverseMetricScale(input.workoutHrAvg, 120, 172), 0.45, input.workoutHrAvg.confidence),
+  ]
+  const outputComponents: WeightedMetricComponent[] = [
+    weightedMetricComponent(metricScale(input.steps, 2500, 12000), 0.30, input.steps.confidence),
+    weightedMetricComponent(metricScale(input.distance, 1000, 9000), 0.22, input.distance.confidence),
+    weightedMetricComponent(metricScale(input.activeEnergy, 120, 850), 0.22, input.activeEnergy.confidence),
+    weightedMetricComponent(metricScale(input.cardioLoad, 5, 70), 0.16, input.cardioLoad.confidence),
+    weightedMetricComponent(metricScale(input.vo2max, 28, 55), 0.10, input.vo2max.confidence),
+  ]
+  const hrScore = weightedMetricScore(hrComponents)
+  const outputScore = weightedMetricScore(outputComponents)
+  if (hrScore === null || outputScore === null) {
+    return { value: null, unit: '%', date: input.wakingHrAvg.date ?? input.workoutHrAvg.date ?? input.steps.date, confidence: 0, qualityLabel: 'sem par FC/volume' }
+  }
+
+  const vo2Score = metricScale(input.vo2max, 28, 55)
+  const combined = weightedMetricScore([
+    weightedMetricComponent(hrScore, 0.46, weightedMetricConfidence(hrComponents)),
+    weightedMetricComponent(outputScore, 0.44, weightedMetricConfidence(outputComponents)),
+    weightedMetricComponent(vo2Score, 0.10, input.vo2max.confidence),
+  ])
+  const score = combined ?? (hrScore + outputScore) / 2
+  const confidence = weightedMetricConfidence([
+    ...hrComponents,
+    ...outputComponents,
+  ])
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.workoutHrAvg.date ?? input.wakingHrAvg.date ?? input.steps.date ?? input.activeEnergy.date,
+    confidence,
+    qualityLabel: score >= 78 ? 'eficiente' : score >= 58 ? 'adequada' : 'custo alto',
+  }
+}
+
+function sleepStabilityMetric(input: {
+  sleepScore: MetricValue
+  regularity: MetricValue
+  efficiency: MetricValue
+  continuity: MetricValue
+  sleepDebt7d: MetricValue
+  observedNights: number | null
+}): MetricValue {
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(metricScoreValue(input.sleepScore), 0.24, input.sleepScore.confidence),
+    weightedMetricComponent(metricScoreValue(input.regularity), 0.22, input.regularity.confidence),
+    weightedMetricComponent(metricScoreValue(input.efficiency), 0.18, input.efficiency.confidence),
+    weightedMetricComponent(metricScoreValue(input.continuity), 0.16, input.continuity.confidence),
+    weightedMetricComponent(inverseMetricScale(input.sleepDebt7d, 0, 5.5), 0.14, input.sleepDebt7d.confidence),
+    weightedMetricComponent(typeof input.observedNights === 'number' ? clamp((input.observedNights / 7) * 100, 0, 100) : null, 0.06, 0.75),
+  ]
+  const score = weightedMetricScore(components)
+  if (score === null) return { value: null, unit: '%', date: input.sleepScore.date, confidence: 0, qualityLabel: 'sem sono' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.sleepScore.date ?? input.regularity.date ?? input.efficiency.date,
+    confidence: weightedMetricConfidence(components),
+    qualityLabel: score >= 85 ? 'estável' : score >= 68 ? 'parcial' : 'instável',
+  }
+}
+
+function cognitivePressureMetric(input: {
+  algorithmicPressurePercent: MetricValue
+  fragmentation: MetricValue
+  firstOffensiveUse: MetricValue
+  intentionality: MetricValue
+  deepWork: MetricValue
+  cognitivePenalty: number
+  computedAt: string
+}): MetricValue {
+  const firstDistractionScore = typeof input.firstOffensiveUse.value === 'number'
+    ? 100 - metricScaleNumber(input.firstOffensiveUse.value / 60, 0, 150)
+    : null
+  const deepWorkProtection = typeof input.deepWork.value === 'number'
+    ? 100 - metricScaleNumber(input.deepWork.value / 60, 0, 180)
+    : null
+  const cognitivePenaltyScore = input.cognitivePenalty > 0
+    ? metricScaleNumber(input.cognitivePenalty, 0, 25)
+    : null
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(metricScale(input.algorithmicPressurePercent, 20, 70), 0.28, input.algorithmicPressurePercent.confidence),
+    weightedMetricComponent(metricScale(input.fragmentation, 2, 12), 0.18, input.fragmentation.confidence),
+    weightedMetricComponent(firstDistractionScore, 0.16, input.firstOffensiveUse.confidence),
+    weightedMetricComponent(inverseMetricScore(input.intentionality), 0.16, input.intentionality.confidence),
+    weightedMetricComponent(deepWorkProtection, 0.12, input.deepWork.confidence),
+    weightedMetricComponent(cognitivePenaltyScore, 0.10, input.cognitivePenalty > 0 ? 0.82 : 0),
+  ]
+  const score = weightedMetricScore(components)
+  if (score === null) return { value: null, unit: '%', date: input.computedAt, confidence: 0, qualityLabel: 'sem digital' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.computedAt,
+    confidence: weightedMetricConfidence(components),
+    qualityLabel: score >= 68 ? 'pressão alta' : score >= 42 ? 'pressão média' : 'pressão baixa',
+  }
+}
+
+function performanceWindowMetric(input: {
+  readiness: ReadinessV1Model
+  overloadRisk: MetricValue
+  cognitivePressure: MetricValue
+  computedAt: string
+}): MetricValue {
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(input.readiness.current.score, 0.30, input.readiness.axisQuality.current.confidence),
+    weightedMetricComponent(input.readiness.focus.score, 0.20, input.readiness.axisQuality.focus.confidence),
+    weightedMetricComponent(input.readiness.body.score, 0.15, input.readiness.axisQuality.body.confidence),
+    weightedMetricComponent(input.readiness.nightRecovery.score, 0.12, input.readiness.axisQuality.nightRecovery.confidence),
+    weightedMetricComponent(input.readiness.load.score, 0.10, input.readiness.axisQuality.load.confidence),
+    weightedMetricComponent(inverseMetricScore(input.overloadRisk), 0.07, input.overloadRisk.confidence),
+    weightedMetricComponent(inverseMetricScore(input.cognitivePressure), 0.06, input.cognitivePressure.confidence),
+  ]
+  const score = weightedMetricScore(components)
+  if (score === null) return { value: null, unit: '%', date: input.computedAt, confidence: 0, qualityLabel: 'sem base' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.computedAt,
+    confidence: weightedMetricConfidence(components),
+    qualityLabel: score >= 78 ? 'janela forte' : score >= 62 ? 'boa janela' : score >= 45 ? 'janela leve' : 'evitar pico',
+  }
+}
+
+function paceOfAgingMetric(
+  snapshots: AtlasHealthSnapshot[],
+  current: AtlasPhysiologicalAgeModel,
+): MetricValue {
+  const currentAge = current.ageYears
+  if (typeof currentAge !== 'number') {
+    return {
+      value: null,
+      text: 'Base em formação',
+      unit: 'x',
+      date: current.computedAt,
+      confidence: current.confidence,
+      qualityLabel: physiologicalAgeStatusLabel(current.status),
+    }
+  }
+
+  const currentTime = new Date(current.computedAt).getTime()
+  const baseline = snapshots
+    .filter((snapshot) => !snapshot.deleted_at)
+    .map((snapshot) => {
+      const payload = atlasPhysiologicalAgePayload(snapshot)
+      const age = snapshotNumber(payload?.age_years)
+      const time = new Date(snapshot.computed_at).getTime()
+      const confidence = snapshotNumber(payload?.confidence)
+      return typeof age === 'number' && Number.isFinite(time)
+        ? { age, time, computedAt: snapshot.computed_at, confidence }
+        : null
+    })
+    .filter((item): item is { age: number; time: number; computedAt: string; confidence: number | null } => (
+      item !== null && currentTime - item.time >= 45 * 86400000
+    ))
+    .sort((a, b) => a.time - b.time)[0]
+
+  if (!baseline) {
+    return {
+      value: null,
+      text: 'Histórico insuficiente',
+      unit: 'x',
+      date: current.computedAt,
+      confidence: current.confidence * 0.35,
+      qualityLabel: 'precisa 45d',
+    }
+  }
+
+  const elapsedYears = (currentTime - baseline.time) / (365.25 * 86400000)
+  if (!Number.isFinite(elapsedYears) || elapsedYears <= 0) {
+    return { value: null, text: 'Histórico insuficiente', unit: 'x', date: current.computedAt, confidence: 0, qualityLabel: 'sem janela' }
+  }
+
+  const pace = clamp((currentAge - baseline.age) / elapsedYears, 0, 3)
+  const historyConfidence = clamp(elapsedYears / 0.5, 0.25, 1)
+  const baselineConfidence = typeof baseline.confidence === 'number' ? baseline.confidence : 0.55
+
+  return {
+    value: pace,
+    unit: 'x',
+    date: current.computedAt,
+    confidence: clamp(current.confidence * baselineConfidence * historyConfidence, 0, 0.9),
+    qualityLabel: pace <= 0.85 ? 'desacelerado' : pace <= 1.08 ? 'estável' : pace <= 1.25 ? 'acelerado' : 'alto ritmo',
+  }
+}
+
+function metabolicProfileMetric(input: {
+  waist: MetricValue
+  height: MetricValue
+  bmi: MetricValue
+  bodyFat: MetricValue
+  leanMassPercent: MetricValue
+  biologicalSex: MetricValue
+  computedAt: string
+}): MetricValue {
+  const sex = biologicalSexLabel(input.biologicalSex.value)
+  const waistHeightRatio = typeof input.waist.value === 'number' && typeof input.height.value === 'number' && input.height.value > 0
+    ? input.waist.value / (input.height.value * 100)
+    : null
+  const bodyFatRange = sex === 'female'
+    ? { low: 16, idealHigh: 30, high: 40 }
+    : { low: 8, idealHigh: 22, high: 32 }
+  const leanTarget = sex === 'female' ? 66 : 75
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(waistHeightProfileScore(waistHeightRatio), 0.34, averageMetricConfidence([input.waist, input.height])),
+    weightedMetricComponent(bmiProfileScore(input.bmi.value), 0.22, input.bmi.confidence),
+    weightedMetricComponent(bodyFatProfileScore(input.bodyFat.value, bodyFatRange), 0.28, input.bodyFat.confidence),
+    weightedMetricComponent(metricScale(input.leanMassPercent, leanTarget - 8, leanTarget + 4), 0.16, input.leanMassPercent.confidence),
+  ]
+  const score = weightedMetricScore(components)
+  if (score === null) return { value: null, unit: '%', date: input.computedAt, confidence: 0, qualityLabel: 'sem base' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.computedAt,
+    confidence: weightedMetricConfidence(components),
+    qualityLabel: score >= 82 ? 'favorável' : score >= 64 ? 'adequado' : score >= 45 ? 'atenção' : 'risco alto',
+  }
+}
+
+function bodyCompositionQualityMetric(input: {
+  weight: MetricValue
+  bodyFat: MetricValue
+  leanMass: MetricValue
+  waist: MetricValue
+  height: MetricValue
+  bmi: MetricValue
+  computedAt: string
+}): MetricValue {
+  const components: WeightedMetricComponent[] = [
+    weightedMetricComponent(bodyMetricReliabilityScore(input.weight, 45), 0.20, input.weight.confidence),
+    weightedMetricComponent(bodyMetricReliabilityScore(input.bodyFat, 120), 0.22, input.bodyFat.confidence),
+    weightedMetricComponent(bodyMetricReliabilityScore(input.leanMass, 120), 0.16, input.leanMass.confidence),
+    weightedMetricComponent(bodyMetricReliabilityScore(input.waist, 180), 0.15, input.waist.confidence),
+    weightedMetricComponent(bodyMetricReliabilityScore(input.height, 3650), 0.15, input.height.confidence),
+    weightedMetricComponent(bodyMetricReliabilityScore(input.bmi, 45), 0.12, input.bmi.confidence),
+  ]
+  const score = weightedMetricCompletenessScore(components)
+  if (score === null) return { value: null, unit: '%', date: input.computedAt, confidence: 0, qualityLabel: 'sem dados' }
+
+  return {
+    value: Math.round(score),
+    unit: '%',
+    date: input.computedAt,
+    confidence: clamp(score / 100, 0, 0.96),
+    qualityLabel: score >= 82 ? 'auditável' : score >= 62 ? 'parcial' : 'frágil',
+  }
+}
+
+function paceOfAgingDetail(metric: MetricValue, model: AtlasPhysiologicalAgeModel): MetricDetail {
+  return compositeMetricDetail(
+    'Healthspan Atlas',
+    'Velocidade estimada de mudança da Idade Fisiológica Atlas em relação ao tempo cronológico.',
+    'Ajuda diferenciar idade fisiológica atual de tendência: a idade pode estar boa, mas acelerando, ou alta, mas melhorando.',
+    ['Idade Fisiológica Atlas atual', 'Primeira leitura histórica válida com pelo menos 45 dias', 'Tempo decorrido'],
+    'Cálculo local derivado do histórico de snapshots Atlas; não usa idade corporal externa.',
+    'Só fica numérico depois de existir janela histórica suficiente. Antes disso mostra histórico insuficiente.',
+    'Boa apenas para tendência lenta; confiança reduzida quando a janela histórica é curta.',
+    'Média para direção longitudinal; não é marcador clínico de envelhecimento biológico.',
+    [
+      'Mudanças de versão do modelo podem deslocar o ritmo até haver nova base consistente.',
+      'Leituras de poucos meses são sensíveis a ruído de VO2max, composição e sono.',
+    ],
+    [
+      `Pace atual: ${formatMetric(metric)}.`,
+      `Idade fisiológica atual: ${formatMetric(atlasPhysiologicalAgeMetric(model))}.`,
+      `Cobertura do modelo: ${Math.round(model.coverage * 100)}%.`,
+    ],
+    metric.confidence,
+  )
+}
+
+function metabolicProfileDetail(
+  metric: MetricValue,
+  waist: MetricValue,
+  height: MetricValue,
+  bmi: MetricValue,
+  bodyFat: MetricValue,
+  leanMassPercent: MetricValue,
+): MetricDetail {
+  const waistHeightRatio = typeof waist.value === 'number' && typeof height.value === 'number' && height.value > 0
+    ? waist.value / (height.value * 100)
+    : null
+  return compositeMetricDetail(
+    'Composição corporal',
+    'Score de perfil metabólico estrutural a partir de cintura/altura, IMC, gordura corporal e massa magra percentual.',
+    'Dá uma leitura compacta de risco estrutural sem transformar peso isolado em julgamento de saúde.',
+    ['Cintura/altura', 'IMC', 'Gordura corporal', 'Massa magra %'],
+    'Cálculo local sobre últimas medidas válidas; não cria diagnóstico e não depende de atualização diária.',
+    'Altura pode ser estável; cintura, peso e composição usam última medição válida com confiança explícita.',
+    'Boa quando há cintura e gordura corporal recentes; parcial quando depende só de IMC.',
+    'Média para triagem pessoal. Cintura/altura é robusta; bioimpedância e gordura corporal variam por método.',
+    [
+      'Não diagnostica síndrome metabólica, diabetes ou risco cardiovascular clínico.',
+      'Atletas muito musculosos podem ter IMC alto sem o mesmo significado metabólico.',
+    ],
+    [
+      waistHeightRatio === null ? 'Cintura/altura: sem dado.' : `Cintura/altura: ${waistHeightRatio.toFixed(2).replace('.', ',')}.`,
+      `IMC: ${formatMetric(bmi)}.`,
+      `Gordura corporal: ${formatMetric(bodyFat)}.`,
+      `Massa magra %: ${formatMetric(leanMassPercent)}.`,
+      `Score: ${formatMetric(metric)}.`,
+    ],
+    metric.confidence,
+  )
+}
+
+function bodyCompositionQualityDetail(
+  metric: MetricValue,
+  weight: MetricValue,
+  bodyFat: MetricValue,
+  leanMass: MetricValue,
+  waist: MetricValue,
+  height: MetricValue,
+  bmi: MetricValue,
+): MetricDetail {
+  return compositeMetricDetail(
+    'Composição corporal',
+    'Score de confiabilidade dos dados de composição corporal, separado do resultado físico.',
+    'Impede que métricas derivadas pareçam mais sólidas do que os dados que as sustentam.',
+    ['Peso', 'Gordura corporal', 'Massa magra', 'Cintura', 'Altura', 'IMC'],
+    'Cálculo local usando presença, frescor e confiança de cada medida. Altura aceita janela longa porque é estável.',
+    'Peso e IMC esperam medida mais recente; altura tolera anos; cintura/gordura/massa magra toleram janelas intermediárias.',
+    'Alta quando as medidas principais existem e têm fonte clara; parcial quando composição depende de estimativa antiga.',
+    'Alta para auditoria de integridade dos dados; não mede saúde diretamente.',
+    [
+      'Score baixo não significa corpo ruim; significa base de dados fraca.',
+      'Atualizações manuais de altura e cintura entram como fonte válida quando passam pelas faixas fisiológicas.',
+    ],
+    compositeMetricEvidence(
+      ['Peso', weight],
+      ['Gordura corporal', bodyFat],
+      ['Massa magra', leanMass],
+      ['Cintura', waist],
+      ['Altura', height],
+      ['IMC', bmi],
+      ['Qualidade', metric],
+    ),
+    metric.confidence,
+  )
+}
+
+interface WeightedMetricComponent {
+  score: number | null
+  weight: number
+  confidence: number | null
+}
+
+function weightedMetricComponent(score: number | null, weight: number, confidence?: number | null): WeightedMetricComponent {
+  return {
+    score: typeof score === 'number' && Number.isFinite(score) ? clamp(score, 0, 100) : null,
+    weight,
+    confidence: typeof confidence === 'number' && Number.isFinite(confidence) ? clamp(confidence, 0, 1) : null,
+  }
+}
+
+function weightedMetricScore(components: WeightedMetricComponent[]): number | null {
+  const valid = components.filter((component) => typeof component.score === 'number')
+  const weight = valid.reduce((sum, component) => sum + component.weight, 0)
+  if (valid.length === 0 || weight <= 0) return null
+  return valid.reduce((sum, component) => sum + Number(component.score) * component.weight, 0) / weight
+}
+
+function weightedMetricConfidence(components: WeightedMetricComponent[]): number {
+  const valid = components.filter((component) => typeof component.score === 'number')
+  const declaredWeight = components.reduce((sum, component) => sum + component.weight, 0)
+  const presentWeight = valid.reduce((sum, component) => sum + component.weight, 0)
+  if (valid.length === 0 || presentWeight <= 0 || declaredWeight <= 0) return 0
+  const confidence = valid.reduce((sum, component) => sum + (component.confidence ?? 0.62) * component.weight, 0) / presentWeight
+  const coverage = presentWeight / declaredWeight
+  return clamp(confidence * (0.65 + coverage * 0.35), 0, 0.96)
+}
+
+function weightedMetricCompletenessScore(components: WeightedMetricComponent[]): number | null {
+  const declaredWeight = components.reduce((sum, component) => sum + component.weight, 0)
+  if (declaredWeight <= 0) return null
+  const hasAnyValue = components.some((component) => typeof component.score === 'number')
+  if (!hasAnyValue) return null
+  return components.reduce((sum, component) => sum + (component.score ?? 0) * component.weight, 0) / declaredWeight
+}
+
+function metricScoreValue(metric: MetricValue): number | null {
+  return typeof metric.value === 'number' && Number.isFinite(metric.value) ? clamp(metric.value, 0, 100) : null
+}
+
+function inverseScore(value: number | null): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? clamp(100 - value, 0, 100) : null
+}
+
+function inverseMetricScore(metric: MetricValue): number | null {
+  return inverseScore(metric.value)
+}
+
+function metricScale(metric: MetricValue, low: number, high: number): number | null {
+  return typeof metric.value === 'number' ? metricScaleNumber(metric.value, low, high) : null
+}
+
+function inverseMetricScale(metric: MetricValue, low: number, high: number): number | null {
+  const score = metricScale(metric, low, high)
+  return score === null ? null : 100 - score
+}
+
+function ratioRiskScore(value: number | null, low: number, high: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? metricScaleNumber(value, low, high) : null
+}
+
+function metricScaleNumber(value: number, low: number, high: number): number {
+  if (high === low) return value >= high ? 100 : 0
+  return clamp(((value - low) / (high - low)) * 100, 0, 100)
+}
+
+function averageMetricConfidence(metrics: MetricValue[]): number | null {
+  const confidences = metrics
+    .map((metric) => metric.confidence)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  if (confidences.length === 0) return null
+  return average(confidences)
+}
+
+function waistHeightProfileScore(ratio: number | null): number | null {
+  if (typeof ratio !== 'number' || !Number.isFinite(ratio)) return null
+  if (ratio < 0.38) return clamp(70 - (0.38 - ratio) * 180, 35, 70)
+  if (ratio <= 0.50) return 100
+  if (ratio <= 0.58) return clamp(100 - ((ratio - 0.50) / 0.08) * 40, 60, 100)
+  return clamp(60 - ((ratio - 0.58) / 0.12) * 60, 0, 60)
+}
+
+function bmiProfileScore(value: number | null): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  if (value >= 18.5 && value <= 24.9) return 100
+  if (value < 18.5) return clamp(100 - ((18.5 - value) / 4) * 55, 35, 100)
+  if (value <= 29.9) return clamp(100 - ((value - 24.9) / 5) * 35, 65, 100)
+  return clamp(65 - ((value - 29.9) / 10) * 65, 0, 65)
+}
+
+function bodyFatProfileScore(value: number | null, range: { low: number; idealHigh: number; high: number }): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  if (value < range.low) return clamp(82 - ((range.low - value) / range.low) * 42, 40, 82)
+  if (value <= range.idealHigh) return 100
+  return clamp(100 - ((value - range.idealHigh) / (range.high - range.idealHigh)) * 65, 20, 100)
+}
+
+function bodyMetricReliabilityScore(metric: MetricValue, maxAgeDays: number): number | null {
+  if (typeof metric.value !== 'number' && !metric.text?.trim()) return null
+  const freshness = metricFreshnessScore(metric.date, maxAgeDays)
+  const confidence = typeof metric.confidence === 'number' ? clamp(metric.confidence, 0, 1) : 0.62
+  return clamp((0.55 + freshness * 0.25 + confidence * 0.20) * 100, 0, 100)
+}
+
+function metricFreshnessScore(date: string | null | undefined, maxAgeDays: number): number {
+  if (!date) return 0.55
+  const time = new Date(date).getTime()
+  if (!Number.isFinite(time)) return 0.55
+  const ageDays = Math.max(0, (Date.now() - time) / 86400000)
+  return clamp(1 - ageDays / maxAgeDays, 0.25, 1)
+}
+
+function physiologicalReadingFromMetric(value: MetricValue, source: string): PhysiologicalAgeReading | null {
+  if (typeof value.value !== 'number' || !Number.isFinite(value.value) || !value.date) return null
+  return {
+    value: value.value,
+    unit: value.unit,
+    date: value.date,
+    source,
+    confidence: value.confidence,
+  }
+}
+
+function atlasPhysiologicalAgeMetric(model: AtlasPhysiologicalAgeModel): MetricValue {
+  if (typeof model.ageYears === 'number') {
+    return {
+      value: model.ageYears,
+      unit: 'anos',
+      date: model.computedAt,
+      confidence: model.confidence,
+      qualityLabel: physiologicalAgeStatusLabel(model.status),
+    }
+  }
+
+  return {
+    value: null,
+    text: 'Base em formação',
     unit: 'anos',
-    date: input.vo2max.date ?? input.bodyFat.date ?? input.bmi.date,
+    date: model.computedAt,
+    confidence: model.confidence,
+    qualityLabel: physiologicalAgeStatusLabel(model.status),
+  }
+}
+
+function previousAtlasPhysiologicalAge(snapshots: AtlasHealthSnapshot[]): MetricValue | null {
+  const range = previousWeekDateRange()
+  const match = snapshots
+    .filter((snapshot) => {
+      const date = snapshotDateKey(snapshot.snapshot_date)
+      return date >= range.start && date <= range.end
+    })
+    .sort((a, b) => new Date(b.computed_at).getTime() - new Date(a.computed_at).getTime())
+    .find((snapshot) => {
+      const payload = atlasPhysiologicalAgePayload(snapshot)
+      return typeof payload?.age_years === 'number'
+    })
+
+  const payload = match ? atlasPhysiologicalAgePayload(match) : null
+  if (!match || !payload || typeof payload.age_years !== 'number') return null
+  const confidence = typeof payload.confidence === 'number' ? payload.confidence : null
+  const status = typeof payload.status === 'string' ? payload.status : null
+  return {
+    value: payload.age_years,
+    unit: 'anos',
+    date: match.computed_at,
+    confidence,
+    qualityLabel: status ? physiologicalAgeStatusLabel(status) : null,
+  }
+}
+
+function atlasPhysiologicalAgePayload(snapshot: AtlasHealthSnapshot): Record<string, unknown> | null {
+  const body = snapshot.body
+  if (isRecord(body) && isRecord(body.physiological_age_atlas)) return body.physiological_age_atlas
+  const metrics = snapshot.metrics
+  if (isRecord(metrics) && isRecord(metrics.physiological_age_atlas)) return metrics.physiological_age_atlas
+  return null
+}
+
+function physiologicalAgeStatusLabel(status: string): string {
+  if (status === 'strong') return 'modelo forte'
+  if (status === 'partial') return 'base parcial'
+  return 'base em formação'
+}
+
+function atlasPhysiologicalAgeDetail(model: AtlasPhysiologicalAgeModel): MetricDetail {
+  const usedInputs = model.contributors.map((item) => item.label)
+  const missing = model.missingCore.length ? ` Faltando: ${model.missingCore.join(', ')}.` : ''
+  return {
+    category: 'Healthspan Atlas',
+    what: 'Estimativa de idade fisiológica Atlas, separada da idade corporal externa.',
+    why: 'Resume sinais lentos de longevidade funcional: aptidão cardiorrespiratória, recuperação autonômica, sono, atividade e composição corporal.',
+    inputs: usedInputs.length ? usedInputs : ['Data de nascimento', 'Sexo biológico', 'VO2max/FC repouso', 'Sono', 'Atividade', 'Composição corporal'],
+    source: `Modelo ${model.modelVersion}. Parte da idade cronológica e aplica impactos em anos por domínio, com pesos limitados para evitar dupla contagem.`,
+    freshness: `Janela lenta de ${model.windowDays} dias; VO2max pode ser aceito por até 180 dias. Altura entra como medida estável, não como dado diário.`,
+    quality: `${physiologicalAgeStatusLabel(model.status)}. Cobertura ${Math.round(model.coverage * 100)}%, confiança ${Math.round(model.confidence * 100)}%.${missing}`,
+    precision: 'Serve para tendência e direção de saúde funcional; não é idade biológica clínica nem diagnóstico.',
+    caveats: model.caveats,
+    evidence: atlasPhysiologicalAgeEvidence(model),
+    confidence: model.confidence,
+  }
+}
+
+function atlasPhysiologicalAgeEvidence(model: AtlasPhysiologicalAgeModel): string[] {
+  const evidence = [
+    typeof model.chronologicalAgeYears === 'number'
+      ? `Idade cronológica: ${model.chronologicalAgeYears} anos.`
+      : 'Idade cronológica ausente.',
+    typeof model.impactYears === 'number'
+      ? `Impacto líquido: ${formatSignedYears(model.impactYears)}.`
+      : 'Impacto líquido indisponível até fechar cobertura mínima.',
+  ]
+
+  for (const item of model.contributors) {
+    evidence.push(`${item.label}: ${formatSignedYears(item.impactYears)} · ${formatPhysiologicalContributionValue(item)} · confiança ${Math.round(item.confidence * 100)}%.`)
+  }
+
+  if (model.missingCore.length) {
+    evidence.push(`Bloqueadores: ${model.missingCore.join(', ')}.`)
+  }
+
+  return evidence
+}
+
+function formatSignedYears(value: number): string {
+  const rounded = Math.abs(value).toFixed(1).replace('.', ',')
+  if (Math.abs(value) < 0.05) return '0,0 anos'
+  return `${value > 0 ? '+' : '-'}${rounded} anos`
+}
+
+function formatPhysiologicalContributionValue(item: AtlasPhysiologicalAgeModel['contributors'][number]): string {
+  if (item.unit === 'ml/kg/min') return `${item.value.toFixed(1).replace('.', ',')} ml/kg/min`
+  if (item.unit === 'bpm') return `${Math.round(item.value)} bpm`
+  if (item.unit === 'ms') return `${Math.round(item.value)} ms`
+  if (item.unit === '%' || item.unit === 'anos impacto') return `${item.value.toFixed(1).replace('.', ',')}${item.unit === '%' ? '%' : ''}`
+  if (item.unit === 'min/dia') return `${Math.round(item.value)} min/dia`
+  if (item.unit === 'passos/dia') return `${Math.round(item.value).toLocaleString('pt-BR')} passos/dia`
+  return `${item.value.toFixed(1).replace('.', ',')} ${item.unit}`
+}
+
+function basalMetabolicRateMetric(input: {
+  weight: MetricValue
+  height: MetricValue
+  dateOfBirth: MetricValue
+  biologicalSex: MetricValue
+}): MetricValue {
+  const age = ageYearsFromDate(input.dateOfBirth.text)
+  const sex = biologicalSexLabel(input.biologicalSex.value)
+  if (typeof input.weight.value !== 'number' || typeof input.height.value !== 'number' || age === null || !sex) {
+    return { value: null, unit: 'kcal' }
+  }
+
+  const heightCm = input.height.value * 100
+  const sexOffset = sex === 'male' ? 5 : -161
+  const value = (10 * input.weight.value) + (6.25 * heightCm) - (5 * age) + sexOffset
+  if (!Number.isFinite(value) || value < 700 || value > 3500) return { value: null, unit: 'kcal' }
+
+  return {
+    value,
+    unit: 'kcal',
+    date: input.weight.date ?? input.height.date ?? input.dateOfBirth.date,
+    confidence: 0.78,
+    qualityLabel: 'estimada',
+  }
+}
+
+function previousWeekLeanMassPercent(
+  snapshots: AtlasHealthSnapshot[],
+  signals: HealthSignal[],
+): MetricValue | null {
+  const snapshot = previousWeekSnapshotJsonMetric(snapshots, 'body', 'lean_mass_percentage', '%')
+  if (snapshot && typeof snapshot.value === 'number') return snapshot
+
+  const lean = previousWeekLatest(signals, ['lean_body_mass'])
+  const weight = previousWeekLatest(signals, ['body_mass'])
+  if (!lean || !weight || typeof lean.value !== 'number' || typeof weight.value !== 'number' || weight.value <= 0) {
+    return null
+  }
+
+  return {
+    value: (lean.value / weight.value) * 100,
+    unit: '%',
+    date: lean.date ?? weight.date,
+  }
+}
+
+function bodyCompositionDetail(
+  what: string,
+  inputs: string[],
+  source: string,
+  freshness: string,
+  precision: string,
+): MetricDetail {
+  return {
+    category: 'Composição corporal',
+    what,
+    why: 'Esses dados contextualizam composição, aptidão e cálculos derivados, mas não devem mover prontidão diária como HRV, sono ou carga.',
+    inputs,
+    source,
+    freshness,
+    quality: 'Valores passam por normalização de unidade e faixa fisiológica. Medidas estáveis usam última medição válida em vez de expirar artificialmente.',
+    precision,
+    caveats: [
+      'Bioimpedância e estimativas de gordura variam com hidratação, horário e equipamento.',
+      'Massa magra não é sinônimo de músculo esquelético.',
+      'TMB é estimativa, não medição metabólica em laboratório.',
+    ],
   }
 }
 
@@ -2143,28 +3388,6 @@ function biologicalSexLabel(value: number | null): 'female' | 'male' | null {
   if (value === 1) return 'female'
   if (value === 2) return 'male'
   return null
-}
-
-function cardioFitnessAgeFromVo2(vo2max: number, sex: 'female' | 'male'): number {
-  const youngAdultMedian = sex === 'male' ? 41.9 : 31.0
-  const olderAdultMedian = sex === 'male' ? 19.5 : 14.8
-  const declinePerYear = (youngAdultMedian - olderAdultMedian) / 50
-  return 25 + (youngAdultMedian - vo2max) / declinePerYear
-}
-
-function bodyFatAgeAdjustment(value: number | null, sex: 'female' | 'male', age: number): number {
-  if (typeof value !== 'number') return 0
-  const reference = sex === 'male'
-    ? age < 40 ? 18 : age < 60 ? 21 : 24
-    : age < 40 ? 28 : age < 60 ? 31 : 34
-  return clamp((value - reference) * 0.35, -4, 8)
-}
-
-function bmiAgeAdjustment(value: number | null): number {
-  if (typeof value !== 'number') return 0
-  if (value > 25) return clamp((value - 25) * 0.8, 0, 8)
-  if (value < 18.5) return clamp((18.5 - value) * 0.8, 0, 5)
-  return 0
 }
 
 function readinessFromSnapshot(
@@ -2809,6 +4032,7 @@ function signalToMetricValue(signal?: HealthSignal, dateSource: 'start' | 'end' 
     text: signal.value_text,
     unit: signal.unit,
     date: dateSource === 'end' ? signal.ended_at ?? signal.started_at : signal.started_at,
+    source: signal.source,
   }
 }
 
@@ -3377,6 +4601,30 @@ function stateOfMindLabel(value: number): string {
   return 'neutro'
 }
 
+function parseManualBodyValue(
+  raw: string,
+  config: (typeof MANUAL_BODY_METRICS)[ManualBodyMetricKey],
+): number | null {
+  const normalized = raw.trim().replace(',', '.')
+  if (!normalized) return null
+  const value = Number(normalized)
+  if (!Number.isFinite(value)) return null
+  const measurement = config.signalType === 'height' && value > 3 ? value / 100 : value
+  return measurement >= config.min && measurement <= config.max ? measurement : null
+}
+
+function editableBodyMetricKey(item: MetricRowModel): ManualBodyMetricKey | null {
+  if (item.label === 'Altura') return 'height'
+  if (item.label === 'Cintura') return 'waist_circumference'
+  return null
+}
+
+function manualDisplayValue(value: number, unit: string): string {
+  if (unit === 'm') return value.toFixed(2).replace('.', ',')
+  if (unit === 'cm') return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',')
+  return String(value).replace('.', ',')
+}
+
 function checkinFreshnessLabel(freshness: number | null | undefined): string {
   if (typeof freshness !== 'number' || freshness <= 0) return 'expirado'
   if (freshness >= 0.75) return 'alta confiança'
@@ -3451,6 +4699,17 @@ function trendText(
   }
 }
 
+function metricReferenceColor(
+  reference: string | null | undefined,
+  c: ReturnType<typeof usePalette>,
+): string {
+  if (!reference) return c.ink2
+  if (reference.includes('alta')) return c.moss
+  if (reference.includes('média')) return c.bronze
+  if (reference.includes('baixa') || reference.includes('sem fonte')) return c.recRed
+  return c.ink2
+}
+
 function formatMetric(value: MetricValue): string {
   if (value.text?.trim()) return value.text.trim()
   if (typeof value.value !== 'number') return 'Sem dado'
@@ -3493,6 +4752,7 @@ function cleanUnit(unit?: string | null): string {
   if (unit === 'bpm') return ' bpm'
   if (unit === 'resp/min') return ' resp/min'
   if (unit === 'count/min') return ' /min'
+  if (unit === 'appleEffortScore') return ''
   if (unit === 'ms') return 'ms'
   if (unit === 'min') return 'min'
   if (unit === 'strain') return ''
@@ -3508,6 +4768,7 @@ function cleanUnit(unit?: string | null): string {
   if (unit === 'ciclos') return ' ciclos'
   if (unit === 'sess/h') return ' sess/h'
   if (unit === 'anos') return ' anos'
+  if (unit === 'x') return 'x'
   if (unit === 'sessões') return ' sessões'
   if (unit === 'kcal' || unit === 'Cal') return ' kcal'
   if (unit === '%' || unit === 'percent') return '%'
@@ -3749,6 +5010,24 @@ const styles = StyleSheet.create({
     gap: 4,
     maxWidth: 176,
   },
+  bodyGroups: {
+    gap: 16,
+  },
+  bodyGroup: {
+    gap: 8,
+  },
+  bodyGroupHeader: {
+    paddingHorizontal: 2,
+    gap: 3,
+  },
+  editPill: {
+    minHeight: 24,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   detailModal: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -3805,6 +5084,116 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 12,
     justifyContent: 'center',
+  },
+  manualModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  manualScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(26,22,18,0.28)',
+  },
+  manualSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: -12 },
+    elevation: 18,
+  },
+  manualHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 18,
+  },
+  manualHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  manualTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  manualClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualInputFrame: {
+    marginTop: 22,
+    minHeight: 88,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  manualInput: {
+    flex: 1,
+    minHeight: 66,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    fontFamily: 'JetBrainsMono_400Regular',
+    fontSize: 34,
+    lineHeight: 40,
+    letterSpacing: 0,
+    textAlign: 'right',
+  },
+  manualUnitPill: {
+    marginLeft: 14,
+    minWidth: 52,
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  manualMetaRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  manualMetaItem: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    justifyContent: 'space-between',
+  },
+  manualMessage: {
+    marginTop: 12,
+    minHeight: 34,
+  },
+  manualActions: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  manualButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  manualButtonPrimary: {
+    borderWidth: 1,
   },
   detailSection: {
     marginTop: 18,

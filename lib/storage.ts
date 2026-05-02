@@ -60,6 +60,7 @@ const KNOWN_KEYS: ReadonlyArray<string> = [
   'atlas-ai.telemetry-outbox.v1',
   'atlas-ai.pending-submission',
   'atlas-ai.routing',
+  'atlas-memory.review-filters.v1',
   'atlas-theme.mode',
 ]
 

@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, View, type ScrollViewProps, type ViewStyle } from 'react-native'
+import { Platform, ScrollView, StyleSheet, View, type ScrollViewProps, type ViewStyle } from 'react-native'
 import { type ReactNode } from 'react'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { CartogBackground } from './CartogBackground'
@@ -23,6 +23,13 @@ interface Props extends ScrollViewProps {
 // Total dock occupied space from the screen bottom edge:
 //   8 + insets.bottom + 64
 const DOCK_BASELINE = 8 + 64
+
+// Extra breath above the keyboard when an input is focused. iOS's
+// automaticallyAdjustKeyboardInsets brings the focused field flush with the
+// keyboard top; this contentInset pushes the field up by an extra 48px so the
+// cursor never kisses the keyboard. Mantido pequeno para não causar overscroll
+// perceptível quando o teclado está fechado.
+const KEYBOARD_BREATH_INSET = { top: 0, left: 0, bottom: 48, right: 0 } as const
 
 // Standard screen wrapper. Provides:
 // - Background fill matching theme
@@ -51,6 +58,14 @@ export function Screen({
             paddingBottom: totalBottom,
           }}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          // 48px de respiro acima do teclado: iOS soma este contentInset ao
+          // ajuste automático, evitando que o input focado fique colado no
+          // topo do teclado. Sem isso, o cursor encosta na borda do teclado.
+          contentInset={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
+          scrollIndicatorInsets={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
           {...rest}
         >
           {children}

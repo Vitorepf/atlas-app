@@ -132,6 +132,7 @@ function DetailContent({ item, onEdit, onMove, onDelete, onRetryTranscription, o
   const { c } = useTheme()
   const router = useRouter()
   const close = useOverlays((s) => s.close)
+  const { showToast } = useShell()
   const [playerError, setPlayerError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [triaging, setTriaging] = useState<TriageAction | null>(null)

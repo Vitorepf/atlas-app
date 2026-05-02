@@ -19,6 +19,7 @@ function signal(input: {
   id: string
   type: string
   value: number | null
+  text?: string | null
   unit?: string | null
   start: string
   end?: string | null
@@ -29,7 +30,7 @@ function signal(input: {
     source: 'healthkit',
     signal_type: input.type,
     value_numeric: input.value,
-    value_text: null,
+    value_text: input.text ?? null,
     unit: input.unit ?? null,
     started_at: input.start,
     ended_at: input.end ?? null,
@@ -439,11 +440,57 @@ const overlappingSleep = [
       unit: 'kg',
       start: '2026-04-29T08:00:00-03:00',
     }),
+    signal({
+      id: 'height-manual',
+      type: 'height',
+      value: 1.7,
+      unit: 'm',
+      start: '2026-04-29T08:10:00-03:00',
+    }),
   ])
   assert.equal(snapshot.body_fat_percentage, 20.2)
   assert.equal(snapshot.body_mass_kg, 69.6)
   assert.equal(snapshot.lean_body_mass_kg, 55.541)
-  assert.equal(snapshot.muscle_mass_percentage, 79.8)
+  assert.equal(snapshot.muscle_mass_percentage, null)
+  assert.equal(snapshot.body_mass_index, 24.083)
+  assert.equal(snapshot.body?.lean_mass_percentage, 79.8)
+  assert.equal(snapshot.body?.height_m, 1.7)
+  assert.equal(snapshot.body?.fat_mass_kg, 14.059)
+}
+
+{
+  const longitudinalSignals = Array.from({ length: 14 }, (_, index) => {
+    const day = String(29 - index).padStart(2, '0')
+    return [
+      signal({ id: `atlas-age-sleep-${day}`, type: 'sleep_duration_hours', value: 8, unit: 'h', start: `2026-04-${day}T00:00:00-03:00`, end: `2026-04-${day}T08:00:00-03:00` }),
+      signal({ id: `atlas-age-rhr-${day}`, type: 'resting_heart_rate_bpm', value: 52, unit: 'bpm', start: `2026-04-${day}T07:30:00-03:00` }),
+      signal({ id: `atlas-age-hrv-${day}`, type: 'hrv_ms', value: 68, unit: 'ms', start: `2026-04-${day}T07:30:00-03:00` }),
+      signal({ id: `atlas-age-steps-${day}`, type: 'steps', value: 9200, unit: 'count', start: `2026-04-${day}T22:00:00-03:00` }),
+      signal({ id: `atlas-age-exercise-${day}`, type: 'exercise_minutes', value: 42, unit: 'min', start: `2026-04-${day}T18:00:00-03:00` }),
+    ]
+  }).flat()
+
+  const snapshot = snapshotFor([
+    signal({ id: 'atlas-age-dob', type: 'date_of_birth', value: null, text: '1996-04-29', start: '2026-04-01T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-sex', type: 'biological_sex', value: 2, unit: 'count', start: '2026-04-01T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-vo2', type: 'vo2max', value: 50, unit: 'ml/(kg*min)', start: '2026-04-20T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-weight', type: 'body_mass', value: 69.6, unit: 'kg', start: '2026-04-29T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-fat', type: 'body_fat_percentage', value: 14, unit: '%', start: '2026-04-29T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-lean', type: 'lean_body_mass', value: 59.9, unit: 'kg', start: '2026-04-29T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-height', type: 'height', value: 1.7, unit: 'm', start: '2026-04-29T08:00:00-03:00' }),
+    signal({ id: 'atlas-age-waist', type: 'waist_circumference', value: 78, unit: 'cm', start: '2026-04-29T08:00:00-03:00' }),
+    ...longitudinalSignals,
+  ])
+  const atlasAge = snapshot.body?.physiological_age_atlas as Record<string, unknown> | undefined
+  assert.ok(atlasAge)
+  assert.equal(atlasAge.model_version, 'atlas_physiological_age_v1')
+  assert.notEqual(atlasAge.status, 'insufficient')
+  assert.equal(atlasAge.chronological_age_years, 30)
+  assert.equal(typeof atlasAge.age_years, 'number')
+  assert.ok(Number(atlasAge.age_years) < 30)
+  assert.ok(Number(atlasAge.confidence) >= 0.6)
+  assert.ok(Array.isArray(atlasAge.contributors))
+  assert.ok((atlasAge.contributors as Array<Record<string, unknown>>).some((item) => item.key === 'vo2max'))
 }
 
 {

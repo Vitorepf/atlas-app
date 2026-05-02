@@ -2,15 +2,21 @@ import { useCallback, useEffect } from 'react'
 import * as Linking from 'expo-linking'
 import { useRouter } from 'expo-router'
 import { useShell } from '../components/AtlasShell'
+import { useOverlays } from './overlays'
 
 interface RouterLike {
   push: (href: any) => void
+}
+
+interface AtlasDeepLinkHandlers {
+  openAtlasAi?: (threadId?: string | null) => void
 }
 
 export interface AtlasDeepLink {
   target: string
   id?: string
   action?: string
+  params?: Record<string, string>
 }
 
 export function parseAtlasDeepLink(url: string): AtlasDeepLink | null {
@@ -18,7 +24,8 @@ export function parseAtlasDeepLink(url: string): AtlasDeepLink | null {
 
   const withoutScheme = url.replace(/^atlas:\/\//, '')
   const query = withoutScheme.split('?')[1]?.split('#')[0] ?? ''
-  const queryAction = new URLSearchParams(query).get('action') ?? undefined
+  const queryParams = Object.fromEntries(new URLSearchParams(query).entries())
+  const queryAction = queryParams.action
   const clean = withoutScheme
     .split('?')[0]
     .split('#')[0]
@@ -26,10 +33,10 @@ export function parseAtlasDeepLink(url: string): AtlasDeepLink | null {
   const [target, id, action] = clean.split('/').filter(Boolean)
   if (!target) return null
 
-  return { target, id, action: action ?? queryAction }
+  return { target, id, action: action ?? queryAction, params: queryParams }
 }
 
-export function openAtlasDeepLink(url: string, router: RouterLike): boolean {
+export function openAtlasDeepLink(url: string, router: RouterLike, handlers: AtlasDeepLinkHandlers = {}): boolean {
   const parsed = parseAtlasDeepLink(url)
   if (!parsed) return false
 
@@ -56,10 +63,21 @@ export function openAtlasDeepLink(url: string, router: RouterLike): boolean {
       return true
     case 'thread':
       if (parsed.id && parsed.id !== 'new') {
-        router.push({ pathname: '/mobile-thread', params: { threadId: parsed.id } })
+        if (handlers.openAtlasAi) {
+          handlers.openAtlasAi(parsed.id)
+        } else {
+          router.push({ pathname: '/mobile-thread', params: { threadId: parsed.id } })
+        }
         return true
       }
-      router.push('/inbox')
+      if (handlers.openAtlasAi) {
+        handlers.openAtlasAi(null)
+      } else {
+        router.push('/inbox')
+      }
+      return true
+    case 'memory':
+      router.push({ pathname: '/memory', params: parsed.params ?? {} })
       return true
     case 'job':
     case 'trace':
@@ -73,18 +91,19 @@ export function openAtlasDeepLink(url: string, router: RouterLike): boolean {
 export function useAtlasDeepLinks(): void {
   const router = useRouter()
   const { showToast } = useShell()
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const open = useCallback((url: string) => {
     // Ignore non-Atlas URLs entirely (Expo dev tunnel boot URL, Expo Go
     // launch URL, OS background hand-off, etc.). Only treat malformed
     // atlas://... URLs as actual invalid links.
     if (!url.startsWith('atlas://')) return
 
-    const handled = openAtlasDeepLink(url, router)
+    const handled = openAtlasDeepLink(url, router, { openAtlasAi })
     if (!handled) {
       router.push('/inbox')
       showToast('link invalido do Atlas', { durationMs: 2200 })
     }
-  }, [router, showToast])
+  }, [openAtlasAi, router, showToast])
 
   useEffect(() => {
     let active = true

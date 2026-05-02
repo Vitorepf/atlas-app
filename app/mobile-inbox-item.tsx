@@ -5,6 +5,7 @@ import { Screen } from '../components/Screen'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
+import { useOverlays } from '../lib/overlays'
 import {
   dismissMobileInboxItem,
   discussMobileInboxItem,
@@ -19,6 +20,28 @@ import {
 type DetailRow = {
   label: string
   value: string | null
+}
+
+type TelemetryIssue = {
+  key: string
+  severity: string
+  value: unknown
+  threshold: unknown
+  summary: string | null
+}
+
+type TelemetryHealthReport = {
+  status: string
+  score: number | null
+  window: string | null
+  traces: number | null
+  sample: Record<string, unknown> | null
+  whyReceived: Record<string, unknown> | null
+  notificationPolicy: Record<string, unknown> | null
+  breakdowns: Record<string, Array<Record<string, unknown>>>
+  issues: TelemetryIssue[]
+  actions: string[]
+  metrics: Array<{ name: string; value: unknown }>
 }
 
 type ContextBundle = NonNullable<AtlasOperationalInboxItem['context_bundle']>
@@ -46,6 +69,7 @@ export default function MobileInboxItemScreen() {
   const c = usePalette()
   const router = useRouter()
   const { showToast } = useShell()
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const params = useLocalSearchParams<{ inboxId?: string; inboxAction?: string }>()
   const inboxId = typeof params.inboxId === 'string' ? params.inboxId : null
   const initialAction = typeof params.inboxAction === 'string' ? params.inboxAction : null
@@ -95,16 +119,16 @@ export default function MobileInboxItemScreen() {
       setItem(response.item)
       const threadId = threadIdFromActionResult(response.result)
       if (threadId) {
-        router.push({ pathname: '/mobile-thread', params: { threadId } })
+        openAtlasAi(threadId)
       } else {
-        showToast('thread contextual criada')
+        showToast('Atlas aberto')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao abrir thread contextual.')
+      setError(err instanceof Error ? err.message : 'Falha ao abrir Atlas.')
     } finally {
       setBusyActionId(null)
     }
-  }, [router, showToast])
+  }, [openAtlasAi, showToast])
 
   useEffect(() => {
     if (initialActionHandled.current || loading || !item || initialAction !== 'discuss') return
@@ -210,9 +234,19 @@ export default function MobileInboxItemScreen() {
         </View>
       ) : item ? (
         <View style={styles.stack}>
-          <SummaryPanel item={item} />
-          <TypeDetails item={item} />
-          <ContextPanel item={item} />
+          {isTelemetryHealthInsight(item) ? (
+            <>
+              <TelemetryHealthPanel item={item} />
+              <TelemetryHealthMetricsPanel item={item} />
+              <TelemetryHealthBreakdownPanel item={item} />
+            </>
+          ) : (
+            <>
+              <SummaryPanel item={item} />
+              <TypeDetails item={item} />
+              <ContextPanel item={item} />
+            </>
+          )}
           <ActionPanel
             actions={actions}
             busyActionId={busyActionId}
@@ -279,6 +313,228 @@ function SummaryPanel({ item }: { item: AtlasOperationalInboxItem }) {
       {body && body !== summary ? <TextBlock label="Detalhe" value={body} /> : null}
       {!summary && !body ? <EmptyText>Nenhuma mensagem detalhada registrada.</EmptyText> : null}
     </Section>
+  )
+}
+
+function TelemetryHealthPanel({ item }: { item: AtlasOperationalInboxItem }) {
+  const c = usePalette()
+  const report = telemetryHealthReport(item)
+  const criticalCount = report.issues.filter((issue) => issue.severity === 'critical').length
+  const warningCount = report.issues.filter((issue) => issue.severity === 'warning').length
+  const statusText = report.status === 'critical' ? 'Critico' : report.status === 'warning' ? 'Atencao' : humanize(report.status)
+  const scoreText = report.score == null ? '--' : `${report.score}/100`
+
+  return (
+    <Section title="Diagnostico">
+      <View style={[styles.diagnosticHeader, { borderColor: c.border, backgroundColor: c.premium }]}>
+        <View style={styles.diagnosticCopy}>
+          <Sans weight="sb" size={15} lineHeight={20} color={c.ink}>
+            Saude do Atlas em {statusText.toLowerCase()}
+          </Sans>
+          <Sans size={13} lineHeight={19} color={c.ink2}>
+            O Atlas avaliou a telemetria operacional e abriu este item porque encontrou sinais fora do limite.
+          </Sans>
+        </View>
+        <View style={[styles.scoreBadge, { borderColor: severityColor(item.severity, c, false) }]}>
+          <Mono size={19} lineHeight={23} color={severityColor(item.severity, c)}>
+            {scoreText}
+          </Mono>
+          <Sans size={10.5} lineHeight={13} color={c.ink3} align="center">
+            score
+          </Sans>
+        </View>
+      </View>
+
+      <View style={styles.explainGrid}>
+        <ExplainTile label="Janela" value={report.window ?? '48h recentes'} />
+        <ExplainTile label="Amostra" value={report.traces == null ? 'sem dado' : `${report.traces} traces`} />
+        <ExplainTile label="Criticos" value={String(criticalCount)} danger={criticalCount > 0} />
+        <ExplainTile label="Alertas" value={String(warningCount)} danger={warningCount > 0} />
+      </View>
+
+      <TextBlock label="Por que apareceu" value={whyReceivedText(report)} />
+
+      {sampleConfidence(report) === 'limited' ? (
+        <View style={[styles.sampleNotice, { borderColor: c.border, backgroundColor: c.premium }]}>
+          <Sans weight="sb" size={13} lineHeight={18} color={c.ink}>
+            Leitura com amostra pequena
+          </Sans>
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            {sampleMessage(report) ?? 'Use este item como sinal de investigacao, nao como conclusao definitiva.'}
+          </Sans>
+        </View>
+      ) : null}
+
+      <TextBlock
+        label="O que significa"
+        value="Isto nao quer dizer que o app quebrou. Quer dizer que a camada de IA produziu sinais ruins ou incompletos na janela analisada: qualidade baixa, first-pass ruim, custo sem atribuicao ou outro indicador acima do limite."
+      />
+
+      {report.issues.length > 0 ? (
+        <View style={styles.issueList}>
+          <Label>Sinais que dispararam</Label>
+          {report.issues.map((issue, index) => (
+            <IssueRow key={`${issue.key}-${index}`} issue={issue} />
+          ))}
+        </View>
+      ) : null}
+
+      {report.actions.length > 0 ? (
+        <View style={styles.actionAdviceList}>
+          <Label>Proximos passos recomendados</Label>
+          {report.actions.map((action, index) => (
+            <View key={`${action}-${index}`} style={styles.adviceRow}>
+              <Mono size={11} lineHeight={16} color={c.prussian}>
+                {String(index + 1).padStart(2, '0')}
+              </Mono>
+              <Sans size={13} lineHeight={19} color={c.ink}>
+                {translateTelemetryAction(action)}
+              </Sans>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Section>
+  )
+}
+
+function TelemetryHealthMetricsPanel({ item }: { item: AtlasOperationalInboxItem }) {
+  const report = telemetryHealthReport(item)
+  const primaryMetrics = telemetryPrimaryMetrics(report)
+  if (primaryMetrics.length === 0) return null
+
+  return (
+    <Section title="Metricas principais">
+      <View style={styles.metricRows}>
+        {primaryMetrics.map((metric) => (
+          <MetricRow
+            key={metric.name}
+            label={metricLabel(metric.name)}
+            value={formatMetricValue(metric.name, metric.value)}
+            hint={metricHint(metric.name)}
+          />
+        ))}
+      </View>
+    </Section>
+  )
+}
+
+function TelemetryHealthBreakdownPanel({ item }: { item: AtlasOperationalInboxItem }) {
+  const report = telemetryHealthReport(item)
+  const surfaceRows = report.breakdowns.by_surface ?? []
+  const providerRows = report.breakdowns.by_provider ?? []
+  const modelRows = report.breakdowns.by_model ?? []
+
+  if (surfaceRows.length === 0 && providerRows.length === 0 && modelRows.length === 0) return null
+
+  return (
+    <Section title="Origem do sinal">
+      {surfaceRows.length > 0 ? <BreakdownGroup title="Superficie" rows={surfaceRows} /> : null}
+      {providerRows.length > 0 ? <BreakdownGroup title="Provider" rows={providerRows} /> : null}
+      {modelRows.length > 0 ? <BreakdownGroup title="Modelo" rows={modelRows} /> : null}
+    </Section>
+  )
+}
+
+function BreakdownGroup({ title, rows }: { title: string; rows: Array<Record<string, unknown>> }) {
+  return (
+    <View style={styles.breakdownGroup}>
+      <Label>{title}</Label>
+      <View style={styles.breakdownRows}>
+        {rows.slice(0, 4).map((row, index) => (
+          <BreakdownRow key={`${title}-${textValue(row.bucket) ?? index}`} row={row} />
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function BreakdownRow({ row }: { row: Record<string, unknown> }) {
+  const c = usePalette()
+  const bucket = textValue(row.bucket) ?? 'unknown'
+  const traces = numberValue(row.traces)
+  const quality = numberValue(row.quality_avg)
+  const firstPass = numberValue(row.first_pass_success_rate)
+  const unknownCostCount = numberValue(row.unknown_cost_count)
+  const latency = numberValue(row.latency_avg_ms)
+
+  return (
+    <View style={[styles.breakdownRow, { borderColor: c.border }]}>
+      <View style={styles.metricCopy}>
+        <Sans weight="sb" size={13.5} lineHeight={18} color={c.ink}>
+          {bucket}
+        </Sans>
+        <Sans size={12.5} lineHeight={17} color={c.ink2}>
+          {[
+            traces == null ? null : `${formatNumber(traces, 0)} traces`,
+            quality == null ? null : `qualidade ${formatMetricValue('final_quality_avg', quality)}`,
+            firstPass == null ? null : `first-pass ${formatMetricValue('first_pass_success_rate', firstPass)}`,
+            latency == null ? null : `latencia ${formatMetricValue('latency_avg_ms', latency)}`,
+          ].filter(Boolean).join(' · ')}
+        </Sans>
+      </View>
+      {unknownCostCount && unknownCostCount > 0 ? (
+        <Mono size={11} lineHeight={15} color={c.recRed}>
+          {formatNumber(unknownCostCount, 0)} sem custo
+        </Mono>
+      ) : null}
+    </View>
+  )
+}
+
+function ExplainTile({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  const c = usePalette()
+  return (
+    <View style={[styles.explainTile, { borderColor: c.border, backgroundColor: danger ? `${c.recRed}10` : c.surface }]}>
+      <Mono size={10.5} lineHeight={14} color={c.ink3} letterSpacing={0.2} style={styles.detailLabel}>
+        {label}
+      </Mono>
+      <Sans weight="sb" size={13.5} lineHeight={18} color={danger ? c.recRed : c.ink}>
+        {value}
+      </Sans>
+    </View>
+  )
+}
+
+function IssueRow({ issue }: { issue: TelemetryIssue }) {
+  const c = usePalette()
+  const critical = issue.severity === 'critical'
+  return (
+    <View style={[styles.issueRow, { borderColor: c.border, backgroundColor: critical ? `${c.recRed}10` : c.surface }]}>
+      <View style={styles.issueTopRow}>
+        <Sans weight="sb" size={13.5} lineHeight={18} color={c.ink}>
+          {metricLabel(issue.key)}
+        </Sans>
+        <Mono size={10.5} lineHeight={14} color={critical ? c.recRed : c.ink2} letterSpacing={0.2} style={styles.detailLabel}>
+          {issue.severity}
+        </Mono>
+      </View>
+      <Sans size={12.5} lineHeight={18} color={c.ink2}>
+        {formatMetricValue(issue.key, issue.value)} vs limite {formatMetricValue(issue.key, issue.threshold)}
+      </Sans>
+      <Sans size={12.5} lineHeight={18} color={c.ink}>
+        {issueMeaning(issue)}
+      </Sans>
+    </View>
+  )
+}
+
+function MetricRow({ label, value, hint }: { label: string; value: string; hint: string }) {
+  const c = usePalette()
+  return (
+    <View style={[styles.metricRow, { borderColor: c.border }]}>
+      <View style={styles.metricCopy}>
+        <Sans weight="sb" size={13.5} lineHeight={18} color={c.ink}>
+          {label}
+        </Sans>
+        <Sans size={12.5} lineHeight={17} color={c.ink2}>
+          {hint}
+        </Sans>
+      </View>
+      <Mono size={13} lineHeight={18} color={c.prussian}>
+        {value}
+      </Mono>
+    </View>
   )
 }
 
@@ -404,11 +660,13 @@ function SnoozePanel({
 }
 
 function MetadataPanel({ item }: { item: AtlasOperationalInboxItem }) {
+  const technical = !isTelemetryHealthInsight(item)
   const rows: DetailRow[] = [
     { label: 'ID', value: item.id },
-    { label: 'Fonte', value: [item.source_type, item.source_id].filter(Boolean).join(' / ') || null },
+    { label: 'Criado em', value: dateTimeLabel(item.created_at) },
+    { label: 'Fonte', value: technical ? [item.source_type, item.source_id].filter(Boolean).join(' / ') || null : null },
     { label: 'Iniciador', value: item.initiator },
-    { label: 'Dedupe', value: item.dedupe_key },
+    { label: 'Dedupe', value: technical ? item.dedupe_key : null },
     { label: 'Expira em', value: dateTimeLabel(item.expires_at) },
     { label: 'Lido em', value: dateTimeLabel(item.read_at) },
     { label: 'Resolvido em', value: dateTimeLabel(item.resolved_at) },
@@ -524,12 +782,311 @@ function DetailActionButton({
   )
 }
 
+function isTelemetryHealthInsight(item: AtlasOperationalInboxItem): boolean {
+  return item.type === 'insight'
+    && (payloadText(item.payload ?? {}, 'insight_kind') === 'atlas_ai_telemetry_health'
+      || (item.dedupe_key?.includes('atlas-ai-telemetry-health') ?? false))
+}
+
+function telemetryHealthReport(item: AtlasOperationalInboxItem): TelemetryHealthReport {
+  const payload = item.payload ?? {}
+  const health = isRecord(payload.health) ? payload.health : null
+  const legacy = parseLegacyTelemetryBody(item.body)
+  const metrics = telemetryMetricRefs(item)
+  const sample = isRecord(health?.sample) ? health.sample : null
+  const whyReceived = isRecord(health?.why_received) ? health.why_received : null
+  const notificationPolicy = isRecord(health?.notification_policy) ? health.notification_policy : null
+  const breakdowns = telemetryBreakdowns(health?.breakdowns)
+  const score = numberValue(health?.health_score) ?? scoreFromSummary(item.summary)
+  const issues = telemetryIssueList(health?.issues).length > 0
+    ? telemetryIssueList(health?.issues)
+    : legacy.issues
+  const actions = telemetryActionList(health?.actions).length > 0
+    ? telemetryActionList(health?.actions)
+    : legacy.actions
+
+  return {
+    status: textValue(health?.status) ?? item.severity,
+    score,
+    window: windowLabelFromRecord(health?.window),
+    traces: numberMetric(metrics, 'traces'),
+    sample,
+    whyReceived,
+    notificationPolicy,
+    breakdowns,
+    issues,
+    actions,
+    metrics,
+  }
+}
+
+function parseLegacyTelemetryBody(body: string | null): { issues: TelemetryIssue[]; actions: string[] } {
+  if (!body) return { issues: [], actions: [] }
+
+  const issueMatch = body.match(/Issues:\s*(\[[\s\S]*?\])\s*(?:\n\n|$)/)
+  let issues: TelemetryIssue[] = []
+  if (issueMatch?.[1]) {
+    try {
+      issues = telemetryIssueList(JSON.parse(issueMatch[1]))
+    } catch {
+      issues = []
+    }
+  }
+
+  const actionMatch = body.match(/Acoes sugeridas:\s*([\s\S]+)$/)
+  const actions = actionMatch?.[1]
+    ?.split('|')
+    .map((entry) => entry.trim())
+    .filter(Boolean) ?? []
+
+  return { issues, actions }
+}
+
+function telemetryIssueList(value: unknown): TelemetryIssue[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return []
+    const key = textValue(entry.key)
+    const severity = textValue(entry.severity)
+    if (!key || !severity) return []
+    return [{
+      key,
+      severity,
+      value: entry.value,
+      threshold: entry.threshold,
+      summary: textValue(entry.summary),
+    }]
+  })
+}
+
+function telemetryActionList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((entry) => textValue(entry)).filter((entry): entry is string => typeof entry === 'string')
+}
+
+function telemetryMetricRefs(item: AtlasOperationalInboxItem): Array<{ name: string; value: unknown }> {
+  const refs = item.context_bundle?.metric_refs
+  if (!Array.isArray(refs)) return []
+  return refs.flatMap((ref) => {
+    if (!isRecord(ref)) return []
+    const name = textValue(ref.name)
+    if (!name) return []
+    return [{ name, value: ref.value }]
+  })
+}
+
+function telemetryBreakdowns(value: unknown): Record<string, Array<Record<string, unknown>>> {
+  if (!isRecord(value)) return {}
+  return Object.fromEntries(Object.entries(value).map(([key, rows]) => [
+    key,
+    Array.isArray(rows) ? rows.filter(isRecord) : [],
+  ]))
+}
+
+function whyReceivedText(report: TelemetryHealthReport): string {
+  const message = textValue(report.whyReceived?.message)
+    ?? 'O monitor automatico de telemetria abriu este item porque encontrou sinais fora do limite.'
+  const scheduler = textValue(report.whyReceived?.scheduler)
+  const cadence = textValue(report.whyReceived?.cadence)
+  const notification = textValue(report.whyReceived?.notification_label)
+    ?? notificationPolicyLabel(report.notificationPolicy)
+  const parts = [message, notification ? `Notificacao: ${notification}` : null]
+
+  if (scheduler || cadence) {
+    parts.push(`Origem: ${scheduler ?? 'monitor de telemetria'}${cadence === 'hourly' ? ', roda de hora em hora' : ''}.`)
+  }
+
+  return parts.filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n')
+}
+
+function notificationPolicyLabel(policy: Record<string, unknown> | null): string | null {
+  const send = textValue(policy?.send)
+  if (send === 'none') return 'sem push imediato; fica no Inbox e no relatorio da manha.'
+  if (send === 'immediate') return 'push imediato porque o sinal pode afetar a operacao agora.'
+  if (send === 'auto') return 'pode ser agrupado com outras atualizacoes.'
+  return null
+}
+
+function sampleConfidence(report: TelemetryHealthReport): string | null {
+  return textValue(report.sample?.confidence)
+}
+
+function sampleMessage(report: TelemetryHealthReport): string | null {
+  return textValue(report.sample?.message)
+}
+
+function telemetryPrimaryMetrics(report: TelemetryHealthReport): Array<{ name: string; value: unknown }> {
+  const byName = new Map(report.metrics.map((metric) => [metric.name, metric.value]))
+  const traces = numberMetric(report.metrics, 'traces')
+  const unknownCostCount = numberMetric(report.metrics, 'unknown_cost_count')
+  if (!byName.has('unknown_cost_rate') && traces && unknownCostCount != null) {
+    byName.set('unknown_cost_rate', unknownCostCount / traces)
+  }
+
+  return [
+    'traces',
+    'final_quality_avg',
+    'final_efficiency_avg',
+    'first_pass_success_rate',
+    'unknown_cost_rate',
+    'total_latency_avg_ms',
+    'app_visible_avg_ms',
+  ].flatMap((name) => (byName.has(name) ? [{ name, value: byName.get(name) }] : []))
+}
+
+function numberMetric(metrics: Array<{ name: string; value: unknown }>, name: string): number | null {
+  const value = metrics.find((metric) => metric.name === name)?.value
+  return numberValue(value)
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return value
+}
+
+function scoreFromSummary(summary: string | null): number | null {
+  const match = summary?.match(/score\s+(\d+(?:\.\d+)?)\/100/i)
+  if (!match?.[1]) return null
+  const score = Number(match[1])
+  return Number.isFinite(score) ? score : null
+}
+
+function windowLabelFromRecord(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const since = textValue(value.since)
+  const until = textValue(value.until)
+  if (!since || !until) return null
+  const start = dateTimeLabel(since)
+  const end = dateTimeLabel(until)
+  return start && end ? `${start} ate ${end}` : null
+}
+
+function metricLabel(key: string): string {
+  switch (key) {
+    case 'traces':
+      return 'Traces analisados'
+    case 'final_quality_avg':
+      return 'Qualidade media'
+    case 'final_efficiency_avg':
+      return 'Eficiencia media'
+    case 'context_efficiency_avg':
+      return 'Eficiencia de contexto'
+    case 'first_pass_success_rate':
+      return 'First-pass'
+    case 'unknown_cost_rate':
+      return 'Custo desconhecido'
+    case 'unknown_cost_count':
+      return 'Traces sem custo'
+    case 'low_quality_rate':
+      return 'Baixa qualidade'
+    case 'total_latency_avg_ms':
+      return 'Latencia media'
+    case 'app_visible_avg_ms':
+      return 'Latencia visivel'
+    case 'needed_remediation_rate':
+      return 'Remediacao'
+    case 'slow_trace_rate':
+      return 'Traces lentas'
+    default:
+      return humanize(key)
+  }
+}
+
+function metricHint(key: string): string {
+  switch (key) {
+    case 'traces':
+      return 'Tamanho da amostra usada no diagnostico.'
+    case 'final_quality_avg':
+      return 'Score medio de qualidade das respostas.'
+    case 'final_efficiency_avg':
+      return 'Score medio de eficiencia operacional.'
+    case 'first_pass_success_rate':
+      return 'Percentual que passou de primeira, sem retrabalho.'
+    case 'unknown_cost_rate':
+      return 'Parte das execucoes sem custo calculado.'
+    case 'total_latency_avg_ms':
+      return 'Tempo medio medido na execucao.'
+    case 'app_visible_avg_ms':
+      return 'Tempo percebido no app, quando existe evento mobile.'
+    default:
+      return 'Metrica de apoio para investigar o item.'
+  }
+}
+
+function formatMetricValue(key: string, value: unknown): string {
+  const number = numberValue(value)
+  if (number == null) return 'sem dado'
+  if (key.endsWith('_rate') || key === 'first_pass_success_rate' || key === 'needed_remediation_rate') {
+    return `${formatNumber(number * 100, 2)}%`
+  }
+  if (key.endsWith('_ms')) {
+    return number >= 1000 ? `${formatNumber(number / 1000, 2)}s` : `${Math.round(number)}ms`
+  }
+  return formatNumber(number, 2)
+}
+
+function formatNumber(value: number, maximumFractionDigits = 2): string {
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })
+}
+
+function issueMeaning(issue: TelemetryIssue): string {
+  switch (issue.key) {
+    case 'final_quality_avg':
+      return 'As respostas recentes ficaram abaixo do padrao esperado.'
+    case 'final_efficiency_avg':
+      return 'O Atlas esta usando mais esforco do que deveria para chegar ao resultado.'
+    case 'first_pass_success_rate':
+      return 'Poucas execucoes estao ficando boas na primeira tentativa.'
+    case 'unknown_cost_rate':
+      return 'A telemetria nao consegue calcular custo com confianca para essa janela.'
+    case 'low_quality_rate':
+      return 'Uma parte alta das execucoes recentes recebeu score baixo.'
+    case 'slow_trace_rate':
+    case 'app_visible_avg_ms':
+      return 'A experiencia pode parecer lenta para quem usa o app.'
+    default:
+      return issue.summary ?? 'Sinal fora do limite configurado.'
+  }
+}
+
+function translateTelemetryAction(action: string): string {
+  if (action.startsWith('Open recent low-score traces')) {
+    return 'Abrir traces recentes com score baixo e revisar prompt, contexto e provider antes de mudar comportamento.'
+  }
+  if (action.startsWith('Configure operational estimate cost rates')) {
+    return action
+      .replace('Configure operational estimate cost rates for ', 'Configurar taxas estimadas de custo para ')
+      .replace(' and rerun telemetry rollup.', ' e rodar o rollup de telemetria novamente.')
+  }
+  if (action.startsWith('Fix provider/model attribution')) {
+    return 'Corrigir a atribuicao de provider/model nos traces com custo desconhecido antes de importar taxas.'
+  }
+  if (action.startsWith('Review quality flags')) {
+    return 'Revisar flags de qualidade e feedback humano recente; ajustar selecao de contexto ou politica de resposta primeiro.'
+  }
+  if (action.startsWith('Check queue wait')) {
+    return 'Separar tempo de fila, latencia do provider e eventos de visibilidade no app para descobrir onde o tempo esta sendo gasto.'
+  }
+  if (action.startsWith('Compare first-pass failures')) {
+    return 'Comparar falhas de first-pass com traces bem-sucedidos por tipo de tarefa e provider.'
+  }
+  return action
+}
+
 function detailsForItem(item: AtlasOperationalInboxItem): DetailRow[] {
   const payload = item.payload ?? {}
   const reportRows = detailsForReport(payload.report)
 
   if (reportRows.length > 0) {
     return reportRows
+  }
+
+  const recommendationRows = detailsForRecommendation(payload.recommendation)
+  if (recommendationRows.length > 0) {
+    return recommendationRows
   }
 
   if (item.type === 'proposal') {
@@ -612,6 +1169,25 @@ function detailsForReport(value: unknown): DetailRow[] {
   ].filter((row) => row.value)
 }
 
+function detailsForRecommendation(value: unknown): DetailRow[] {
+  if (!isRecord(value)) return []
+
+  return [
+    { label: 'Estado', value: textValue(value.state) },
+    { label: 'Tipo', value: textValue(value.kind) },
+    { label: 'Metrica alvo', value: textValue(value.target_metric) },
+    { label: 'Dimensao', value: compactJson(value.target_dimension, 360) },
+    { label: 'Impacto esperado', value: recommendationImpactText(value.expected_impact) },
+    { label: 'Baseline', value: compactJson(value.baseline_snapshot, 420) },
+    { label: 'Impacto observado', value: compactJson(value.observed_impact, 420) },
+    { label: 'Medicao', value: measurementText(value) },
+    { label: 'Adiada ate', value: dateTimeLabel(textValue(value.snoozed_until)) },
+    { label: 'Fechada em', value: dateTimeLabel(textValue(value.closed_at)) },
+    { label: 'Motivo de fechamento', value: textValue(value.closed_reason) },
+    { label: 'Prioridade', value: payloadNumber(value.priority_score) },
+  ].filter((row) => row.value)
+}
+
 function threadIdFromActionResult(result: Record<string, unknown>): string | null {
   const threadId = result.thread_id
   if (typeof threadId === 'string' && threadId !== '') return threadId
@@ -626,6 +1202,9 @@ function threadIdFromActionResult(result: Record<string, unknown>): string | nul
 function actionMessage(actionId: string, result: Record<string, unknown>): string {
   if (actionId === 'create_proposal' && typeof result.proposal_item_id === 'string') return 'proposta criada no Inbox'
   if (actionId === 'ignore_30d') return 'auto-diagnostico ignorado por 30 dias'
+  if (actionId === 'acknowledge_recommendation') return 'recomendacao reconhecida'
+  if (actionId === 'apply_recommendation') return 'recomendacao marcada como aplicada'
+  if (actionId === 'reject_recommendation') return 'recomendacao rejeitada'
   if (actionId === 'review_patch') return 'proposta marcada para revisao'
   if (actionId === 'view_trace') return 'trace marcado para revisao'
   if (actionId === 'mark_read') return 'marcado como lido'
@@ -661,6 +1240,28 @@ function listText(value: unknown): string | null {
 function payloadNumber(value: unknown, percent = false): string | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   return percent ? `${Math.round(value * 100)}%` : String(value)
+}
+
+function recommendationImpactText(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const parts = [
+    textValue(value.direction),
+    payloadNumber(value.magnitude, true),
+    textValue(value.rationale),
+  ].filter((part): part is string => typeof part === 'string' && part.length > 0)
+
+  return parts.length > 0 ? parts.join(' - ') : compactJson(value, 360)
+}
+
+function measurementText(value: Record<string, unknown>): string | null {
+  const dueAt = dateTimeLabel(textValue(value.measurement_due_at))
+  const windowDays = payloadNumber(value.measurement_window_days)
+  const parts = [
+    windowDays ? `${windowDays} dias` : null,
+    dueAt ? `proxima: ${dueAt}` : null,
+  ].filter((part): part is string => typeof part === 'string')
+
+  return parts.length > 0 ? parts.join(' - ') : null
 }
 
 function durationText(value: unknown): string | null {
@@ -786,6 +1387,109 @@ const styles = StyleSheet.create({
   },
   preWrap: {
     flexShrink: 1,
+  },
+  diagnosticHeader: {
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  diagnosticCopy: {
+    flex: 1,
+    gap: 5,
+  },
+  scoreBadge: {
+    width: 74,
+    minHeight: 62,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+  },
+  sampleNotice: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  explainGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  explainTile: {
+    width: '48%',
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  issueList: {
+    gap: 8,
+  },
+  issueRow: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+  },
+  issueTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  actionAdviceList: {
+    gap: 8,
+  },
+  adviceRow: {
+    flexDirection: 'row',
+    gap: 9,
+    alignItems: 'flex-start',
+  },
+  metricRows: {
+    gap: 8,
+  },
+  metricRow: {
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metricCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  breakdownGroup: {
+    gap: 8,
+  },
+  breakdownRows: {
+    gap: 8,
+  },
+  breakdownRow: {
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   rows: {
     gap: 12,

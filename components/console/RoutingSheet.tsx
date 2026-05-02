@@ -5,8 +5,10 @@ import { Frau, Sans } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import { BronzeDiamond } from './BronzeDiamond'
 import {
+  ROUTING_DOMAIN_OPTIONS,
   ROUTING_DEFAULT,
-  type RoutingDomain,
+  routingExecutorAllowedForTask,
+  sanitizeRoutingState,
   type RoutingExecutor,
   type RoutingStyle,
   type RoutingState,
@@ -28,18 +30,11 @@ const TASKS: Array<{ key: RoutingTask; label: string }> = [
   { key: 'debug',  label: 'Debug' },
 ]
 
-const DOMAINS: Array<{ key: RoutingDomain; label: string }> = [
-  { key: 'auto',          label: 'Auto' },
-  { key: 'vault-curador', label: 'Vault' },
-  { key: 'saude',         label: 'Saúde' },
-  { key: 'blackink',      label: 'BlackInk' },
-  { key: 'financas',      label: 'Finanças' },
-]
-
 const EXECUTORS: Array<{ key: RoutingExecutor; label: string; gloss?: string }> = [
   { key: 'auto',         label: 'Atlas decide' },
   { key: 'claude_cli',   label: 'Claude',   gloss: 'síntese e conversa' },
   { key: 'codex_cli',    label: 'Codex',    gloss: 'engenharia e estrutura' },
+  { key: 'gemini_cli',   label: 'Gemini',   gloss: 'contexto longo e multimodal' },
   { key: 'claude_codex', label: 'Conselho', gloss: 'múltiplas vozes' },
 ]
 
@@ -56,13 +51,13 @@ const STYLES: Array<{ key: RoutingStyle; label: string; gloss?: string }> = [
 // the operator confirms or cancels at the bottom. Pause is the point.
 export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
   const c = usePalette()
-  const [draft, setDraft] = useState<RoutingState>(initial)
+  const [draft, setDraft] = useState<RoutingState>(sanitizeRoutingState(initial))
 
   useEffect(() => {
-    if (visible) setDraft(initial)
+    if (visible) setDraft(sanitizeRoutingState(initial))
   }, [visible, initial])
 
-  const dirty = !sameRouting(draft, initial)
+  const dirty = !sameRouting(draft, sanitizeRoutingState(initial))
 
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
@@ -87,7 +82,7 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
                 key={option.key}
                 label={option.label}
                 active={draft.task === option.key}
-                onPress={() => setDraft((d) => ({ ...d, task: option.key }))}
+                onPress={() => setDraft((d) => sanitizeRoutingState({ ...d, task: option.key }))}
               />
             ))}
           </ChipRow>
@@ -95,7 +90,7 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
 
         <Section label="domínio">
           <ChipRow>
-            {DOMAINS.map((option) => (
+            {ROUTING_DOMAIN_OPTIONS.map((option) => (
               <ChoiceChip
                 key={option.key}
                 label={option.label}
@@ -108,15 +103,19 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
 
         <Section label="executor">
           <View style={styles.executorList}>
-            {EXECUTORS.map((option) => (
-              <ExecutorRow
-                key={option.key}
-                label={option.label}
-                gloss={option.gloss}
-                active={draft.executor === option.key}
-                onPress={() => setDraft((d) => ({ ...d, executor: option.key }))}
-              />
-            ))}
+            {EXECUTORS.map((option) => {
+              const disabled = !routingExecutorAllowedForTask(option.key, draft.task)
+              return (
+                <ExecutorRow
+                  key={option.key}
+                  label={option.label}
+                  gloss={option.gloss}
+                  active={draft.executor === option.key}
+                  disabled={disabled}
+                  onPress={() => setDraft((d) => sanitizeRoutingState({ ...d, executor: option.key }))}
+                />
+              )
+            })}
           </View>
         </Section>
 
@@ -142,7 +141,7 @@ export function RoutingSheet({ visible, initial, onClose, onConfirm }: Props) {
             label="confirmar"
             tone={dirty ? 'primary' : 'muted'}
             onPress={() => {
-              onConfirm(draft)
+              onConfirm(sanitizeRoutingState(draft))
               onClose()
             }}
             disabled={!dirty}
@@ -209,21 +208,24 @@ function ExecutorRow({
   label,
   gloss,
   active,
+  disabled,
   onPress,
 }: {
   label: string
   gloss?: string
   active: boolean
+  disabled?: boolean
   onPress: () => void
 }) {
   const c = usePalette()
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.executorRow,
         {
-          opacity: pressed ? 0.7 : 1,
+          opacity: disabled ? 0.32 : pressed ? 0.7 : 1,
         },
       ]}
     >

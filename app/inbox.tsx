@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Animated, {
   interpolate,
@@ -34,6 +34,7 @@ import {
   hydrateApiConfig,
   listMobileInbox,
   proposeCaptureProjectPlan,
+  recoverMobileDeviceSession,
   regenerateProjectPlanProposal,
   respondMobileInboxItem,
   snoozeMobileInboxItem,
@@ -47,7 +48,8 @@ type InboxSort = 'recent' | 'oldest' | 'needs_triage'
 type QuickAction = 'promote' | 'create_task' | 'create_project' | 'snooze' | 'archive'
 type BulkAction = 'promote' | 'snooze' | 'archive'
 type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
-type OperationalFilter = 'all' | 'approval' | 'insight' | 'proposal' | 'job' | 'self_diagnostic' | 'alert'
+type OperationalFilter = 'all' | 'approval' | 'recommendation' | 'insight' | 'proposal' | 'job' | 'self_diagnostic' | 'alert'
+type InboxMode = 'captures' | 'operational'
 type ProjectPlanDraft = {
   title: string
   nextAction: string
@@ -76,6 +78,7 @@ const TASK_PRIORITIES: Array<{ key: TaskPriority; label: string }> = [
 const OPERATIONAL_FILTERS: Array<{ key: OperationalFilter; label: string }> = [
   { key: 'all', label: 'Tudo' },
   { key: 'approval', label: 'Aprovacoes' },
+  { key: 'recommendation', label: 'Recomendacoes' },
   { key: 'insight', label: 'Insights' },
   { key: 'proposal', label: 'Propostas' },
   { key: 'job', label: 'Jobs' },
@@ -104,6 +107,7 @@ export default function InboxScreen() {
   const { showToast } = useShell()
   const openDetail = useOverlays((s) => s.openDetail)
   const openDomainFilter = useOverlays((s) => s.openInboxDomainFilter)
+  const openAtlasAi = useOverlays((s) => s.openAtlasAi)
   const hydrated = useAtlasStore((s) => s.hydrated)
   const captures = useAtlasStore((s) => s.captures)
   const queuedCaptures = useAtlasStore((s) => s.queuedCaptures)
@@ -116,6 +120,7 @@ export default function InboxScreen() {
     () => visibleCaptures({ captures, queuedCaptures }).map((capture) => captureToInboxItem(capture, domains)),
     [captures, domains, queuedCaptures],
   )
+  const [mode, setMode] = useState<InboxMode>('captures')
   const [filter, setFilter] = useState<InboxFilter>('open')
   const [domainFilter, setDomainFilter] = useState<InboxDomainFilter>('all')
   const [query, setQuery] = useState('')
@@ -134,7 +139,9 @@ export default function InboxScreen() {
   const [operationalFilter, setOperationalFilter] = useState<OperationalFilter>('all')
   const [operationalBusyId, setOperationalBusyId] = useState<string | null>(null)
   const [operationalLoadingMore, setOperationalLoadingMore] = useState(false)
+  const [operationalError, setOperationalError] = useState<string | null>(null)
   const [mobilePaired, setMobilePaired] = useState<boolean | null>(null)
+  const operationalRefreshSeq = useRef(0)
   const searchFocus = useSharedValue(0)
 
   useEffect(() => {
@@ -167,9 +174,17 @@ export default function InboxScreen() {
   const sortedItems = useMemo(() => sortItems(filteredItems, sort), [filteredItems, sort])
   const groups = useMemo(() => groupByDate(sortedItems), [sortedItems])
   const operationalCounts = useMemo(() => countOperationalItems(operationalItems), [operationalItems])
+  const operationalCriticalCount = useMemo(
+    () => operationalItems.filter((item) => item.severity === 'critical').length,
+    [operationalItems],
+  )
   const filteredOperationalItems = useMemo(
     () => operationalItems.filter((item) => operationalFilterMatches(item, operationalFilter)),
     [operationalFilter, operationalItems],
+  )
+  const showOperationalList = mobilePaired !== false && (
+    operationalItems.length > 0 ||
+    (!operationalError && mobilePaired === true)
   )
 
   useEffect(() => {
@@ -180,27 +195,60 @@ export default function InboxScreen() {
     })
   }, [openItems])
 
+  useEffect(() => {
+    if (mode === 'captures') return
+
+    setSearchFocused(false)
+    setSelectionMode(false)
+    setSelectedIds([])
+    setTaskPriorityItem(null)
+    setSnoozeTarget(null)
+  }, [mode])
+
   const [loading, setLoading] = useState(!hydrated)
   useEffect(() => {
     void hydrate().then(() => sync())
   }, [hydrate, sync])
 
   const refreshOperationalInbox = useCallback(async () => {
+    const seq = operationalRefreshSeq.current + 1
+    operationalRefreshSeq.current = seq
+
     try {
-      const response = await listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE })
-      setOperationalItems(response.items.filter(isActiveOperationalItem))
-      setOperationalCursor(response.next_cursor ?? null)
-      void syncAtlasBadge(response.unread_count)
-      setMobilePaired(true)
-    } catch (error) {
-      if (error instanceof AtlasApiError && error.status === 401) {
+      await hydrateApiConfig()
+      const session = getMobileDeviceSession() ?? await recoverMobileDeviceSession()
+      if (!session) {
+        if (seq !== operationalRefreshSeq.current) return
         setOperationalItems([])
         setOperationalCursor(null)
+        setOperationalError(null)
         void syncAtlasBadge(0)
         setMobilePaired(false)
         return
       }
-      showToast('falha ao carregar inbox operacional')
+
+      const response = await listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE })
+      if (seq !== operationalRefreshSeq.current) return
+      setOperationalItems(response.items.filter(isActiveOperationalItem))
+      setOperationalCursor(response.next_cursor ?? null)
+      setOperationalError(null)
+      void syncAtlasBadge(response.unread_count)
+      setMobilePaired(true)
+    } catch (error) {
+      if (seq !== operationalRefreshSeq.current) return
+
+      if (error instanceof AtlasApiError && error.status === 401) {
+        setOperationalItems([])
+        setOperationalCursor(null)
+        setOperationalError(null)
+        void syncAtlasBadge(0)
+        setMobilePaired(false)
+        return
+      }
+
+      const message = error instanceof Error ? error.message : 'falha ao carregar inbox operacional'
+      setOperationalError(message)
+      showToast(message)
     }
   }, [showToast])
 
@@ -214,10 +262,13 @@ export default function InboxScreen() {
         limit: OPERATIONAL_PAGE_SIZE,
         cursor: operationalCursor,
       })
+      setOperationalError(null)
       setOperationalItems((current) => mergeOperationalItems(current, response.items.filter(isActiveOperationalItem)))
       setOperationalCursor(response.next_cursor ?? null)
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'falha ao carregar mais itens')
+      const message = error instanceof Error ? error.message : 'falha ao carregar mais itens'
+      setOperationalError(message)
+      showToast(message)
     } finally {
       setOperationalLoadingMore(false)
     }
@@ -252,9 +303,6 @@ export default function InboxScreen() {
         }
       }
 
-      void hydrateApiConfig().then(() => {
-        if (active) setMobilePaired(Boolean(getMobileDeviceSession()))
-      })
       void refreshOperationalInbox()
 
       if (AppState.currentState === 'active') {
@@ -472,9 +520,9 @@ export default function InboxScreen() {
         const response = await discussMobileInboxItem(item.id)
         const threadId = threadIdFromActionResult(response.result)
         if (threadId) {
-          router.push({ pathname: '/mobile-thread', params: { threadId } })
+          openAtlasAi(threadId)
         } else {
-          showToast('thread contextual criada')
+          showToast('Atlas aberto')
         }
       } else {
         const response = await respondMobileInboxItem(item.id, actionId)
@@ -496,289 +544,404 @@ export default function InboxScreen() {
           <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink}>
             Inbox
           </Frau>
-          <MetaLine metrics={metrics} />
+          {mode === 'captures' ? (
+            <MetaLine metrics={metrics} />
+          ) : (
+            <OperationalMetaLine
+              total={operationalCounts.all}
+              critical={operationalCriticalCount}
+              mobilePaired={mobilePaired}
+              error={operationalError}
+            />
+          )}
         </View>
         <CaptureButton onPress={() => router.push('/capture?mode=text')} />
       </View>
 
-      <InboxDomainStatus
-        domain={domainFilter}
-        onPress={() => openDomainFilter(domainFilter, setDomainFilter)}
+      <InboxModeTabs
+        active={mode}
+        capturesCount={metrics.open}
+        operationalCount={operationalCounts.all}
+        operationalCritical={operationalCriticalCount}
+        onChange={setMode}
       />
 
-      <Animated.View
-        style={[
-          styles.searchPill,
-          searchPillStyle,
-          {
-            backgroundColor: searchFocused ? c.premium : c.surface,
-            shadowColor: '#1A1612',
-          },
-        ]}
-      >
-        <View style={[styles.searchTopGloss, { backgroundColor: 'rgba(255,255,255,0.22)' }]} pointerEvents="none" />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          placeholder="buscar"
-          placeholderTextColor={c.ink2}
-          selectionColor={c.ink}
-          style={[styles.searchInput, { color: c.ink }]}
-        />
-        <Pressable
-          onPress={() => {
-            setSelectionMode((value) => !value)
-            setSelectedIds([])
-          }}
-          hitSlop={8}
-          style={({ pressed }) => [styles.selectionLink, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Frau italic size={12.5} lineHeight={16} color={selectionMode ? c.ink : c.ink2}>
-            · {selectionMode ? 'cancelar' : 'selecionar'}
-          </Frau>
-        </Pressable>
-      </Animated.View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterStrip}
-        style={styles.filterScroll}
-      >
-        {FILTERS.map((option) => (
-          <FilterChip
-            key={option.key}
-            label={option.label}
-            active={filter === option.key}
-            onPress={() => setFilter(option.key)}
+      {mode === 'captures' ? (
+        <>
+          <InboxDomainStatus
+            domain={domainFilter}
+            onPress={() => openDomainFilter(domainFilter, setDomainFilter)}
           />
-        ))}
-        <Pressable
-          onPress={() => setSort(nextSort(sort))}
-          hitSlop={6}
-          style={({ pressed }) => [styles.sortLink, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Frau italic size={13} lineHeight={17} color={c.ink2} style={{ opacity: 0.8 }}>
-            · por {sortLabel(sort)}
-          </Frau>
-        </Pressable>
-      </ScrollView>
 
-      {selectionMode && selectedIds.length > 0 ? (
-        <View style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.surface }]}>
-          <Sans size={12} lineHeight={16} color={c.ink2}>{selectedIds.length} selecionadas</Sans>
-          <ActionText label="Promover" onPress={() => void runBulkAction('promote')} />
-          <ActionText label="Adiar" onPress={() => setSnoozeTarget('bulk')} />
-          <ActionText label="Arquivar" danger onPress={() => void runBulkAction('archive')} />
-        </View>
-      ) : null}
+          <Animated.View
+            style={[
+              styles.searchPill,
+              searchPillStyle,
+              {
+                backgroundColor: searchFocused ? c.premium : c.surface,
+                shadowColor: '#1A1612',
+              },
+            ]}
+          >
+            <View style={[styles.searchTopGloss, { backgroundColor: 'rgba(255,255,255,0.22)' }]} pointerEvents="none" />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              placeholder="buscar"
+              placeholderTextColor={c.ink2}
+              selectionColor={c.ink}
+              style={[styles.searchInput, { color: c.ink }]}
+            />
+            <Pressable
+              onPress={() => {
+                setSelectionMode((value) => !value)
+                setSelectedIds([])
+              }}
+              hitSlop={8}
+              style={({ pressed }) => [styles.selectionLink, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Frau italic size={12.5} lineHeight={16} color={selectionMode ? c.ink : c.ink2}>
+                · {selectionMode ? 'cancelar' : 'selecionar'}
+              </Frau>
+            </Pressable>
+          </Animated.View>
 
-      {taskPriorityItem ? (
-        <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
-              Prioridade da tarefa
-            </Sans>
-            <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
-              {compactTitle(taskPriorityItem)}
-            </Sans>
-          </View>
-          <View style={styles.priorityOptions}>
-            {TASK_PRIORITIES.map((priority) => (
-              <PriorityChip
-                key={priority.key}
-                label={priority.label}
-                onPress={() => void runTaskWithPriority(priority.key)}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterStrip}
+            style={styles.filterScroll}
+          >
+            {FILTERS.map((option) => (
+              <FilterChip
+                key={option.key}
+                label={option.label}
+                active={filter === option.key}
+                onPress={() => setFilter(option.key)}
               />
             ))}
-            <ActionText label="Cancelar" onPress={() => setTaskPriorityItem(null)} />
-          </View>
-        </View>
-      ) : null}
+            <Pressable
+              onPress={() => setSort(nextSort(sort))}
+              hitSlop={6}
+              style={({ pressed }) => [styles.sortLink, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Frau italic size={13} lineHeight={17} color={c.ink2} style={{ opacity: 0.8 }}>
+                · por {sortLabel(sort)}
+              </Frau>
+            </Pressable>
+          </ScrollView>
 
-      {snoozeTarget ? (
-        <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
-              Adiar captura
-            </Sans>
-            <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
-              {snoozeTarget === 'bulk' ? `${selectedIds.length} selecionadas` : compactTitle(snoozeTarget)}
-            </Sans>
-          </View>
-          <View style={styles.priorityOptions}>
-            {SNOOZE_CHOICES.map((choice) => (
-              <PriorityChip
-                key={choice.key}
-                label={choice.label}
-                onPress={() => void runSnoozeChoice(choice.days, choice.reason)}
-              />
-            ))}
-            <ActionText label="Cancelar" onPress={() => setSnoozeTarget(null)} />
-          </View>
-        </View>
-      ) : null}
-
-      {projectProposal ? (
-        <View style={[styles.projectProposal, { borderColor: c.border, backgroundColor: c.surface }]}>
-          <View style={styles.projectProposalHeader}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Sans weight="sb" size={12} lineHeight={16} color={c.ink}>
-                Proposta de projeto
-              </Sans>
-              <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
-                IA propõe. Vitor confirma.
-              </Sans>
+          {selectionMode && selectedIds.length > 0 ? (
+            <View style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <Sans size={12} lineHeight={16} color={c.ink2}>{selectedIds.length} selecionadas</Sans>
+              <ActionText label="Promover" onPress={() => void runBulkAction('promote')} />
+              <ActionText label="Adiar" onPress={() => setSnoozeTarget('bulk')} />
+              <ActionText label="Arquivar" danger onPress={() => void runBulkAction('archive')} />
             </View>
-            <Sans weight="sb" size={11} lineHeight={14} color={c.bronze}>
-              {String(projectProposal.project_type).replace('_', ' ').toUpperCase()}
-            </Sans>
-          </View>
+          ) : null}
 
-          <LabeledInput
-            label="título"
-            value={projectPlanDraft.title}
-            onChangeText={(title) => setProjectPlanDraft((draft) => ({ ...draft, title }))}
-          />
-          <ProposalText label="resultado" value={projectProposal.desired_outcome} />
-          <ProposalText label="menor resultado útil" value={projectProposal.minimum_useful_result} />
-          <LabeledInput
-            label="próxima ação"
-            value={projectPlanDraft.nextAction}
-            multiline
-            onChangeText={(nextAction) => setProjectPlanDraft((draft) => ({ ...draft, nextAction }))}
-          />
-
-          <View style={styles.projectProposalRow}>
-            <View style={{ flex: 1 }}>
-              <Sans size={10.5} lineHeight={13} color={c.ink2} style={styles.fieldLabel}>
-                prioridade
-              </Sans>
+          {taskPriorityItem ? (
+            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
+                  Prioridade da tarefa
+                </Sans>
+                <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
+                  {compactTitle(taskPriorityItem)}
+                </Sans>
+              </View>
               <View style={styles.priorityOptions}>
                 {TASK_PRIORITIES.map((priority) => (
                   <PriorityChip
                     key={priority.key}
                     label={priority.label}
-                    active={projectPlanDraft.priority === priority.key}
-                    onPress={() => setProjectPlanDraft((draft) => ({ ...draft, priority: priority.key }))}
+                    onPress={() => void runTaskWithPriority(priority.key)}
                   />
                 ))}
+                <ActionText label="Cancelar" onPress={() => setTaskPriorityItem(null)} />
               </View>
             </View>
-            <View style={styles.minutesField}>
-              <Sans size={10.5} lineHeight={13} color={c.ink2} style={styles.fieldLabel}>
-                minutos
-              </Sans>
-              <TextInput
-                value={projectPlanDraft.estimatedMinutes}
-                onChangeText={(estimatedMinutes) => setProjectPlanDraft((draft) => ({ ...draft, estimatedMinutes }))}
-                keyboardType="number-pad"
-                placeholder="25"
-                placeholderTextColor={c.ink2}
-                style={[styles.minutesInput, { color: c.ink, borderColor: c.border }]}
+          ) : null}
+
+          {snoozeTarget ? (
+            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
+                  Adiar captura
+                </Sans>
+                <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
+                  {snoozeTarget === 'bulk' ? `${selectedIds.length} selecionadas` : compactTitle(snoozeTarget)}
+                </Sans>
+              </View>
+              <View style={styles.priorityOptions}>
+                {SNOOZE_CHOICES.map((choice) => (
+                  <PriorityChip
+                    key={choice.key}
+                    label={choice.label}
+                    onPress={() => void runSnoozeChoice(choice.days, choice.reason)}
+                  />
+                ))}
+                <ActionText label="Cancelar" onPress={() => setSnoozeTarget(null)} />
+              </View>
+            </View>
+          ) : null}
+
+          {projectProposal ? (
+            <View style={[styles.projectProposal, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View style={styles.projectProposalHeader}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Sans weight="sb" size={12} lineHeight={16} color={c.ink}>
+                    Proposta de projeto
+                  </Sans>
+                  <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
+                    IA propõe. Vitor confirma.
+                  </Sans>
+                </View>
+                <Sans weight="sb" size={11} lineHeight={14} color={c.bronze}>
+                  {String(projectProposal.project_type).replace('_', ' ').toUpperCase()}
+                </Sans>
+              </View>
+
+              <LabeledInput
+                label="título"
+                value={projectPlanDraft.title}
+                onChangeText={(title) => setProjectPlanDraft((draft) => ({ ...draft, title }))}
               />
-            </View>
-          </View>
+              <ProposalText label="resultado" value={projectProposal.desired_outcome} />
+              <ProposalText label="menor resultado útil" value={projectProposal.minimum_useful_result} />
+              <LabeledInput
+                label="próxima ação"
+                value={projectPlanDraft.nextAction}
+                multiline
+                onChangeText={(nextAction) => setProjectPlanDraft((draft) => ({ ...draft, nextAction }))}
+              />
 
-          <ProposalText label="por que o Atlas sugeriu" value={projectProposal.rationale} />
-
-          <View style={styles.projectProposalActions}>
-            <ActionText label="Cancelar" onPress={cancelProjectPlan} />
-            <ActionText label="Regerar" onPress={() => void regenerateProjectPlan()} />
-            <ActionText label="Confirmar projeto" onPress={() => void confirmProjectPlan()} />
-          </View>
-        </View>
-      ) : null}
-
-      {mobilePaired === false ? (
-        <MobileGatewayBanner onPress={() => router.push('/mobile-pairing')} />
-      ) : null}
-
-      {operationalItems.length > 0 ? (
-        <View>
-          <SectionHeader label="Operacional" style={styles.firstSection} />
-          <OperationalFilterStrip
-            active={operationalFilter}
-            counts={operationalCounts}
-            onChange={setOperationalFilter}
-          />
-          <View style={styles.list}>
-            {filteredOperationalItems.length > 0 ? (
-              filteredOperationalItems.map((item) => (
-                <OperationalInboxCard
-                  key={item.id}
-                  item={item}
-                  busy={operationalBusyId === item.id}
-                  onOpen={() => router.push({ pathname: '/mobile-inbox-item', params: { inboxId: item.id } })}
-                  onAction={(actionId) => void runOperationalAction(item, actionId)}
-                />
-              ))
-            ) : (
-              <View style={[styles.operationalEmpty, { borderColor: c.border, backgroundColor: c.surface }]}>
-                <Sans size={12.5} lineHeight={17} color={c.ink2}>
-                  Nenhum item ativo neste filtro.
-                </Sans>
+              <View style={styles.projectProposalRow}>
+                <View style={{ flex: 1 }}>
+                  <Sans size={10.5} lineHeight={13} color={c.ink2} style={styles.fieldLabel}>
+                    prioridade
+                  </Sans>
+                  <View style={styles.priorityOptions}>
+                    {TASK_PRIORITIES.map((priority) => (
+                      <PriorityChip
+                        key={priority.key}
+                        label={priority.label}
+                        active={projectPlanDraft.priority === priority.key}
+                        onPress={() => setProjectPlanDraft((draft) => ({ ...draft, priority: priority.key }))}
+                      />
+                    ))}
+                  </View>
+                </View>
+                <View style={styles.minutesField}>
+                  <Sans size={10.5} lineHeight={13} color={c.ink2} style={styles.fieldLabel}>
+                    minutos
+                  </Sans>
+                  <TextInput
+                    value={projectPlanDraft.estimatedMinutes}
+                    onChangeText={(estimatedMinutes) => setProjectPlanDraft((draft) => ({ ...draft, estimatedMinutes }))}
+                    keyboardType="number-pad"
+                    placeholder="25"
+                    placeholderTextColor={c.ink2}
+                    style={[styles.minutesInput, { color: c.ink, borderColor: c.border }]}
+                  />
+                </View>
               </View>
-            )}
-            {operationalCursor ? (
-              <Pressable
-                disabled={operationalLoadingMore}
-                onPress={() => void loadMoreOperationalInbox()}
-                style={({ pressed }) => [
-                  styles.loadMoreOperational,
-                  {
-                    borderColor: c.border,
-                    backgroundColor: pressed ? c.premium : 'transparent',
-                    opacity: operationalLoadingMore ? 0.55 : 1,
-                  },
-                ]}
-              >
-                <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian} align="center">
-                  {operationalLoadingMore ? 'Carregando...' : 'Carregar mais'}
-                </Sans>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
 
-      {loading ? (
-        <InboxSkeleton />
-      ) : groups.length === 0 ? (
-        <EmptyInbox />
+              <ProposalText label="por que o Atlas sugeriu" value={projectProposal.rationale} />
+
+              <View style={styles.projectProposalActions}>
+                <ActionText label="Cancelar" onPress={cancelProjectPlan} />
+                <ActionText label="Regerar" onPress={() => void regenerateProjectPlan()} />
+                <ActionText label="Confirmar projeto" onPress={() => void confirmProjectPlan()} />
+              </View>
+            </View>
+          ) : null}
+
+          {loading ? (
+            <InboxSkeleton />
+          ) : groups.length === 0 ? (
+            <EmptyInbox />
+          ) : (
+            <View>
+              {groups.map((group, idx) => (
+                <View key={group.key}>
+                  <SectionHeader
+                    label={group.label}
+                    style={idx === 0 ? styles.firstSection : undefined}
+                  />
+                  <View style={styles.list}>
+                    {group.items.map((item) => (
+                      <InboxCard
+                        key={item.id}
+                        item={item}
+                        selected={selectedIds.includes(item.id)}
+                        selectionMode={selectionMode}
+                        onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
+                        onPromote={() => void runQuickAction(item, 'promote')}
+                        onCreateTask={() => askTaskPriority(item)}
+                        onCreateProject={() => void askProjectPlan(item)}
+                        onSnooze={() => askSnooze(item)}
+                        onArchive={() => void runQuickAction(item, 'archive')}
+                        onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
+                        actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
       ) : (
-        <View>
-          {groups.map((group, idx) => (
-            <View key={group.key}>
-              <SectionHeader
-                label={group.label}
-                style={idx === 0 ? styles.firstSection : undefined}
+        <>
+          <OperationalStatusPanel
+            total={operationalCounts.all}
+            critical={operationalCriticalCount}
+            mobilePaired={mobilePaired}
+            error={operationalError}
+            onPair={() => router.push('/mobile-pairing')}
+            onRetry={() => void refreshOperationalInbox()}
+          />
+
+          {showOperationalList ? (
+            <>
+              <OperationalFilterStrip
+                active={operationalFilter}
+                counts={operationalCounts}
+                onChange={setOperationalFilter}
               />
               <View style={styles.list}>
-                {group.items.map((item) => (
-                  <InboxCard
-                    key={item.id}
-                    item={item}
-                    selected={selectedIds.includes(item.id)}
-                    selectionMode={selectionMode}
-                    onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
-                    onPromote={() => void runQuickAction(item, 'promote')}
-                    onCreateTask={() => askTaskPriority(item)}
-                    onCreateProject={() => void askProjectPlan(item)}
-                    onSnooze={() => askSnooze(item)}
-                    onArchive={() => void runQuickAction(item, 'archive')}
-                    onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
-                    actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
+                {operationalItems.length === 0 ? (
+                  <OperationalEmptyState
+                    title={operationalError ? 'Sem dados operacionais' : 'Operacional limpo'}
+                    body={operationalError
+                      ? 'A conexão falhou antes de carregar itens. Tente novamente para atualizar a fila.'
+                      : 'Nenhuma aprovação, recomendação ou alerta ativo agora.'}
                   />
-                ))}
+                ) : filteredOperationalItems.length > 0 ? (
+                  filteredOperationalItems.map((item) => (
+                    <OperationalInboxCard
+                      key={item.id}
+                      item={item}
+                      busy={operationalBusyId === item.id}
+                      onOpen={() => router.push({ pathname: '/mobile-inbox-item', params: { inboxId: item.id } })}
+                      onAction={(actionId) => void runOperationalAction(item, actionId)}
+                    />
+                  ))
+                ) : (
+                  <OperationalEmptyState
+                    title="Filtro vazio"
+                    body="Nenhum item operacional ativo neste filtro."
+                  />
+                )}
+                {operationalCursor ? (
+                  <Pressable
+                    disabled={operationalLoadingMore}
+                    onPress={() => void loadMoreOperationalInbox()}
+                    style={({ pressed }) => [
+                      styles.loadMoreOperational,
+                      {
+                        borderColor: c.border,
+                        backgroundColor: pressed ? c.premium : 'transparent',
+                        opacity: operationalLoadingMore ? 0.55 : 1,
+                      },
+                    ]}
+                  >
+                    <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian} align="center">
+                      {operationalLoadingMore ? 'Carregando...' : 'Carregar mais'}
+                    </Sans>
+                  </Pressable>
+                ) : null}
               </View>
-            </View>
-          ))}
-        </View>
+            </>
+          ) : null}
+        </>
       )}
     </Screen>
+  )
+}
+
+function InboxModeTabs({
+  active,
+  capturesCount,
+  operationalCount,
+  operationalCritical,
+  onChange,
+}: {
+  active: InboxMode
+  capturesCount: number
+  operationalCount: number
+  operationalCritical: number
+  onChange: (mode: InboxMode) => void
+}) {
+  const c = usePalette()
+
+  return (
+    <View style={[styles.modeTabs, { borderColor: c.border, backgroundColor: c.premium }]}>
+      <InboxModeTab
+        label="Capturas"
+        subtitle={captureCountLabel(capturesCount)}
+        count={capturesCount}
+        active={active === 'captures'}
+        onPress={() => onChange('captures')}
+      />
+      <InboxModeTab
+        label="Operacional"
+        subtitle={operationalTabSubtitle(operationalCount, operationalCritical)}
+        count={operationalCount}
+        critical={operationalCritical > 0}
+        active={active === 'operational'}
+        onPress={() => onChange('operational')}
+      />
+    </View>
+  )
+}
+
+function InboxModeTab({
+  label,
+  subtitle,
+  count,
+  critical,
+  active,
+  onPress,
+}: {
+  label: string
+  subtitle: string
+  count: number
+  critical?: boolean
+  active: boolean
+  onPress: () => void
+}) {
+  const c = usePalette()
+  const tone = critical ? c.recRed : c.prussian
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.modeTab,
+        {
+          backgroundColor: active ? c.surface : 'transparent',
+          opacity: pressed ? 0.72 : 1,
+        },
+      ]}
+    >
+      <View style={styles.modeTabHeader}>
+        <Sans weight="sb" size={13} lineHeight={17} color={active ? c.ink : c.ink2} numberOfLines={1}>
+          {label}
+        </Sans>
+        <View style={[styles.modeTabBadge, { borderColor: active ? tone : c.border }]}>
+          <Mono size={10.5} lineHeight={14} color={active ? tone : c.ink3}>
+            {count}
+          </Mono>
+        </View>
+      </View>
+      <Sans size={11} lineHeight={14} color={active ? c.ink2 : c.ink3} numberOfLines={1}>
+        {subtitle}
+      </Sans>
+    </Pressable>
   )
 }
 
@@ -793,6 +956,65 @@ function MetaLine({ metrics }: { metrics: ReturnType<typeof inboxMetrics> }) {
   if (metrics.failed > 0) {
     segments.push({ text: failureLabel(metrics.failed), color: c.recRed })
   }
+  return (
+    <View style={styles.metaRow}>
+      {segments.map((seg, i) => (
+        <View key={i} style={styles.metaSegment}>
+          {i > 0 ? (
+            <Sans
+              weight="med"
+              size={11}
+              lineHeight={14}
+              letterSpacing={1.1}
+              color={c.ink3}
+            >
+              ·
+            </Sans>
+          ) : null}
+          <Sans
+            weight="med"
+            size={11}
+            lineHeight={14}
+            letterSpacing={1.1}
+            color={seg.color}
+            style={styles.uppercase}
+          >
+            {seg.text}
+          </Sans>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function OperationalMetaLine({
+  total,
+  critical,
+  mobilePaired,
+  error,
+}: {
+  total: number
+  critical: number
+  mobilePaired: boolean | null
+  error: string | null
+}) {
+  const c = usePalette()
+  const segments: Array<{ text: string; color: string }> = []
+
+  if (mobilePaired === false) {
+    segments.push({ text: 'GATEWAY DESCONECTADO', color: c.bronze })
+  } else if (error) {
+    segments.push({ text: 'ERRO AO CARREGAR', color: c.recRed })
+  } else if (mobilePaired === null) {
+    segments.push({ text: 'SINCRONIZANDO', color: c.ink2 })
+  } else {
+    segments.push({ text: total === 0 ? 'OPERACIONAL LIMPO' : operationalActiveLabel(total), color: c.ink2 })
+  }
+
+  if (critical > 0) {
+    segments.push({ text: operationalCriticalLabel(critical), color: c.recRed })
+  }
+
   return (
     <View style={styles.metaRow}>
       {segments.map((seg, i) => (
@@ -850,6 +1072,118 @@ function MobileGatewayBanner({ onPress }: { onPress: () => void }) {
         Parear
       </Sans>
     </Pressable>
+  )
+}
+
+function OperationalStatusPanel({
+  total,
+  critical,
+  mobilePaired,
+  error,
+  onPair,
+  onRetry,
+}: {
+  total: number
+  critical: number
+  mobilePaired: boolean | null
+  error: string | null
+  onPair: () => void
+  onRetry: () => void
+}) {
+  const c = usePalette()
+
+  if (mobilePaired === false) {
+    return <MobileGatewayBanner onPress={onPair} />
+  }
+
+  if (error) {
+    return <OperationalErrorCard message={error} onRetry={onRetry} />
+  }
+
+  const checking = mobilePaired === null
+  const title = checking
+    ? 'Checando operacional'
+    : critical > 0
+      ? 'Operacional requer atenção'
+      : total > 0
+        ? 'Operacional com itens ativos'
+        : 'Operacional limpo'
+  const body = checking
+    ? 'Sincronizando gateway e carregando aprovações, recomendações e alertas.'
+    : critical > 0
+      ? `${operationalCriticalLabel(critical).toLowerCase()} precisam de revisão antes de misturar com as capturas.`
+      : total > 0
+        ? `${operationalActiveLabel(total).toLowerCase()} separados da Inbox de capturas.`
+        : 'Nenhuma recomendação, aprovação ou alerta ativo agora.'
+
+  return (
+    <View style={[
+      styles.operationalSummary,
+      {
+        borderColor: critical > 0 ? c.recRed : c.border,
+        backgroundColor: c.surface,
+      },
+    ]}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Sans weight="med" size={13} lineHeight={17} color={c.ink}>
+          {title}
+        </Sans>
+        <Sans size={12} lineHeight={16} color={c.ink2} style={{ marginTop: 3 }}>
+          {body}
+        </Sans>
+      </View>
+      <View style={[
+        styles.operationalSummaryBadge,
+        {
+          borderColor: critical > 0 ? c.recRed : c.border,
+          backgroundColor: critical > 0 ? c.bg : c.premium,
+        },
+      ]}>
+        <Mono size={11} lineHeight={15} color={critical > 0 ? c.recRed : c.prussian}>
+          {checking ? '...' : critical > 0 ? String(critical) : 'OK'}
+        </Mono>
+      </View>
+    </View>
+  )
+}
+
+function OperationalErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const c = usePalette()
+  return (
+    <View style={[styles.operationalErrorCard, { borderColor: c.recRed, backgroundColor: c.surface }]}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Sans weight="med" size={13} lineHeight={17} color={c.ink}>
+          Inbox operacional indisponível
+        </Sans>
+        <Sans size={12} lineHeight={16} color={c.ink2} style={{ marginTop: 3 }} numberOfLines={3}>
+          {message}
+        </Sans>
+      </View>
+      <Pressable
+        onPress={onRetry}
+        hitSlop={8}
+        style={({ pressed }) => [styles.operationalRetryButton, { borderColor: c.border, opacity: pressed ? 0.6 : 1 }]}
+      >
+        <Sans weight="sb" size={12} lineHeight={16} color={c.prussian}>
+          Tentar
+        </Sans>
+      </Pressable>
+    </View>
+  )
+}
+
+function OperationalEmptyState({ title, body }: { title: string; body: string }) {
+  const c = usePalette()
+
+  return (
+    <View style={[styles.operationalEmpty, { borderColor: c.border, backgroundColor: c.surface }]}>
+      <Sans weight="med" size={13} lineHeight={17} color={c.ink}>
+        {title}
+      </Sans>
+      <Sans size={12} lineHeight={16} color={c.ink2} style={{ marginTop: 4 }}>
+        {body}
+      </Sans>
+    </View>
   )
 }
 
@@ -951,6 +1285,7 @@ function countOperationalItems(items: AtlasOperationalInboxItem[]): Record<Opera
   }, {
     all: 0,
     approval: 0,
+    recommendation: 0,
     insight: 0,
     proposal: 0,
     job: 0,
@@ -961,6 +1296,7 @@ function countOperationalItems(items: AtlasOperationalInboxItem[]): Record<Opera
 
 function operationalFilterMatches(item: AtlasOperationalInboxItem, filter: OperationalFilter): boolean {
   if (filter === 'all') return true
+  if (filter === 'recommendation') return item.category === 'atlas_ai_recommendation'
   if (filter === 'job') return item.type === 'job_result' || item.type === 'job_status'
   return item.type === filter
 }
@@ -1376,6 +1712,23 @@ function openLabel(count: number): string {
   return count === 1 ? '1 ABERTA' : `${count} ABERTAS`
 }
 
+function captureCountLabel(count: number): string {
+  return count === 1 ? '1 aberta' : `${count} abertas`
+}
+
+function operationalTabSubtitle(total: number, critical: number): string {
+  if (critical > 0) return critical === 1 ? '1 crítico' : `${critical} críticos`
+  return total === 1 ? '1 ativo' : `${total} ativos`
+}
+
+function operationalActiveLabel(count: number): string {
+  return count === 1 ? '1 ATIVO' : `${count} ATIVOS`
+}
+
+function operationalCriticalLabel(count: number): string {
+  return count === 1 ? '1 CRÍTICO' : `${count} CRÍTICOS`
+}
+
 function failureLabel(count: number): string {
   return count === 1 ? '1 FALHA' : `${count} FALHAS`
 }
@@ -1442,6 +1795,37 @@ const styles = StyleSheet.create({
   },
   metaSegment: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   uppercase: { textTransform: 'uppercase' },
+  modeTabs: {
+    flexDirection: 'row',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 4,
+    gap: 4,
+    marginBottom: 14,
+  },
+  modeTab: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  modeTabHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modeTabBadge: {
+    minWidth: 24,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 7,
+  },
   filterScroll: { marginBottom: 8 },
   searchPill: {
     flexDirection: 'row',
@@ -1617,6 +2001,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
+  operationalSummary: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  operationalSummaryBadge: {
+    minWidth: 38,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
   mobileGatewayBanner: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1626,6 +2029,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+  },
+  operationalErrorCard: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  operationalRetryButton: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   list: { gap: 10 },
   firstSection: { marginTop: 18 },

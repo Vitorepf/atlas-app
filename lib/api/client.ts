@@ -1,5 +1,6 @@
 import { atlasStorage, ensureMigrationFromAsyncStorage } from '../storage'
 import Constants from 'expo-constants'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as SecureStore from 'expo-secure-store'
 import type { DomainKey } from '../domains'
 
@@ -33,6 +34,13 @@ export interface MobileDeviceSession {
   deviceId: string
 }
 
+export interface AtlasNotificationPreferences {
+  critical_push_enabled: boolean
+  telemetry_health_push_enabled: boolean
+  daily_report_push_enabled: boolean
+  quiet_hours_enabled: boolean
+}
+
 export interface AtlasMobileDevice {
   id: string
   user_id: string
@@ -42,11 +50,18 @@ export interface AtlasMobileDevice {
   os_version: string | null
   has_push_token: boolean
   notification_permissions: string
+  notification_preferences: AtlasNotificationPreferences
   last_seen_at: string | null
   paired_at: string | null
   revoked_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface MobileDevicesResponse {
+  devices: AtlasMobileDevice[]
+  current_device_id?: string | null
+  current_device?: AtlasMobileDevice | null
 }
 
 export interface AtlasInboxAction {
@@ -114,6 +129,48 @@ export interface AtlasOperationalInboxItem {
   } | null
 }
 
+export interface AtlasMobileThreadContext {
+  source: {
+    type: 'ai_inbox_item' | string
+    id: string
+    inbox_type: AtlasOperationalInboxType | string
+    category: string | null
+    severity: 'debug' | 'info' | 'warning' | 'critical' | string
+    status: string
+    title: string
+    summary: string | null
+    initiator: string
+    created_at: string | null
+  }
+  context_bundle: {
+    id: string
+    purpose: string
+    title: string
+    summary: string
+    body_preview: string | null
+    redaction_status: string
+    token_estimate: number | null
+    expires_at: string | null
+  } | null
+  policy: {
+    atlas_focus: string
+    capability_profile: string
+    permission_policy: string
+    execution_policy: string
+    allows_code_execution: boolean
+    requires_approval_for_changes: boolean
+  }
+  refs_count: {
+    sources: number
+    traces: number
+    jobs: number
+    metrics: number
+    files: number
+    diffs: number
+    total: number
+  }
+}
+
 export interface MobileInboxResponse {
   items: AtlasOperationalInboxItem[]
   unread_count: number
@@ -126,6 +183,35 @@ export interface MobileInboxActionResponse {
   idempotent?: boolean
   result: Record<string, unknown>
   item: AtlasOperationalInboxItem
+}
+
+export interface AtlasPerformanceRecommendation {
+  id: string
+  user_id: string
+  state: string
+  kind: string
+  target_metric: string
+  target_dimension: Record<string, unknown>
+  expected_impact: Record<string, unknown>
+  baseline_snapshot: Record<string, unknown> | null
+  observed_impact: Record<string, unknown> | null
+  measurement_due_at: string | null
+  measurement_window_days: number | null
+  priority_score: number
+  snoozed_until: string | null
+  closed_at: string | null
+  closed_reason: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface MobileRecommendationsResponse {
+  items: AtlasPerformanceRecommendation[]
+  generated_at: string
+}
+
+export interface MobileRecommendationResponse {
+  item: AtlasPerformanceRecommendation
 }
 
 export interface AtlasDomain {
@@ -317,7 +403,7 @@ export interface AtlasCheckin {
 export interface AtlasPassiveSignal {
   id: string
   client_id: string
-  source: 'healthkit' | 'rize'
+  source: 'healthkit' | 'rize' | 'manual'
   signal_type: string
   value_numeric: number | null
   value_text: string | null
@@ -776,17 +862,509 @@ export interface AtlasEngineeringEvidence {
   recorded_at: string | null
 }
 
+export interface AtlasEngineeringRunAttemptSummary {
+  id: string
+  attempt_number: number
+  provider?: string | null
+  model?: string | null
+  phase: string | null
+  status: string | null
+  trace_id?: string | null
+  patch_hash?: string | null
+  diff_stat?: Record<string, unknown> | null
+  changed_files?: string[]
+  failure_summary?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface AtlasEngineeringPatchArtifactSummary {
+  id: string
+  attempt_id?: string | null
+  base_ref?: string | null
+  head_ref?: string | null
+  diff_hash?: string | null
+  diff_excerpt?: string | null
+  diff_path?: string | null
+  changed_files?: string[]
+  created_files?: string[]
+  deleted_files?: string[]
+  risk_flags?: string[]
+  metadata?: Record<string, unknown> | null
+  created_at?: string | null
+}
+
+export interface AtlasEngineeringPatchDiffResponse {
+  patch_artifact: AtlasEngineeringPatchArtifactSummary & {
+    engineering_run_id: string
+    computed_hash?: string | null
+    hash_matches?: boolean | null
+  }
+  diff: {
+    content: string
+    source: 'diff_path' | 'excerpt' | string
+    size_bytes: number
+    returned_bytes: number
+    truncated: boolean
+    max_bytes: number
+  }
+}
+
+export interface AtlasEngineeringControlResultSummary {
+  id?: string
+  attempt_id?: string | null
+  control_id?: string | null
+  control_slug: string
+  control_definition_hash?: string | null
+  control_version?: number | null
+  status: string
+  summary?: string | null
+  output_excerpt?: string | null
+  duration_ms?: number | null
+  artifact_path?: string | null
+  metadata?: Record<string, unknown> | null
+  created_at?: string | null
+}
+
+export interface AtlasEngineeringTestRunSummary {
+  id?: string
+  attempt_id?: string | null
+  test_case_id?: string | null
+  command?: string | null
+  status: string
+  exit_code?: number | null
+  duration_ms?: number | null
+  stdout_excerpt?: string | null
+  stderr_excerpt?: string | null
+  type?: string | null
+  source?: string | null
+  artifact_path?: string | null
+  metadata?: Record<string, unknown> | null
+  visual_artifact_export?: Record<string, unknown> | null
+  visual_e2e?: Record<string, unknown> | null
+  visual_smoke?: Record<string, unknown> | null
+  quality_scan?: Record<string, unknown> | null
+  quality_scan_result?: Record<string, unknown> | null
+  quality_artifact_export?: Record<string, unknown> | null
+  created_at?: string | null
+}
+
+export interface AtlasEngineeringTestArtifactFile {
+  path: string
+  bytes: number
+  mime_type?: string | null
+  kind: 'image' | 'html' | 'json' | 'xml' | 'text' | 'binary' | string
+  readable_inline: boolean
+  sha256?: string | null
+  modified_at?: string | null
+}
+
+export interface AtlasEngineeringTestArtifactsResponse {
+  run_id: string
+  test_run_id: string
+  artifact_root_hash: string
+  file_count: number
+  total_listed_bytes: number
+  truncated: boolean
+  files: AtlasEngineeringTestArtifactFile[]
+}
+
+export interface AtlasEngineeringTestArtifactContentResponse {
+  run_id: string
+  test_run_id: string
+  artifact: AtlasEngineeringTestArtifactFile & {
+    returned_bytes: number
+    truncated: boolean
+    max_bytes: number
+  }
+  content?: string | null
+  content_base64?: string | null
+  data_url?: string | null
+}
+
+export interface AtlasEngineeringReviewFindingSummary {
+  id: string
+  severity: string
+  status: string
+  source?: string | null
+  title: string
+  body?: string | null
+  file_path?: string | null
+  start_line?: number | null
+  end_line?: number | null
+  evidence?: Record<string, unknown> | null
+  resolution?: Record<string, unknown> | null
+  detected_at?: string | null
+  resolved_at?: string | null
+  created_at?: string | null
+}
+
+export interface AtlasEngineeringRunOperatorActionSummary {
+  id: string
+  action: 'cancel' | 'accept' | 'needs_human' | 'reject' | string
+  actor: string | null
+  status_before: string | null
+  decision_before: string | null
+  status_after: string | null
+  decision_after: string | null
+  note?: string | null
+  payload?: Record<string, unknown> | null
+  acted_at?: string | null
+  created_at?: string | null
+}
+
+export interface AtlasEngineeringAttemptComparisonRow {
+  attempt_id: string
+  attempt_number: number
+  provider?: string | null
+  model?: string | null
+  phase?: string | null
+  status?: string | null
+  score: number
+  rank: number
+  recommendation: 'best_repair_base' | 'review_before_replay' | 'avoid_replay_base' | string
+  patch_hash?: string | null
+  changed_files_count: number
+  patch_count: number
+  passed_tests: number
+  failed_tests: number
+  failed_controls: number
+  open_findings: number
+  blocking_findings: number
+  risk_flags: string[]
+  signals: string[]
+}
+
+export interface AtlasEngineeringAttemptComparison {
+  status: 'empty' | 'single_attempt' | 'ranked' | string
+  best_attempt_id?: string | null
+  best_attempt_number?: number | null
+  best_score?: number | null
+  best_recommendation?: string | null
+  attempts: AtlasEngineeringAttemptComparisonRow[]
+}
+
 export interface AtlasEngineeringRunSummary {
+  id?: string
+  task_id?: string
   generated_at?: string | null
   plan_id?: string | null
   blueprint_id?: string | null
   status?: string | null
   decision?: string | null
+  score?: number | null
+  attempt_count?: number
+  context_pack_hash?: string | null
+  harnessability_score?: number | null
+  autonomy_policy?: Record<string, unknown> | null
+  model_selection?: Record<string, unknown> | null
+  replay?: Record<string, unknown> | null
+  workspace?: {
+    mode?: string | null
+    status?: string | null
+    isolated?: boolean
+    release_status?: string | null
+  }
+  review_summary?: {
+    open_count: number
+    blocking_count: number
+    by_severity: Record<string, number>
+  }
+  attempts?: AtlasEngineeringRunAttemptSummary[]
+  patch_artifacts?: AtlasEngineeringPatchArtifactSummary[]
+  control_results?: AtlasEngineeringControlResultSummary[]
+  test_runs?: AtlasEngineeringTestRunSummary[]
+  review_findings?: AtlasEngineeringReviewFindingSummary[]
+  operator_actions?: AtlasEngineeringRunOperatorActionSummary[]
+  attempt_comparison?: AtlasEngineeringAttemptComparison | null
+  timeline?: Array<{
+    type: string
+    status: string
+    label: string | null
+    at: string | null
+    ref_id: string | null
+  }>
+  started_at?: string | null
+  finished_at?: string | null
   changed_files_count?: number
   acceptance_total?: number
   acceptance_needs_review?: number
   review_needs_attention?: number
   [key: string]: unknown
+}
+
+export interface AtlasEngineeringBenchmarkRunSummary {
+  id: string
+  suite_id: string
+  benchmark_key: string | null
+  provider: string | null
+  model: string | null
+  mode: string | null
+  case_set_hash: string | null
+  status: string
+  total_cases: number
+  passed_cases: number
+  failed_cases: number
+  baseline_run_id: string | null
+  pass_rate: number | null
+  pass_rate_delta: number | null
+  average_score: number | null
+  average_score_delta: number | null
+  duration_ms: number
+  trend_status: string | null
+  harness_version: string | null
+  total_attempts: number
+  failed_control_count: number
+  blocked_control_count: number
+  skipped_required_control_count: number
+  failed_test_count: number
+  open_review_finding_count: number
+  blocking_review_finding_count: number
+  changed_files_count: number
+  risk_flag_count: number
+  total_tokens: number | null
+  cost_microusd: number | null
+  telemetry_coverage_count: number
+  quality_metrics?: Record<string, unknown> | null
+  release_gate_status: string | null
+  release_gate_profile: string | null
+  release_gate_policy?: Record<string, unknown> | null
+  release_gate_failures?: string[] | null
+  release_gate_warnings?: string[] | null
+  rollout_status: string | null
+  rollout_policy?: Record<string, unknown> | null
+  rollout_decision_at: string | null
+  outcome_status: string | null
+  outcome_score: number | null
+  outcome?: Record<string, unknown> | null
+  outcome_recorded_at: string | null
+  outcome_recorded_by: string | null
+  summary?: Record<string, unknown> | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+}
+
+export interface AtlasEngineeringBenchmarkSuiteSummary {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  status: string
+  cases_count: number
+  benchmark_runs_count: number
+  corpus_manifest?: Record<string, unknown> | null
+  corpus_health?: Record<string, unknown> | null
+  rollout_policy?: Record<string, unknown> | null
+  rollout_calibration?: Record<string, unknown> | null
+  latest_run: AtlasEngineeringBenchmarkRunSummary | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AtlasEngineeringBenchmarkCaseSummary {
+  id: string
+  suite_id: string
+  task_id: string | null
+  case_code: string
+  title: string
+  description: string | null
+  expected_decision: string | null
+  min_score: number
+  corpus_tier: string | null
+  domain_slug: string | null
+  risk_profile: string | null
+  curation_status: string | null
+  curation_score: number | null
+  corpus_fingerprint: string | null
+  curated_at: string | null
+  tags: string[]
+  status: string
+  workspace_path_hash: string | null
+  metadata?: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface AtlasEngineeringBenchmarkResultSummary {
+  id: string
+  benchmark_run_id: string
+  case_id: string
+  case_code: string | null
+  engineering_run_id: string | null
+  task_id: string | null
+  status: string
+  passed: boolean
+  decision: string | null
+  score: number | null
+  duration_ms: number
+  expectation: Record<string, unknown>
+  observed: Record<string, unknown>
+  failure_summary: string | null
+  engineering_run?: AtlasEngineeringRunSummary | null
+  created_at: string | null
+}
+
+export interface AtlasEngineeringBenchmarkSuiteResponse {
+  suite: {
+    id: string
+    slug: string
+    name: string
+    description: string | null
+    status: string
+    default_runner_options: Record<string, unknown>
+    metadata: Record<string, unknown>
+    corpus_manifest?: Record<string, unknown> | null
+    corpus_health?: Record<string, unknown> | null
+    rollout_policy?: Record<string, unknown> | null
+    rollout_calibration?: Record<string, unknown> | null
+    created_at: string | null
+    updated_at: string | null
+  }
+  cases: AtlasEngineeringBenchmarkCaseSummary[]
+  latest_runs: AtlasEngineeringBenchmarkRunSummary[]
+}
+
+export interface AtlasEngineeringBenchmarkRunResponse {
+  benchmark_run: AtlasEngineeringBenchmarkRunSummary
+  suite: {
+    id: string
+    slug: string
+    name: string
+  } | null
+  results: AtlasEngineeringBenchmarkResultSummary[]
+}
+
+export interface AtlasEngineeringBenchmarkSuitesResponse {
+  suites: AtlasEngineeringBenchmarkSuiteSummary[]
+}
+
+export interface AtlasEngineeringBenchmarkRunInput {
+  workspace?: string | null
+  provider?: string | null
+  model?: string | null
+  model_policy?: 'fixed' | 'off' | 'auto' | 'balanced' | 'best_quality' | 'best-quality' | 'fastest' | 'cheapest' | string | null
+  permission?: 'auto' | 'read' | 'write' | 'danger' | string | null
+  sandbox?: 'workspace' | 'worktree' | 'docker' | string | null
+  docker_service?: string | null
+  docker_image?: string | null
+  docker_workdir?: string | null
+  docker_cache?: 'auto' | 'off' | string | null
+  docker_network?: 'profile' | 'none' | 'bridge' | string | null
+  docker_healthcheck_services?: string[] | null
+  docker_healthcheck_timeout?: number | null
+  docker_artifact_paths?: string[] | null
+  docker_artifact_max_files?: number | null
+  docker_artifact_max_bytes?: number | null
+  provider_runtime?: 'host' | 'docker' | 'auto' | string | null
+  provider_docker_compose_file?: string | null
+  provider_docker_service?: string | null
+  provider_docker_app_dir?: string | null
+  provider_docker_workspace_dir?: string | null
+  max_attempts?: number | null
+  test_command?: string | null
+  visual_e2e?: 'auto' | 'off' | 'required' | string | null
+  quality_scan?: 'auto' | 'off' | 'required' | string | null
+  quality_profile?: 'auto' | 'fast' | 'standard' | 'release' | 'deep' | string | null
+  quality_changed_only?: boolean | null
+  harness_policy?: 'auto' | 'off' | 'strict' | string | null
+  control_profile?: string | null
+  complete?: boolean | null
+  auto_test?: boolean | null
+  critical?: boolean | null
+  dry_run?: boolean | null
+  no_provider?: boolean | null
+  keep_workspace?: boolean | null
+  apply_isolated_patch?: boolean | null
+  release_gate_profile?: 'off' | 'advisory' | 'smoke' | 'release' | 'strict' | string | null
+  release_gate_policy?: Record<string, unknown> | null
+  limit?: number | null
+  corpus_tier?: 'smoke' | 'release' | 'full_regression' | 'quarantine' | string | null
+  domain_slug?: string | null
+  risk_profile?: 'low' | 'medium' | 'high' | 'critical' | string | null
+  curation_status?: 'candidate' | 'curated' | 'quarantined' | 'retired' | string | null
+  case_codes?: string[]
+  tags?: string[]
+  runner_options?: Record<string, unknown>
+}
+
+export interface AtlasEngineeringRunReplayInput extends AtlasEngineeringBenchmarkRunInput {
+  provider_replay?: boolean | null
+  same_sandbox?: boolean | null
+}
+
+export interface AtlasEngineeringRunOperatorActionInput {
+  action: 'cancel' | 'accept' | 'needs_human' | 'reject'
+  actor?: string | null
+  note?: string | null
+  payload?: Record<string, unknown> | null
+}
+
+export interface AtlasEngineeringRunResponse {
+  ok?: boolean
+  run: AtlasEngineeringRunSummary
+  operator_action?: AtlasEngineeringRunOperatorActionSummary
+  contract?: Record<string, unknown>
+  blueprint?: Record<string, unknown>
+  context_pack?: Record<string, unknown>
+  controls?: Array<Record<string, unknown>>
+  harnessability?: Record<string, unknown>
+  score?: Record<string, unknown>
+  test_run_count?: number
+}
+
+export interface AtlasEngineeringBenchmarkDefaultSuiteInput {
+  slug?: string | null
+  name?: string | null
+  description?: string | null
+  default_runner_options?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+export interface AtlasEngineeringBenchmarkOutcomeInput {
+  status?: 'pending' | 'healthy' | 'accepted' | 'degraded' | 'incident' | 'rolled_back' | string | null
+  outcome_status?: 'pending' | 'healthy' | 'accepted' | 'degraded' | 'incident' | 'rolled_back' | string | null
+  score?: number | null
+  outcome_score?: number | null
+  summary?: string | null
+  notes?: string | null
+  signals?: Record<string, unknown>
+  rollback_reason?: string | null
+  incident_ref?: string | null
+  recorded_by?: string | null
+}
+
+export interface AtlasEngineeringBenchmarkCalibrationInput {
+  limit?: number | null
+}
+
+export interface AtlasEngineeringHarnessabilityCalibrationInput {
+  limit?: number | null
+}
+
+export interface AtlasEngineeringHarnessabilityCalibrationResponse {
+  harnessability_calibration: Record<string, unknown> | null
+}
+
+export interface AtlasEngineeringBenchmarkTrendSeries {
+  benchmark_key: string
+  provider: string | null
+  model: string | null
+  mode: string | null
+  case_set_hash: string | null
+  latest_status: string | null
+  latest_trend_status: string | null
+  run_count: number
+  runs: AtlasEngineeringBenchmarkRunSummary[]
+}
+
+export interface AtlasEngineeringBenchmarkTrendsResponse {
+  suite: {
+    id: string
+    slug: string
+    name: string
+  }
+  runs: AtlasEngineeringBenchmarkRunSummary[]
+  series: AtlasEngineeringBenchmarkTrendSeries[]
 }
 
 export interface AtlasEngineeringDecision {
@@ -840,6 +1418,10 @@ export interface AtlasEngineeringPackageResponse {
   status_snapshot: AtlasEngineeringStatusSnapshot
   latest_run: AtlasEngineeringRunSummary | null
   run_history: AtlasEngineeringRunSummary[]
+  latest_harness_run?: AtlasEngineeringRunSummary | null
+  harness_runs?: AtlasEngineeringRunSummary[]
+  benchmark_cases?: AtlasEngineeringBenchmarkCaseSummary[]
+  benchmark_results?: AtlasEngineeringBenchmarkResultSummary[]
   latest_evidence: AtlasEngineeringEvidence | null
   evidence_history: AtlasEngineeringEvidence[]
   events: AtlasTaskEvent[]
@@ -1590,7 +2172,7 @@ export interface AtlasCognitiveGameRun {
   updated_at: string
 }
 
-export type AtlasAiProvider = 'claude_cli' | 'codex_cli' | 'claude_codex'
+export type AtlasAiProvider = 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type AtlasAiStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'awaiting_user_choice'
 
 export type AtlasAiChoiceAction = 'switch_provider' | 'downgrade_model' | 'wait' | 'fail' | 'cancel' | 'retry_same'
@@ -1705,6 +2287,7 @@ export interface AtlasAiTrace {
   feedback_comment: string | null
   completed_at: string | null
   metadata: Record<string, unknown>
+  attachments?: AtlasAiAttachment[]
   thread?: AtlasAiThread
   session?: AtlasAiSession
   job?: AtlasAiJob
@@ -1713,6 +2296,55 @@ export interface AtlasAiTrace {
   quality_actions?: AtlasAiQualityAction[]
   created_at: string
   updated_at: string
+}
+
+export interface AtlasAiAttachment {
+  id: string
+  kind: 'image' | 'file' | string
+  name: string
+  mime_type: string | null
+  bytes: number | null
+  sha256?: string | null
+  source?: string | null
+  text_available?: boolean
+  text_truncated?: boolean
+  pdf_page_count?: number | null
+  pdf_processing_status?: string | null
+  pdf_chunk_count?: number | null
+  pdf_render_status?: string | null
+  pdf_rendered_page_count?: number | null
+  pdf_ocr_status?: string | null
+  pdf_visual_understanding_status?: string | null
+  office_processing_status?: string | null
+  office_render_status?: string | null
+  office_rendered_page_count?: number | null
+  content_url?: string | null
+  preview_pages?: Array<{
+    page: number
+    url: string
+  }>
+}
+
+export interface AtlasAiAttachmentSearchResult {
+  id: string
+  trace_id: string | null
+  thread_id: string | null
+  attachment_id: string
+  attachment_kind: string
+  source_name: string | null
+  mime_type: string | null
+  unit_type: string
+  unit_number: number | null
+  title: string | null
+  excerpt: string
+  visual_caption: string | null
+  metadata: Record<string, unknown> | null
+  indexed_at: string | null
+  score?: number | null
+}
+
+export interface AtlasAiAttachmentSearchResponse {
+  results: AtlasAiAttachmentSearchResult[]
 }
 
 export interface AtlasAiSession {
@@ -1888,10 +2520,18 @@ export interface AtlasAiQualityAction {
 }
 
 export interface AtlasAiProviderHealth {
-  id: string
+  id: string | null
   provider: AtlasAiProvider | string
+  model?: string | null
+  model_label?: string | null
+  model_tier?: string | null
+  model_source?: string | null
+  allow_auto?: boolean
+  allow_manual?: boolean
+  premium_model?: string | null
+  premium_model_label?: string | null
   status: 'online' | 'degraded' | 'offline' | 'unknown'
-  checked_at: string
+  checked_at: string | null
   last_success_at: string | null
   last_failure_at: string | null
   total_jobs_24h: number
@@ -1900,7 +2540,7 @@ export interface AtlasAiProviderHealth {
   operational_pain_score: number
   message: string | null
   metadata: Record<string, unknown>
-  created_at: string
+  created_at: string | null
 }
 
 export interface AtlasAiWorkerEvent {
@@ -1913,13 +2553,181 @@ export interface AtlasAiWorkerEvent {
   severity: 'debug' | 'info' | 'warning' | 'error' | 'critical'
   message: string
   metadata: Record<string, unknown>
-  occurred_at: string
-  created_at: string
+  occurred_at: string | null
+  created_at: string | null
+}
+
+export interface AtlasAiQueueByProvider {
+  provider: AtlasAiProvider | string | null
+  queued: number
+  processing: number
+  awaiting_user_choice?: number
+  failed: number
+}
+
+export interface AtlasAiQueueStatus {
+  queued: number
+  processing: number
+  awaiting_user_choice?: number
+  failed: number
+  by_provider?: AtlasAiQueueByProvider[]
+}
+
+export interface AtlasAiWorkerStatus {
+  provider: AtlasAiProvider | string
+  status: 'running' | 'stale' | 'stopped' | 'unknown' | string
+  worker_id: string | null
+  event_type: string | null
+  severity: string | null
+  message: string | null
+  occurred_at: string | null
+  age_seconds: number | null
+}
+
+export interface AtlasAiProviderUsage {
+  provider: AtlasAiProvider | string
+  model?: string | null
+  traces: number
+  failed_traces: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  estimated_tokens: number
+  visible_tokens: number
+  cost_microusd: number
+  cost_usd_estimate: number
+  unknown_cost_count: number
+  last_computed_at: string | null
+}
+
+export interface AtlasAiBudgetUsage {
+  visible_tokens: number
+  total_tokens: number
+  estimated_tokens: number
+  traces: number
+  max_visible_tokens: number | null
+  warn_visible_tokens: number | null
+  remaining_visible_tokens: number | null
+  status: 'ok' | 'warning' | 'blocked' | string
+}
+
+export interface AtlasAiProviderBudget extends AtlasAiBudgetUsage {
+  provider: AtlasAiProvider | string
+}
+
+export interface AtlasAiBudgetStatus {
+  available: boolean
+  enabled: boolean
+  mode: 'monitor' | 'block' | string
+  window_hours: number
+  totals: AtlasAiBudgetUsage
+  providers: AtlasAiProviderBudget[]
+}
+
+export interface AtlasAiUsageWindow {
+  available: boolean
+  window_hours: number
+  since: string | null
+  by_provider: AtlasAiProviderUsage[]
+  by_model?: AtlasAiProviderUsage[]
+  totals: AtlasAiProviderUsage | null
+}
+
+export interface AtlasAiActiveJob {
+  id: string
+  trace_id: string | null
+  provider: AtlasAiProvider | string | null
+  model: string | null
+  model_label?: string | null
+  model_tier?: string | null
+  model_source?: string | null
+  status: string
+  attempts: number
+  worker_id: string | null
+  available_at: string | null
+  started_at: string | null
+  updated_at: string | null
+}
+
+export interface AtlasAiProviderModelPolicy {
+  provider: AtlasAiProvider | string
+  model: string | null
+  model_label: string | null
+  model_tier: string | null
+  model_source: string | null
+  allow_auto: boolean
+  allow_manual: boolean
+  fallback_model?: string | null
+  fallback_model_label?: string | null
+  premium_model?: string | null
+  premium_model_label?: string | null
+}
+
+export interface AtlasAiModelPolicy {
+  source?: string
+  updated_at?: string | null
+  default_tier: string
+  council_allow_auto: boolean
+  providers: AtlasAiProviderModelPolicy[]
+}
+
+export interface AtlasAiRuntimeSettings {
+  source?: string
+  updated_at?: string | null
+  default_provider: AtlasAiProvider | string
+  default_tier: string
+  council_allow_auto: boolean
+  providers: Record<string, Partial<AtlasAiProviderModelPolicy>>
+  budget: {
+    enabled: boolean
+    mode: string
+    window_hours: number
+    max_visible_tokens: number | null
+    warn_visible_tokens: number | null
+    providers: Record<string, {
+      max_visible_tokens: number | null
+      warn_visible_tokens: number | null
+    }>
+  }
+}
+
+export interface AtlasAiRuntimeSettingsPatch {
+  default_provider?: AtlasAiProvider | string
+  default_tier?: string
+  council_allow_auto?: boolean
+  providers?: Record<string, {
+    model?: string | null
+    model_label?: string | null
+    model_tier?: string | null
+    model_identity?: string | null
+    allow_auto?: boolean
+    allow_manual?: boolean
+  }>
+  budget?: {
+    enabled?: boolean
+    mode?: 'monitor' | 'block' | string
+    window_hours?: number
+    max_visible_tokens?: number | null
+    warn_visible_tokens?: number | null
+    providers?: Record<string, {
+      max_visible_tokens?: number | null
+      warn_visible_tokens?: number | null
+    }>
+  }
 }
 
 export interface AiProvidersStatusResponse {
-  queue: { queued: number; processing: number; failed: number }
+  generated_at?: string
+  runtime_settings?: AtlasAiRuntimeSettings
+  default_provider?: AtlasAiProvider | string
+  default_model?: AtlasAiProviderModelPolicy
+  model_policy?: AtlasAiModelPolicy
+  budget?: AtlasAiBudgetStatus
+  queue: AtlasAiQueueStatus
+  workers?: AtlasAiWorkerStatus[]
   providers: AtlasAiProviderHealth[]
+  usage_24h?: AtlasAiUsageWindow
+  active_jobs?: AtlasAiActiveJob[]
   recent_events: AtlasAiWorkerEvent[]
 }
 
@@ -2148,6 +2956,239 @@ export interface AtlasAuditResponse {
   generated_at: string
 }
 
+export type AtlasMemoryReviewQueueKind = 'memory_privacy' | 'verbatim_privacy' | 'relation'
+
+export interface AtlasMemoryReviewQueueItem {
+  id: string
+  kind: AtlasMemoryReviewQueueKind | string
+  review_type: string
+  priority: number
+  severity: 'low' | 'medium' | 'high' | string
+  reason: string | null
+  action_hint: string | null
+  memory_entry_id?: string | null
+  verbatim_memory_id?: string | null
+  relation_id?: string | null
+  relation_type?: 'duplicate' | 'conflict' | string
+  title?: string | null
+  summary?: string | null
+  scope?: string | null
+  project_id?: string | null
+  task_id?: string | null
+  engineering_run_id?: string | null
+  source_type?: string | null
+  source_id?: string | null
+  source_memory_entry_id?: string | null
+  target_memory_entry_id?: string | null
+  source_memory?: Record<string, unknown> | null
+  target_memory?: Record<string, unknown> | null
+  privacy_class?: 'normal' | 'private' | 'sensitive' | 'secret' | string | null
+  external_ai_allowed?: boolean | null
+  redaction_status?: 'clean' | 'redacted' | string | null
+  status?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AtlasMemoryReviewQueue {
+  generated_at: string
+  areas: string[]
+  total: number
+  counts: {
+    memory_privacy: number
+    verbatim_privacy: number
+    relation: number
+    [key: string]: number
+  }
+  items: AtlasMemoryReviewQueueItem[]
+}
+
+export interface AtlasMemoryReviewQueueResponse {
+  review_queue: AtlasMemoryReviewQueue
+}
+
+export type AtlasMemoryProviderProjectionTarget = 'claude' | 'agents' | 'all'
+
+export type AtlasMemoryProviderProjectionSummary = Record<string, number | undefined>
+
+export interface AtlasMemoryProviderProjectionItem {
+  target: string
+  path: string | null
+  exists?: boolean
+  managed?: boolean
+  manual_drift?: boolean
+  stale?: boolean
+  changed?: boolean
+  change_type?: 'create' | 'update' | 'adopt' | 'manual_drift' | 'none' | string
+  reason?: string | null
+  current_line_count?: number
+  proposed_line_count?: number
+  memory_count?: number
+  diff_line_count?: number
+  diff?: string
+  written?: boolean
+  error?: string | null
+  inspection?: Record<string, unknown>
+  result?: Record<string, unknown>
+}
+
+export interface AtlasMemoryProviderProjection {
+  ok?: boolean
+  status: 'passed' | 'needs_review' | string
+  workspace?: string | null
+  workspace_exists?: boolean
+  target?: string
+  targets?: string[]
+  summary: AtlasMemoryProviderProjectionSummary
+  detail?: string | null
+  next_actions?: string[]
+  projections?: AtlasMemoryProviderProjectionItem[]
+  review?: AtlasMemoryProviderProjection
+  applied?: AtlasMemoryProviderProjectionItem[]
+  blocked?: AtlasMemoryProviderProjectionItem[]
+  failed?: AtlasMemoryProviderProjectionItem[]
+}
+
+export interface AtlasMemoryProviderProjectionResponse {
+  provider_projection: AtlasMemoryProviderProjection
+  audit?: AtlasMemoryProviderProjectionAudit | null
+}
+
+export interface AtlasMemoryProviderProjectionParams {
+  target?: AtlasMemoryProviderProjectionTarget
+  workspace?: string
+  max_lines?: number
+  memory_limit?: number
+  force?: boolean
+}
+
+export interface ApplyAtlasMemoryProviderProjectionInput extends AtlasMemoryProviderProjectionParams {
+  confirm: boolean
+  allow_partial?: boolean
+}
+
+export interface AtlasMemoryProviderProjectionAudit {
+  id: string
+  action: string
+  target: AtlasMemoryProviderProjectionTarget | string
+  workspace: string | null
+  initiator: string
+  confirmation_mode: string | null
+  status: 'passed' | 'needs_review' | string
+  ok: boolean
+  summary: AtlasMemoryProviderProjectionSummary
+  applied: AtlasMemoryProviderProjectionItem[]
+  blocked: AtlasMemoryProviderProjectionItem[]
+  failed: AtlasMemoryProviderProjectionItem[]
+  review_summary: AtlasMemoryProviderProjectionSummary
+  metadata: Record<string, unknown>
+  applied_at: string | null
+  created_at: string | null
+}
+
+export interface AtlasMemoryProviderProjectionAuditsResponse {
+  provider_projection_audits: AtlasMemoryProviderProjectionAudit[]
+}
+
+export interface AtlasMemoryProviderProjectionAuditSummaryBucket {
+  value: string
+  total: number
+  applied: number
+  blocked: number
+}
+
+export interface AtlasMemoryProviderProjectionAuditSummary {
+  ok: boolean
+  period_days: number
+  since_at: string
+  generated_at: string
+  total: number
+  applied: number
+  blocked: number
+  by_target: Record<string, AtlasMemoryProviderProjectionAuditSummaryBucket>
+  by_initiator: Record<string, AtlasMemoryProviderProjectionAuditSummaryBucket>
+  latest_at: string | null
+  oldest_at: string | null
+}
+
+export interface AtlasMemoryProviderProjectionAuditSummaryResponse {
+  provider_projection_audit_summary: AtlasMemoryProviderProjectionAuditSummary
+}
+
+export interface AtlasMemoryProviderProjectionAuditParams {
+  target?: AtlasMemoryProviderProjectionTarget
+  workspace?: string
+  initiator?: 'api' | 'cli' | 'system'
+  status?: 'passed' | 'needs_review' | 'confirmation_required' | 'cancelled' | string
+  ok?: boolean
+  limit?: number
+}
+
+export interface AtlasMemoryProviderProjectionAuditSummaryParams extends AtlasMemoryProviderProjectionAuditParams {
+  days?: number
+}
+
+export interface PurgeAtlasMemoryProviderProjectionAuditInput extends AtlasMemoryProviderProjectionAuditParams {
+  older_than_days?: number
+  dry_run?: boolean
+  confirm?: boolean
+}
+
+export interface AtlasMemoryProviderProjectionAuditPurge {
+  ok: boolean
+  dry_run: boolean
+  older_than_days: number
+  cutoff_at: string
+  matched: number
+  deleted: number
+  filters: Record<string, unknown>
+}
+
+export interface AtlasMemoryProviderProjectionAuditPurgeResponse {
+  provider_projection_audit_purge: AtlasMemoryProviderProjectionAuditPurge
+}
+
+export interface AtlasMemoryRegistryEntry {
+  id: string
+  memory_type: string
+  scope_type: string
+  scope_id: string | null
+  project_id?: string | null
+  task_id?: string | null
+  engineering_run_id?: string | null
+  title: string | null
+  body: string
+  summary: string | null
+  redacted_title?: string | null
+  redacted_body?: string | null
+  redacted_summary?: string | null
+  privacy_class?: string | null
+  external_ai_allowed?: boolean | null
+  redaction_status?: string | null
+  status: string
+  metadata: Record<string, unknown>
+}
+
+export interface AtlasVerbatimMemoryEntry {
+  id: string
+  memory_entry_id: string | null
+  verbatim_type: string
+  scope_type?: string | null
+  scope_id?: string | null
+  project_id?: string | null
+  task_id?: string | null
+  engineering_run_id?: string | null
+  title: string | null
+  verbatim_text?: string | null
+  redacted_text: string
+  summary: string | null
+  privacy_class: string
+  external_ai_allowed: boolean
+  redaction_status: string
+  status: string
+  metadata: Record<string, unknown>
+}
+
 export interface CapturesResponse {
   captures: AtlasCapture[]
   next_cursor: string | null
@@ -2338,7 +3379,7 @@ export async function hydrateApiConfig(): Promise<void> {
         atlasStorage.getItem(PORT_KEY),
         readStoredToken(),
         readStoredMobileDeviceToken(),
-        atlasStorage.getItem(MOBILE_DEVICE_ID_KEY),
+        readStoredMobileDeviceId(),
       ])
 
       if (host) cachedHost = host
@@ -2410,6 +3451,10 @@ export function getMobileDeviceSession(): MobileDeviceSession | null {
   }
 }
 
+export function hasMobileDeviceBearer(): boolean {
+  return Boolean(cachedMobileDeviceToken)
+}
+
 export function getMobileAuthHeaders(): Record<string, string> {
   if (!cachedMobileDeviceToken) return {}
 
@@ -2421,7 +3466,7 @@ export async function setMobileDeviceSession(session: MobileDeviceSession): Prom
   cachedMobileDeviceId = session.deviceId
   await Promise.all([
     writeStoredMobileDeviceToken(session.deviceToken),
-    atlasStorage.setItem(MOBILE_DEVICE_ID_KEY, session.deviceId),
+    writeStoredMobileDeviceId(session.deviceId),
   ])
 }
 
@@ -2430,7 +3475,7 @@ export async function clearMobileDeviceSession(): Promise<void> {
   cachedMobileDeviceId = null
   await Promise.all([
     removeStoredMobileDeviceToken(),
-    atlasStorage.removeItem(MOBILE_DEVICE_ID_KEY),
+    removeStoredMobileDeviceId(),
   ])
 }
 
@@ -2494,8 +3539,36 @@ export async function confirmMobilePairing(input: {
   return response
 }
 
-export async function listMobileDevices(): Promise<{ devices: AtlasMobileDevice[] }> {
-  return mobileApiGet<{ devices: AtlasMobileDevice[] }>('/v1/mobile/devices')
+export async function recoverMobileDeviceSession(): Promise<MobileDeviceSession | null> {
+  await hydrateApiConfig()
+  const currentSession = getMobileDeviceSession()
+  if (currentSession) return currentSession
+  if (!cachedMobileDeviceToken) return null
+
+  try {
+    const response = await listMobileDevices()
+    const currentDevice = currentMobileDevice(response)
+    if (!currentDevice?.id) return null
+
+    const recoveredSession = {
+      deviceToken: cachedMobileDeviceToken,
+      deviceId: currentDevice.id,
+    }
+    await setMobileDeviceSession(recoveredSession)
+
+    return recoveredSession
+  } catch (error) {
+    if (error instanceof AtlasApiError && error.status === 401) {
+      await clearMobileDeviceSession()
+      return null
+    }
+
+    throw error
+  }
+}
+
+export async function listMobileDevices(): Promise<MobileDevicesResponse> {
+  return mobileApiGet<MobileDevicesResponse>('/v1/mobile/devices')
 }
 
 export async function updateMobilePushToken(input: {
@@ -2503,6 +3576,12 @@ export async function updateMobilePushToken(input: {
   notification_permissions?: string | null
 }): Promise<{ device: AtlasMobileDevice }> {
   return mobileApiPost<{ device: AtlasMobileDevice }>('/v1/mobile/devices/push-token', input)
+}
+
+export async function updateMobileNotificationPreferences(
+  input: Partial<AtlasNotificationPreferences>,
+): Promise<{ device: AtlasMobileDevice }> {
+  return mobileApiPost<{ device: AtlasMobileDevice }>('/v1/mobile/devices/notification-preferences', input)
 }
 
 export async function revokeMobileDevice(deviceId: string): Promise<{ device: AtlasMobileDevice }> {
@@ -2560,6 +3639,32 @@ export async function discussMobileInboxItem(id: string): Promise<MobileInboxAct
   })
 }
 
+export async function listMobileRecommendations(params: {
+  state?: 'open' | 'all' | string
+  limit?: number
+} = {}): Promise<MobileRecommendationsResponse> {
+  return mobileApiGet<MobileRecommendationsResponse>(`/v1/mobile/ai/recommendations${queryString(params)}`)
+}
+
+export async function getMobileRecommendation(id: string): Promise<MobileRecommendationResponse> {
+  return mobileApiGet<MobileRecommendationResponse>(`/v1/mobile/ai/recommendations/${encodeURIComponent(id)}`)
+}
+
+export async function transitionMobileRecommendation(
+  id: string,
+  input: {
+    state: 'acknowledged' | 'in_progress' | 'applied' | 'rejected' | 'snoozed'
+    reason?: string | null
+    snoozed_until?: string | null
+  },
+): Promise<{ ok: boolean; item: AtlasPerformanceRecommendation }> {
+  return mobileApiPost<{ ok: boolean; item: AtlasPerformanceRecommendation }>(
+    `/v1/mobile/ai/recommendations/${encodeURIComponent(id)}/transition`,
+    input,
+    { idempotencyKey: `recommendation-${input.state}-${id}-${Date.now()}` },
+  )
+}
+
 export async function createThreadFromMobileInbox(id: string): Promise<{
   ok: boolean
   thread_id: string | null
@@ -2576,8 +3681,16 @@ export async function createThreadFromMobileInbox(id: string): Promise<{
   })
 }
 
-export async function getMobileAiThread(id: string): Promise<{ thread: AtlasAiThread; traces: AtlasAiTrace[] }> {
-  return mobileApiGet<{ thread: AtlasAiThread; traces: AtlasAiTrace[] }>(`/v1/mobile/threads/${encodeURIComponent(id)}`)
+export async function getMobileAiThread(id: string): Promise<{
+  thread: AtlasAiThread
+  traces: AtlasAiTrace[]
+  mobile_context: AtlasMobileThreadContext | null
+}> {
+  return mobileApiGet<{
+    thread: AtlasAiThread
+    traces: AtlasAiTrace[]
+    mobile_context: AtlasMobileThreadContext | null
+  }>(`/v1/mobile/threads/${encodeURIComponent(id)}`)
 }
 
 export async function replyMobileAiThread(
@@ -3419,6 +4532,135 @@ export async function recordTaskEngineeringEvidence(
   return apiPost<AtlasEngineeringEvidenceResponse>(`/tasks/${encodeURIComponent(id)}/engineering/evidence`, input)
 }
 
+export async function fetchEngineeringRunPatchDiff(
+  runId: string,
+  patchId: string,
+  params: { max_bytes?: number } = {},
+): Promise<AtlasEngineeringPatchDiffResponse> {
+  return apiGet<AtlasEngineeringPatchDiffResponse>(
+    `/engineering/runs/${encodeURIComponent(runId)}/patch-artifacts/${encodeURIComponent(patchId)}/diff${queryString(params)}`,
+  )
+}
+
+export async function replayEngineeringRun(
+  runId: string,
+  input: AtlasEngineeringRunReplayInput,
+): Promise<AtlasEngineeringRunResponse> {
+  return apiPost<AtlasEngineeringRunResponse>(`/engineering/runs/${encodeURIComponent(runId)}/replay`, input)
+}
+
+export async function replayEngineeringRunAttempt(
+  runId: string,
+  attemptId: string,
+  input: AtlasEngineeringRunReplayInput,
+): Promise<AtlasEngineeringRunResponse> {
+  return apiPost<AtlasEngineeringRunResponse>(
+    `/engineering/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptId)}/replay`,
+    input,
+  )
+}
+
+export async function applyEngineeringRunOperatorAction(
+  runId: string,
+  input: AtlasEngineeringRunOperatorActionInput,
+): Promise<AtlasEngineeringRunResponse> {
+  return apiPost<AtlasEngineeringRunResponse>(`/engineering/runs/${encodeURIComponent(runId)}/operator-action`, input)
+}
+
+export async function listEngineeringTestRunArtifacts(
+  runId: string,
+  testRunId: string,
+  params: { limit?: number } = {},
+): Promise<AtlasEngineeringTestArtifactsResponse> {
+  return apiGet<AtlasEngineeringTestArtifactsResponse>(
+    `/engineering/runs/${encodeURIComponent(runId)}/test-runs/${encodeURIComponent(testRunId)}/artifacts${queryString(params)}`,
+  )
+}
+
+export async function fetchEngineeringTestRunArtifactContent(
+  runId: string,
+  testRunId: string,
+  params: { path: string; max_bytes?: number },
+): Promise<AtlasEngineeringTestArtifactContentResponse> {
+  return apiGet<AtlasEngineeringTestArtifactContentResponse>(
+    `/engineering/runs/${encodeURIComponent(runId)}/test-runs/${encodeURIComponent(testRunId)}/artifacts/content${queryString(params)}`,
+  )
+}
+
+export async function fetchEngineeringHarnessabilityCalibration(): Promise<AtlasEngineeringHarnessabilityCalibrationResponse> {
+  return apiGet<AtlasEngineeringHarnessabilityCalibrationResponse>('/engineering/harnessability/calibration')
+}
+
+export async function calibrateEngineeringHarnessability(
+  input: AtlasEngineeringHarnessabilityCalibrationInput = {},
+): Promise<AtlasEngineeringHarnessabilityCalibrationResponse> {
+  return apiPost<AtlasEngineeringHarnessabilityCalibrationResponse>('/engineering/harnessability/calibrate', input)
+}
+
+export async function listEngineeringBenchmarkSuites(
+  params: { status?: string } = {},
+): Promise<AtlasEngineeringBenchmarkSuitesResponse> {
+  return apiGet<AtlasEngineeringBenchmarkSuitesResponse>(`/engineering/benchmarks/suites${queryString(params)}`)
+}
+
+export async function fetchEngineeringBenchmarkSuite(
+  suite: string,
+): Promise<AtlasEngineeringBenchmarkSuiteResponse> {
+  return apiGet<AtlasEngineeringBenchmarkSuiteResponse>(`/engineering/benchmarks/suites/${encodeURIComponent(suite)}`)
+}
+
+export async function fetchEngineeringBenchmarkTrends(
+  suite: string,
+  params: { limit?: number; benchmark_key?: string; provider?: string } = {},
+): Promise<AtlasEngineeringBenchmarkTrendsResponse> {
+  return apiGet<AtlasEngineeringBenchmarkTrendsResponse>(`/engineering/benchmarks/suites/${encodeURIComponent(suite)}/trends${queryString(params)}`)
+}
+
+export async function ensureDefaultEngineeringBenchmarkSuite(
+  input: AtlasEngineeringBenchmarkDefaultSuiteInput = {},
+): Promise<AtlasEngineeringBenchmarkSuiteResponse> {
+  return apiPost<AtlasEngineeringBenchmarkSuiteResponse>('/engineering/benchmarks/suites/default', input)
+}
+
+export async function refreshEngineeringBenchmarkCorpus(
+  suite: string,
+): Promise<AtlasEngineeringBenchmarkSuiteResponse & { corpus_manifest?: Record<string, unknown> }> {
+  return apiPost<AtlasEngineeringBenchmarkSuiteResponse & { corpus_manifest?: Record<string, unknown> }>(
+    `/engineering/benchmarks/suites/${encodeURIComponent(suite)}/corpus/refresh`,
+    {},
+  )
+}
+
+export async function calibrateEngineeringBenchmarkSuite(
+  suite: string,
+  input: AtlasEngineeringBenchmarkCalibrationInput = {},
+): Promise<AtlasEngineeringBenchmarkSuiteResponse & { rollout_calibration?: Record<string, unknown> }> {
+  return apiPost<AtlasEngineeringBenchmarkSuiteResponse & { rollout_calibration?: Record<string, unknown> }>(
+    `/engineering/benchmarks/suites/${encodeURIComponent(suite)}/calibrate`,
+    input,
+  )
+}
+
+export async function fetchEngineeringBenchmarkRun(
+  runId: string,
+): Promise<AtlasEngineeringBenchmarkRunResponse> {
+  return apiGet<AtlasEngineeringBenchmarkRunResponse>(`/engineering/benchmarks/runs/${encodeURIComponent(runId)}`)
+}
+
+export async function recordEngineeringBenchmarkOutcome(
+  runId: string,
+  input: AtlasEngineeringBenchmarkOutcomeInput,
+): Promise<AtlasEngineeringBenchmarkRunResponse> {
+  return apiPatch<AtlasEngineeringBenchmarkRunResponse>(`/engineering/benchmarks/runs/${encodeURIComponent(runId)}/outcome`, input)
+}
+
+export async function runEngineeringBenchmarkSuite(
+  suite: string,
+  input: AtlasEngineeringBenchmarkRunInput,
+): Promise<AtlasEngineeringBenchmarkRunResponse> {
+  return apiPost<AtlasEngineeringBenchmarkRunResponse>(`/engineering/benchmarks/suites/${encodeURIComponent(suite)}/run`, input)
+}
+
 export async function listProjectEvents(id: string, params: { limit?: number } = {}): Promise<ProjectEventsResponse> {
   return apiGet<ProjectEventsResponse>(`/projects/${encodeURIComponent(id)}/events${queryString(params)}`)
 }
@@ -3585,7 +4827,25 @@ export async function answerCognitiveGame(
   })
 }
 
-export async function createAiInteraction(input: {
+export interface AiInteractionImageAttachmentInput {
+  uri: string
+  fileName: string
+  mimeType: string
+  size?: number | null
+  width?: number | null
+  height?: number | null
+  source?: string | null
+}
+
+export interface AiInteractionFileAttachmentInput {
+  uri: string
+  fileName: string
+  mimeType: string
+  size?: number | null
+  source?: string | null
+}
+
+export interface CreateAiInteractionInput {
   input_text: string
   client_id?: string
   thread_id?: string
@@ -3600,8 +4860,241 @@ export async function createAiInteraction(input: {
   include_semantic_context?: boolean
   context_note_limit?: number
   payload?: Record<string, unknown>
-}): Promise<{ trace: AtlasAiTrace }> {
-  return apiPost('/ai/interactions', input)
+  image_attachments?: AiInteractionImageAttachmentInput[]
+  file_attachments?: AiInteractionFileAttachmentInput[]
+  on_upload_progress?: (progress: AiInteractionUploadProgress) => void
+}
+
+export interface AiInteractionUploadProgress {
+  phase: 'starting' | 'uploading' | 'finalizing' | 'complete'
+  fileName: string
+  fileIndex: number
+  fileCount: number
+  sentBytes: number
+  totalBytes: number
+  percent: number
+}
+
+export async function createAiInteraction(input: CreateAiInteractionInput): Promise<{ trace: AtlasAiTrace }> {
+  const imageAttachments = input.image_attachments ?? []
+  const fileAttachments = input.file_attachments ?? []
+  if (imageAttachments.length > 0 || fileAttachments.length > 0) {
+    try {
+      const uploadedImages: string[] = []
+      const uploadedDocuments: string[] = []
+      const allUploads = [
+        ...imageAttachments.map((attachment) => ({ kind: 'image' as const, attachment })),
+        ...fileAttachments.map((attachment) => ({ kind: 'file' as const, attachment })),
+      ]
+      let uploadedBytesBefore = 0
+      const totalBytes = await totalAttachmentBytes(allUploads.map((item) => item.attachment))
+
+      for (let index = 0; index < allUploads.length; index++) {
+        const item = allUploads[index]
+        const upload = await uploadAiAttachmentInChunks(
+          item.attachment,
+          item.kind,
+          index,
+          allUploads.length,
+          totalBytes,
+          uploadedBytesBefore,
+          input.on_upload_progress,
+        )
+        uploadedBytesBefore += upload.bytes
+        if (item.kind === 'image') uploadedImages.push(upload.id)
+        else uploadedDocuments.push(upload.id)
+      }
+
+      input.on_upload_progress?.({
+        phase: 'finalizing',
+        fileName: 'anexos',
+        fileIndex: allUploads.length,
+        fileCount: allUploads.length,
+        sentBytes: totalBytes,
+        totalBytes,
+        percent: 1,
+      })
+
+      const {
+        image_attachments: _imageAttachments,
+        file_attachments: _fileAttachments,
+        on_upload_progress: _onUploadProgress,
+        ...jsonInput
+      } = input
+
+      const response = await apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', {
+        ...jsonInput,
+        uploaded_images: uploadedImages,
+        uploaded_documents: uploadedDocuments,
+      })
+
+      input.on_upload_progress?.({
+        phase: 'complete',
+        fileName: 'anexos',
+        fileIndex: allUploads.length,
+        fileCount: allUploads.length,
+        sentBytes: totalBytes,
+        totalBytes,
+        percent: 1,
+      })
+
+      return response
+    } catch {
+      // Fallback: mantém compatibilidade em ambientes onde leitura em chunks
+      // por file:// não está disponível.
+    }
+
+    const form = new FormData()
+    appendInteractionForm(form, 'input_text', input.input_text)
+    appendInteractionForm(form, 'client_id', input.client_id)
+    appendInteractionForm(form, 'thread_id', input.thread_id)
+    appendInteractionForm(form, 'session_id', input.session_id)
+    appendInteractionForm(form, 'new_thread', input.new_thread)
+    appendInteractionForm(form, 'agent_slug', input.agent_slug)
+    appendInteractionForm(form, 'provider', input.provider)
+    appendInteractionForm(form, 'kind', input.kind)
+    appendInteractionForm(form, 'source_type', input.source_type)
+    appendInteractionForm(form, 'source_id', input.source_id)
+    appendInteractionForm(form, 'priority', input.priority)
+    appendInteractionForm(form, 'include_semantic_context', input.include_semantic_context)
+    appendInteractionForm(form, 'context_note_limit', input.context_note_limit)
+    appendInteractionForm(form, 'payload', JSON.stringify(input.payload ?? {}))
+
+    imageAttachments.forEach((attachment, index) => {
+      form.append('images[]', {
+        uri: attachment.uri,
+        name: attachment.fileName || `atlas-image-${index + 1}.png`,
+        type: attachment.mimeType || 'image/png',
+      } as unknown as Blob)
+    })
+
+    fileAttachments.forEach((attachment, index) => {
+      form.append('documents[]', {
+        uri: attachment.uri,
+        name: attachment.fileName || `atlas-file-${index + 1}`,
+        type: attachment.mimeType || 'application/octet-stream',
+      } as unknown as Blob)
+    })
+
+    return apiUpload<{ trace: AtlasAiTrace }>('/ai/interactions', form)
+  }
+
+  const {
+    image_attachments: _imageAttachments,
+    file_attachments: _fileAttachments,
+    ...jsonInput
+  } = input
+  return apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', jsonInput)
+}
+
+const AI_UPLOAD_CHUNK_BYTES = 768 * 1024
+
+async function uploadAiAttachmentInChunks(
+  attachment: AiInteractionImageAttachmentInput | AiInteractionFileAttachmentInput,
+  kind: 'image' | 'file',
+  index: number,
+  fileCount: number,
+  aggregateTotalBytes: number,
+  aggregateUploadedBefore: number,
+  onProgress?: (progress: AiInteractionUploadProgress) => void,
+): Promise<{ id: string; bytes: number }> {
+  const info = await FileSystem.getInfoAsync(attachment.uri)
+  const bytes = typeof attachment.size === 'number'
+    ? attachment.size
+    : (info.exists && typeof info.size === 'number' ? info.size : 0)
+  if (bytes <= 0) throw new Error('Arquivo local sem tamanho para upload em chunks.')
+
+  const fileName = attachment.fileName || (kind === 'image' ? `atlas-image-${index + 1}.png` : `atlas-file-${index + 1}`)
+  onProgress?.({
+    phase: 'starting',
+    fileName,
+    fileIndex: index + 1,
+    fileCount,
+    sentBytes: aggregateUploadedBefore,
+    totalBytes: aggregateTotalBytes,
+    percent: aggregateTotalBytes > 0 ? aggregateUploadedBefore / aggregateTotalBytes : 0,
+  })
+
+  const start = await apiPost<{
+    upload: { id: string; received_chunks?: number[] }
+  }>('/ai/uploads/chunks/start', {
+    client_upload_id: `${kind}-${stableUploadKey(attachment.uri, fileName, bytes)}`,
+    kind,
+    file_name: fileName,
+    mime_type: attachment.mimeType || 'application/octet-stream',
+    total_bytes: bytes,
+    source: attachment.source ?? 'app',
+  })
+  const uploadId = start.upload.id
+  const received = new Set(start.upload.received_chunks ?? [])
+  const totalChunks = Math.ceil(bytes / AI_UPLOAD_CHUNK_BYTES)
+  let uploadedForFile = 0
+
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+    const offset = chunkIndex * AI_UPLOAD_CHUNK_BYTES
+    const chunkBytes = Math.min(AI_UPLOAD_CHUNK_BYTES, bytes - offset)
+    if (!received.has(chunkIndex)) {
+      const chunkBase64 = await FileSystem.readAsStringAsync(attachment.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+        position: offset,
+        length: chunkBytes,
+      })
+      await apiPost(`/ai/uploads/chunks/${encodeURIComponent(uploadId)}/chunk`, {
+        index: chunkIndex,
+        total_chunks: totalChunks,
+        offset,
+        bytes: chunkBytes,
+        chunk_base64: chunkBase64,
+      })
+    }
+
+    uploadedForFile += chunkBytes
+    const sentBytes = Math.min(aggregateTotalBytes, aggregateUploadedBefore + uploadedForFile)
+    onProgress?.({
+      phase: 'uploading',
+      fileName,
+      fileIndex: index + 1,
+      fileCount,
+      sentBytes,
+      totalBytes: aggregateTotalBytes,
+      percent: aggregateTotalBytes > 0 ? sentBytes / aggregateTotalBytes : 0,
+    })
+  }
+
+  const complete = await apiPost<{
+    upload: { id: string; bytes?: number | null }
+  }>(`/ai/uploads/chunks/${encodeURIComponent(uploadId)}/complete`, {})
+
+  return {
+    id: complete.upload.id,
+    bytes: typeof complete.upload.bytes === 'number' ? complete.upload.bytes : bytes,
+  }
+}
+
+function stableUploadKey(uri: string, fileName: string, bytes: number): string {
+  const input = `${uri}|${fileName}|${bytes}`
+  let hash = 2166136261
+  for (let index = 0; index < input.length; index++) {
+    hash ^= input.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return `${Math.abs(hash >>> 0).toString(36)}-${bytes.toString(36)}`
+}
+
+async function totalAttachmentBytes(attachments: Array<AiInteractionImageAttachmentInput | AiInteractionFileAttachmentInput>): Promise<number> {
+  let total = 0
+  for (const attachment of attachments) {
+    if (typeof attachment.size === 'number' && attachment.size > 0) {
+      total += attachment.size
+      continue
+    }
+    try {
+      const info = await FileSystem.getInfoAsync(attachment.uri)
+      if (info.exists && typeof info.size === 'number') total += info.size
+    } catch {}
+  }
+  return total
 }
 
 export async function listAiInteractions(params: {
@@ -3611,6 +5104,14 @@ export async function listAiInteractions(params: {
   limit?: number
 } = {}): Promise<AiInteractionsResponse> {
   return apiGet<AiInteractionsResponse>(`/ai/interactions${queryString(params)}`)
+}
+
+export async function searchAiAttachments(input: {
+  query: string
+  thread_id?: string | null
+  limit?: number
+}): Promise<AtlasAiAttachmentSearchResponse> {
+  return apiPost<AtlasAiAttachmentSearchResponse>('/ai/attachments/search', input)
 }
 
 export async function listAiThreads(params: {
@@ -3735,6 +5236,10 @@ export async function getAiProvidersStatus(): Promise<AiProvidersStatusResponse>
   return apiGet<AiProvidersStatusResponse>('/ai/providers/status')
 }
 
+export async function updateAiProviderSettings(input: AtlasAiRuntimeSettingsPatch): Promise<AiProvidersStatusResponse> {
+  return apiPatch<AiProvidersStatusResponse>('/ai/providers/settings', input)
+}
+
 export async function checkAiProviders(): Promise<{ providers: AtlasAiProviderHealth[] }> {
   return apiPost('/ai/providers/check', {})
 }
@@ -3841,6 +5346,119 @@ export async function runAiQualityAction(id: string): Promise<{ action: AtlasAiQ
 
 export async function listSuggestionAudit(params: { limit?: number } = {}): Promise<AtlasAuditResponse> {
   return apiGet<AtlasAuditResponse>(`/audit/suggestions${queryString(params)}`)
+}
+
+export async function listAtlasMemoryReviewQueue(params: {
+  area?: 'memory' | 'verbatim' | 'relations' | 'memory_privacy' | 'verbatim_privacy' | 'relation'
+  scope_type?: string
+  scope_id?: string
+  project_id?: string
+  task_id?: string
+  engineering_run_id?: string
+  privacy_class?: string
+  relation_status?: string
+  include_unreviewed?: boolean
+  include_inactive?: boolean
+  limit?: number
+} = {}): Promise<AtlasMemoryReviewQueueResponse> {
+  return apiGet<AtlasMemoryReviewQueueResponse>(`/ai/memory/review-queue${queryString(params)}`)
+}
+
+export async function getAtlasMemoryProviderProjectionStatus(
+  params: AtlasMemoryProviderProjectionParams = {},
+): Promise<AtlasMemoryProviderProjectionResponse> {
+  return apiGet<AtlasMemoryProviderProjectionResponse>(`/ai/memory/provider-projection/status${queryString({ ...params })}`)
+}
+
+export async function reviewAtlasMemoryProviderProjection(
+  params: AtlasMemoryProviderProjectionParams = {},
+): Promise<AtlasMemoryProviderProjectionResponse> {
+  return apiGet<AtlasMemoryProviderProjectionResponse>(`/ai/memory/provider-projection/review${queryString({ ...params })}`)
+}
+
+export async function applyAtlasMemoryProviderProjection(
+  input: ApplyAtlasMemoryProviderProjectionInput,
+): Promise<AtlasMemoryProviderProjectionResponse> {
+  return apiPost<AtlasMemoryProviderProjectionResponse>('/ai/memory/provider-projection/apply', input)
+}
+
+export async function listAtlasMemoryProviderProjectionAudits(
+  params: AtlasMemoryProviderProjectionAuditParams = {},
+): Promise<AtlasMemoryProviderProjectionAuditsResponse> {
+  return apiGet<AtlasMemoryProviderProjectionAuditsResponse>(`/ai/memory/provider-projection/audits${queryString({ ...params })}`)
+}
+
+export async function summarizeAtlasMemoryProviderProjectionAudits(
+  params: AtlasMemoryProviderProjectionAuditSummaryParams = {},
+): Promise<AtlasMemoryProviderProjectionAuditSummaryResponse> {
+  return apiGet<AtlasMemoryProviderProjectionAuditSummaryResponse>(`/ai/memory/provider-projection/audits/summary${queryString({ ...params })}`)
+}
+
+export async function purgeAtlasMemoryProviderProjectionAudits(
+  input: PurgeAtlasMemoryProviderProjectionAuditInput,
+): Promise<AtlasMemoryProviderProjectionAuditPurgeResponse> {
+  return apiPost<AtlasMemoryProviderProjectionAuditPurgeResponse>('/ai/memory/provider-projection/audits/purge', input)
+}
+
+export async function getAtlasMemoryEntry(id: string): Promise<{ memory: AtlasMemoryRegistryEntry }> {
+  return apiGet<{ memory: AtlasMemoryRegistryEntry }>(`/ai/memory/${encodeURIComponent(id)}`)
+}
+
+export async function reviewAtlasMemoryPrivacy(
+  id: string,
+  input: {
+    privacy_class?: string
+    external_ai_allowed?: boolean
+    redacted_title?: string | null
+    redacted_body?: string | null
+    redacted_summary?: string | null
+    reviewed_by?: string
+    review_note?: string | null
+    metadata?: Record<string, unknown>
+  },
+): Promise<{ memory: AtlasMemoryRegistryEntry }> {
+  return apiPost(`/ai/memory/${encodeURIComponent(id)}/privacy`, input)
+}
+
+export async function reviewAtlasVerbatimMemory(
+  id: string,
+  input: {
+    privacy_class?: string
+    external_ai_allowed?: boolean
+    redacted_text?: string | null
+    summary?: string | null
+    status?: string
+    re_redact?: boolean
+    reviewed_by?: string
+    review_action?: string
+    review_note?: string | null
+    metadata?: Record<string, unknown>
+  },
+): Promise<{ verbatim_memory: AtlasVerbatimMemoryEntry }> {
+  return apiPost(`/ai/memory/verbatim/${encodeURIComponent(id)}/review`, input)
+}
+
+export async function getAtlasVerbatimMemory(
+  id: string,
+  params: { include_verbatim?: boolean } = {},
+): Promise<{ verbatim_memory: AtlasVerbatimMemoryEntry }> {
+  return apiGet<{ verbatim_memory: AtlasVerbatimMemoryEntry }>(`/ai/memory/verbatim/${encodeURIComponent(id)}${queryString(params)}`)
+}
+
+export async function reviewAtlasMemoryRelation(
+  id: string,
+  input: {
+    status: 'open' | 'resolved' | 'dismissed'
+    source_status?: string | null
+    target_status?: string | null
+    resolution_action?: string | null
+    reviewed_by?: string
+    review_note?: string | null
+    reason?: string | null
+    metadata?: Record<string, unknown>
+  },
+): Promise<{ relation: Record<string, unknown> }> {
+  return apiPost(`/ai/memory/relations/${encodeURIComponent(id)}/review`, input)
 }
 
 export async function apiGet<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
@@ -4126,7 +5744,7 @@ export interface StoreBehaviorLogInput {
 }
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000
-const UPLOAD_FETCH_TIMEOUT_MS = 60_000
+const UPLOAD_FETCH_TIMEOUT_MS = 120_000
 
 function fetchBackoffMs(attempt: number): number {
   return Math.min(200 * 2 ** attempt, 1400)
@@ -4323,6 +5941,15 @@ function appendForm(form: FormData, key: string, value: unknown): void {
   form.append(key, String(value))
 }
 
+function appendInteractionForm(form: FormData, key: string, value: unknown): void {
+  if (value === undefined || value === null || value === '') return
+  if (typeof value === 'boolean') {
+    form.append(key, value ? '1' : '0')
+    return
+  }
+  form.append(key, String(value))
+}
+
 async function readStoredToken(): Promise<string | null> {
   try {
     const secureToken = await SecureStore.getItemAsync(TOKEN_KEY)
@@ -4358,9 +5985,12 @@ async function writeStoredMobileDeviceToken(token: string): Promise<void> {
   try {
     await SecureStore.setItemAsync(MOBILE_TOKEN_KEY, token)
     await atlasStorage.removeItem(MOBILE_TOKEN_KEY)
+    return
   } catch {
-    await atlasStorage.setItem(MOBILE_TOKEN_KEY, token)
+    // SecureStore can be unavailable in non-native runtimes; MMKV/memory remains a fallback.
   }
+
+  await atlasStorage.setItem(MOBILE_TOKEN_KEY, token)
 }
 
 async function removeStoredMobileDeviceToken(): Promise<void> {
@@ -4371,4 +6001,45 @@ async function removeStoredMobileDeviceToken(): Promise<void> {
   }
 
   await atlasStorage.removeItem(MOBILE_TOKEN_KEY)
+}
+
+async function readStoredMobileDeviceId(): Promise<string | null> {
+  try {
+    const secureDeviceId = await SecureStore.getItemAsync(MOBILE_DEVICE_ID_KEY)
+    if (secureDeviceId) return secureDeviceId
+  } catch {
+    // SecureStore can be unavailable in a non-native runtime; storage remains a fallback.
+  }
+
+  return atlasStorage.getItem(MOBILE_DEVICE_ID_KEY)
+}
+
+async function writeStoredMobileDeviceId(deviceId: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(MOBILE_DEVICE_ID_KEY, deviceId)
+  } catch {
+    // Device id is not secret; durable storage is still attempted below.
+  }
+
+  await atlasStorage.setItem(MOBILE_DEVICE_ID_KEY, deviceId)
+}
+
+async function removeStoredMobileDeviceId(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(MOBILE_DEVICE_ID_KEY)
+  } catch {
+    // Ignore SecureStore removal failures and still clear the fallback key.
+  }
+
+  await atlasStorage.removeItem(MOBILE_DEVICE_ID_KEY)
+}
+
+function currentMobileDevice(response: MobileDevicesResponse): AtlasMobileDevice | null {
+  if (response.current_device?.id) return response.current_device
+  if (response.current_device_id) {
+    const byId = response.devices.find((device) => device.id === response.current_device_id)
+    if (byId) return byId
+  }
+
+  return response.devices.find((device) => !device.revoked_at) ?? null
 }

@@ -16,6 +16,10 @@ import {
   checkinLevelFreshness,
   checkinStateFreshness,
 } from './checkinFreshness'
+import {
+  buildAtlasPhysiologicalAge,
+  physiologicalAgeForStorage,
+} from './physiologicalAge'
 
 type HealthSnapshotSignal = Pick<
   AtlasPassiveSignal,
@@ -124,7 +128,20 @@ export function buildHealthSnapshotInputs(input: {
       load_components: readiness.dayStrain.components,
     }
     const subjective = subjectiveSummary(dayAllSignals, latestCheckin, isToday ? now : end)
-    const body = bodySummary(healthUntilEnd)
+    const body = bodySummary(allUntilEnd)
+    const snapshotComputedAt = isToday ? now : end
+    const physiologicalAge = buildAtlasPhysiologicalAge({
+      signals: allUntilEnd,
+      now: snapshotComputedAt,
+      current: {
+        sleepScore: physiologicalAgeReading(readiness.sleep.score, '%', readiness.computedAt, 'readiness_v1'),
+        sleepRegularityScore: physiologicalAgeReading(numberOrNull(sleep.regularity_score), '%', snapshotComputedAt.toISOString(), 'sleep_snapshot'),
+      },
+    })
+    const bodyPayload = {
+      ...body,
+      physiological_age_atlas: physiologicalAgeForStorage(physiologicalAge),
+    }
     const metrics = {
       snapshot_date: snapshotDate,
       snapshot_timezone: timezone,
@@ -132,6 +149,13 @@ export function buildHealthSnapshotInputs(input: {
       signal_count: dayAllSignals.length,
       generated_at: now.toISOString(),
       sources: sourceCounts(dayAllSignals),
+      physiological_age_atlas: {
+        model_version: physiologicalAge.modelVersion,
+        age_years: physiologicalAge.ageYears,
+        confidence: physiologicalAge.confidence,
+        coverage: physiologicalAge.coverage,
+        status: physiologicalAge.status,
+      },
     }
 
     snapshots.push({
@@ -180,7 +204,7 @@ export function buildHealthSnapshotInputs(input: {
       recovery,
       load,
       subjective,
-      body,
+      body: bodyPayload,
       metadata: {
         model: 'health_snapshot_v2',
         sleep_model: SLEEP_MODEL_VERSION,
@@ -578,25 +602,221 @@ function checkinQualityLabel(levelFreshness: number, stateFreshness: number, has
   return 'stale'
 }
 
-function bodySummary(signals: HealthSnapshotSignal[]): Record<string, number | null> {
-  const bodyMassKg = latestMetric(signals, ['body_mass'])
-  const leanBodyMassKg = latestMetric(signals, ['lean_body_mass'])
-  const directMuscle = latestMetric(signals, [
+interface BodySummary extends Record<string, unknown> {
+  body_mass_kg: number | null
+  body_fat_percentage: number | null
+  lean_body_mass_kg: number | null
+  muscle_mass_percentage: number | null
+  body_mass_index: number | null
+  waist_circumference_cm: number | null
+}
+
+interface BodyMetricReading {
+  value: number
+  signal: HealthSnapshotSignal
+}
+
+function bodySummary(signals: HealthSnapshotSignal[]): BodySummary {
+  const bodyMass = latestBodyMetric(signals, ['body_mass'], 'body_mass_kg')
+  const bodyFat = latestBodyMetric(signals, ['body_fat_percentage'], 'body_fat_percentage')
+  const directLeanMass = latestBodyMetric(signals, ['lean_body_mass'], 'lean_body_mass_kg')
+  const directMuscle = latestBodyMetric(signals, [
     'muscle_mass_percentage',
     'skeletal_muscle_percentage',
     'body_muscle_percentage',
-  ])
+  ], 'muscle_mass_percentage')
+  const height = latestBodyMetric(signals, ['height'], 'height_m')
+  const directBmi = latestBodyMetric(signals, ['body_mass_index'], 'body_mass_index')
+  const waist = latestBodyMetric(signals, ['waist_circumference'], 'waist_circumference_cm')
+  const bodyMassKg = bodyMass?.value ?? null
+  const bodyFatPercentage = bodyFat?.value ?? null
+  const derivedLeanMassKg = bodyMassKg !== null && bodyFatPercentage !== null
+    ? bodyMassKg * (1 - bodyFatPercentage / 100)
+    : null
+  const leanBodyMassKg = directLeanMass?.value ?? derivedLeanMassKg
+  const heightM = height?.value ?? null
+  const derivedBmi = bodyMassKg !== null && heightM !== null
+    ? bodyMassKg / (heightM * heightM)
+    : null
+  const dateOfBirth = latestMetricSignal(signals, ['date_of_birth'])?.value_text ?? null
+  const biologicalSex = biologicalSexLabel(numberOrNull(latestMetricSignal(signals, ['biological_sex'])?.value_numeric))
+  const bmrKcal = basalMetabolicRateKcal({
+    bodyMassKg,
+    heightM,
+    ageYears: ageYearsFromDate(dateOfBirth),
+    sex: biologicalSex,
+  })
+  const fatMassKg = bodyMassKg !== null && bodyFatPercentage !== null ? bodyMassKg * (bodyFatPercentage / 100) : null
+  const leanMassPercentage = bodyMassKg !== null && leanBodyMassKg !== null ? (leanBodyMassKg / bodyMassKg) * 100 : null
 
   return {
     body_mass_kg: bodyMassKg,
-    body_fat_percentage: normalizePercent(latestMetric(signals, ['body_fat_percentage'])),
+    body_fat_percentage: bodyFatPercentage,
     lean_body_mass_kg: leanBodyMassKg,
-    muscle_mass_percentage: directMuscle ?? (
-      bodyMassKg && leanBodyMassKg ? (leanBodyMassKg / bodyMassKg) * 100 : null
-    ),
-    body_mass_index: latestMetric(signals, ['body_mass_index']),
-    waist_circumference_cm: latestMetric(signals, ['waist_circumference']),
+    muscle_mass_percentage: directMuscle?.value ?? null,
+    body_mass_index: directBmi?.value ?? derivedBmi,
+    waist_circumference_cm: waist?.value ?? null,
+    height_m: roundOrNull(heightM, 3),
+    fat_mass_kg: roundOrNull(fatMassKg, 3),
+    lean_mass_percentage: roundOrNull(leanMassPercentage, 3),
+    basal_metabolic_rate_kcal: roundOrNull(bmrKcal, 0),
+    body_model: 'body_composition_v1',
+    body_quality: bodyQualitySummary({
+      bodyMass,
+      bodyFat,
+      leanMass: directLeanMass,
+      height,
+      waist,
+      directBmi,
+      directMuscle,
+      hasDerivedLeanMass: directLeanMass === null && leanBodyMassKg !== null,
+      hasDerivedBmi: directBmi === null && derivedBmi !== null,
+      hasBmr: bmrKcal !== null,
+    }),
   }
+}
+
+type BodyMetricKind =
+  | 'body_mass_kg'
+  | 'body_fat_percentage'
+  | 'lean_body_mass_kg'
+  | 'muscle_mass_percentage'
+  | 'body_mass_index'
+  | 'waist_circumference_cm'
+  | 'height_m'
+
+function latestBodyMetric(
+  signals: HealthSnapshotSignal[],
+  signalTypes: string[],
+  kind: BodyMetricKind,
+): BodyMetricReading | null {
+  const matches = signals
+    .filter((signal) => signalTypes.includes(signal.signal_type) && typeof signal.value_numeric === 'number')
+    .sort((a, b) => metricTime(b) - metricTime(a))
+
+  for (const signal of matches) {
+    const value = normalizeBodyMetricValue(Number(signal.value_numeric), signal.unit, kind)
+    if (value !== null) return { value, signal }
+  }
+
+  return null
+}
+
+function latestMetricSignal(signals: HealthSnapshotSignal[], signalTypes: string[]): HealthSnapshotSignal | null {
+  return signals
+    .filter((signal) => signalTypes.includes(signal.signal_type))
+    .sort((a, b) => metricTime(b) - metricTime(a))[0] ?? null
+}
+
+function normalizeBodyMetricValue(value: number, unit: string | null | undefined, kind: BodyMetricKind): number | null {
+  if (!Number.isFinite(value)) return null
+  const normalizedUnit = typeof unit === 'string' && unit.trim() !== '' ? unit.trim() : null
+
+  switch (kind) {
+    case 'height_m': {
+      if (!isKnownBodyUnit(normalizedUnit, ['m', 'cm'])) return null
+      const meters = normalizedUnit === 'cm' || (!normalizedUnit && value > 3) ? value / 100 : value
+      return meters >= 0.5 && meters <= 2.5 ? meters : null
+    }
+    case 'waist_circumference_cm': {
+      if (!isKnownBodyUnit(normalizedUnit, ['m', 'cm'])) return null
+      const centimeters = normalizedUnit === 'm' || (!normalizedUnit && value <= 3) ? value * 100 : value
+      return centimeters >= 30 && centimeters <= 250 ? centimeters : null
+    }
+    case 'body_fat_percentage': {
+      if (!isKnownBodyUnit(normalizedUnit, ['%', 'count'])) return null
+      const percent = normalizePercent(value)
+      return percent !== null && percent >= 3 && percent <= 75 ? percent : null
+    }
+    case 'muscle_mass_percentage': {
+      if (!isKnownBodyUnit(normalizedUnit, ['%', 'count'])) return null
+      const percent = normalizePercent(value)
+      return percent !== null && percent >= 15 && percent <= 95 ? percent : null
+    }
+    case 'body_mass_kg':
+      if (!isKnownBodyUnit(normalizedUnit, ['kg'])) return null
+      return value >= 20 && value <= 350 ? value : null
+    case 'lean_body_mass_kg':
+      if (!isKnownBodyUnit(normalizedUnit, ['kg'])) return null
+      return value >= 10 && value <= 250 ? value : null
+    case 'body_mass_index':
+      if (!isKnownBodyUnit(normalizedUnit, ['count'])) return null
+      return value >= 8 && value <= 90 ? value : null
+  }
+}
+
+function isKnownBodyUnit(unit: string | null, allowed: string[]): boolean {
+  return unit === null || allowed.includes(unit)
+}
+
+function basalMetabolicRateKcal(input: {
+  bodyMassKg: number | null
+  heightM: number | null
+  ageYears: number | null
+  sex: 'female' | 'male' | null
+}): number | null {
+  const { bodyMassKg, heightM, ageYears, sex } = input
+  if (bodyMassKg === null || heightM === null || ageYears === null || !sex) return null
+
+  const heightCm = heightM * 100
+  const sexOffset = sex === 'male' ? 5 : -161
+  const bmr = (10 * bodyMassKg) + (6.25 * heightCm) - (5 * ageYears) + sexOffset
+  return Number.isFinite(bmr) && bmr >= 700 && bmr <= 3500 ? bmr : null
+}
+
+function ageYearsFromDate(iso?: string | null, now = new Date()): number | null {
+  if (!iso) return null
+  const birth = new Date(iso)
+  if (!Number.isFinite(birth.getTime()) || birth > now) return null
+  let age = now.getFullYear() - birth.getFullYear()
+  const monthDiff = now.getMonth() - birth.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) age--
+  return age >= 0 && age <= 130 ? age : null
+}
+
+function biologicalSexLabel(value: number | null): 'female' | 'male' | null {
+  if (value === 1) return 'female'
+  if (value === 2) return 'male'
+  return null
+}
+
+function bodyQualitySummary(input: {
+  bodyMass: BodyMetricReading | null
+  bodyFat: BodyMetricReading | null
+  leanMass: BodyMetricReading | null
+  height: BodyMetricReading | null
+  waist: BodyMetricReading | null
+  directBmi: BodyMetricReading | null
+  directMuscle: BodyMetricReading | null
+  hasDerivedLeanMass: boolean
+  hasDerivedBmi: boolean
+  hasBmr: boolean
+}): Record<string, unknown> {
+  return {
+    body_mass_source: metricSource(input.bodyMass?.signal),
+    body_fat_source: metricSource(input.bodyFat?.signal),
+    lean_mass_source: input.leanMass ? metricSource(input.leanMass.signal) : input.hasDerivedLeanMass ? 'derived_from_weight_and_fat' : null,
+    height_source: metricSource(input.height?.signal),
+    waist_source: metricSource(input.waist?.signal),
+    bmi_source: input.directBmi ? metricSource(input.directBmi.signal) : input.hasDerivedBmi ? 'derived_from_weight_and_height' : null,
+    muscle_source: metricSource(input.directMuscle?.signal),
+    bmr_source: input.hasBmr ? 'mifflin_st_jeor' : null,
+    stale_measurements_allowed: true,
+    notes: [
+      'Height, waist and body composition are last-measurement metrics, not daily freshness metrics.',
+      'Lean mass percentage is not stored as muscle percentage unless a direct muscle metric exists.',
+    ],
+  }
+}
+
+function metricSource(signal?: HealthSnapshotSignal | null): string | null {
+  if (!signal) return null
+  const healthkitType = isRecord(signal.metadata?.healthkit) ? signal.metadata.healthkit.type : null
+  return typeof healthkitType === 'string' ? `healthkit:${healthkitType}` : signal.source
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function signalBelongsToDate(signal: HealthSnapshotSignal, snapshotDate: string): boolean {
@@ -666,6 +886,17 @@ function metricTime(signal: HealthSnapshotSignal): number {
 function normalizePercent(value: number | null): number | null {
   if (value === null) return null
   return Math.abs(value) <= 1 ? value * 100 : value
+}
+
+function physiologicalAgeReading(
+  value: number | null,
+  unit: string | null,
+  date: string,
+  source: string,
+): { value: number | null; unit: string | null; date: string; source: string } | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? { value, unit, date, source }
+    : null
 }
 
 function numberOrNull(value: unknown): number | null {

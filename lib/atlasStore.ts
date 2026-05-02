@@ -83,6 +83,7 @@ const LOCAL_PHOTO_DIR = `${FileSystem.documentDirectory ?? ''}atlas/photos/`
 const CHECKIN_SYNC_BATCH_SIZE = 100
 const BEHAVIOR_SYNC_BATCH_SIZE = 100
 const BEHAVIOR_LOG_SYNC_BATCH_SIZE = 200
+const DEFAULT_BEHAVIOR_PRIORITY_SCORE = 50
 const PASSIVE_SIGNAL_SYNC_BATCH_SIZE = 250
 const HEALTH_SNAPSHOT_SYNC_BATCH_SIZE = 90
 const HEALTH_SNAPSHOT_BACKFILL_DAYS = 60
@@ -1254,6 +1255,7 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
 
   createPassiveSignal: async (input) => {
     const clientId = newClientId()
+    const startedAt = input.startedAt ?? new Date().toISOString()
     const queued: QueuedPassiveSignal = {
       client_id: clientId,
       source: input.source,
@@ -1261,15 +1263,41 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
       value_numeric: input.valueNumeric ?? null,
       value_text: input.valueText ?? null,
       unit: input.unit ?? null,
-      started_at: input.startedAt ?? new Date().toISOString(),
+      started_at: startedAt,
       ended_at: input.endedAt ?? null,
       recorded_timezone: deviceTimezone(),
       metadata: input.metadata ?? {},
       attempts: 0,
       last_error: null,
     }
+    const currentState = get()
+    const passiveSignals = mergePassiveSignals([
+      ...currentState.passiveSignals,
+      ...currentState.queuedPassiveSignals.map(queuedToPassiveSignal),
+      queuedToPassiveSignal(queued),
+    ])
+    const checkins = mergeCheckins([
+      ...currentState.checkins,
+      ...currentState.queuedCheckins.map(queuedToCheckin),
+    ])
+    const digitalActivitySnapshots = visibleDigitalActivitySnapshots(currentState)
+    const existingHealthSnapshots = visibleHealthSnapshots(currentState)
+    const queuedSnapshots = buildHealthSnapshotInputs({
+      healthSignals: passiveSignals.filter((signal) => signal.source === 'healthkit'),
+      allSignals: passiveSignals,
+      digitalActivitySnapshots,
+      checkins,
+      dates: [localDateKey(new Date(startedAt))],
+    }).map((snapshot): QueuedHealthSnapshot => ({
+      ...preserveExistingValidSleepSnapshot(snapshot, existingHealthSnapshots),
+      attempts: 0,
+      last_error: null,
+    }))
 
-    set((state) => ({ queuedPassiveSignals: [queued, ...state.queuedPassiveSignals] }))
+    set((state) => ({
+      queuedPassiveSignals: [queued, ...state.queuedPassiveSignals],
+      queuedHealthSnapshots: mergeQueuedHealthSnapshots([...queuedSnapshots, ...state.queuedHealthSnapshots]),
+    }))
     await persist(get())
     void get().sync()
 
@@ -1322,7 +1350,7 @@ export const useAtlasStore = create<AtlasState>((set, get) => ({
       prompt_cadence_days: 1,
       auto_suppress_reason: null,
       show_in_morning_briefing: input.showInMorningBriefing ?? isPromptableLifecycle(input.lifecycleStatus ?? 'active'),
-      priority_score: Date.now(),
+      priority_score: DEFAULT_BEHAVIOR_PRIORITY_SCORE,
       relational_privacy: input.relationalPrivacy ?? false,
       activated_at: new Date().toISOString(),
       archived_at: null,
@@ -3120,9 +3148,26 @@ function behaviorForUpload(behavior: QueuedBehavior): StoreBehaviorInput {
     source_capture_ids: payload.source_capture_ids ?? [],
     activation_rules: payload.activation_rules ?? {},
     show_in_morning_briefing: payload.show_in_morning_briefing ?? true,
+    priority_score: normalizeBehaviorPriorityScore(payload.priority_score),
     relational_privacy: payload.relational_privacy ?? false,
     metadata: payload.metadata ?? {},
   }
+}
+
+function normalizeQueuedBehavior(behavior: QueuedBehavior): QueuedBehavior {
+  return {
+    ...behavior,
+    priority_score: normalizeBehaviorPriorityScore(behavior.priority_score),
+  }
+}
+
+function normalizeBehaviorPriorityScore(value: unknown): number {
+  const score = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(score) || score < 0 || score > 100) {
+    return DEFAULT_BEHAVIOR_PRIORITY_SCORE
+  }
+
+  return Math.round(score)
 }
 
 function normalizeQueuedHealthSnapshot(snapshot: QueuedHealthSnapshot): QueuedHealthSnapshot {
@@ -3347,7 +3392,9 @@ function normalizePersistedState(raw: unknown): PersistedAtlasState {
     ),
     queuedCaptures: mergeQueuedCaptures(persistedItems<QueuedCapture>(state.queuedCaptures)),
     queuedCheckins: mergeQueuedCheckins(persistedItems<QueuedCheckin>(state.queuedCheckins)),
-    queuedBehaviors: mergeQueuedBehaviors(persistedItems<QueuedBehavior>(state.queuedBehaviors)),
+    queuedBehaviors: mergeQueuedBehaviors(
+      persistedItems<QueuedBehavior>(state.queuedBehaviors).map(normalizeQueuedBehavior),
+    ),
     queuedBehaviorLogs: mergeQueuedBehaviorLogs(persistedItems<QueuedBehaviorLog>(state.queuedBehaviorLogs)),
     queuedPassiveSignals: mergeQueuedPassiveSignals(persistedItems<QueuedPassiveSignal>(state.queuedPassiveSignals)),
     queuedHealthSnapshots: mergeQueuedHealthSnapshots(

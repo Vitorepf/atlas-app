@@ -3,8 +3,16 @@ import { Frau } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 
 export type RoutingTask = 'direct' | 'plan' | 'review' | 'dev' | 'debug'
-export type RoutingDomain = 'auto' | 'vault-curador' | 'saude' | 'blackink' | 'financas'
-export type RoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'claude_codex'
+export const ROUTING_DOMAIN_OPTIONS = [
+  { key: 'auto',          label: 'Auto',    word: 'auto' },
+  { key: 'atlas',         label: 'Atlas',   word: 'atlas' },
+  { key: 'vault-curador', label: 'Vault',   word: 'vault' },
+  { key: 'saude',         label: 'Saúde',   word: 'saúde' },
+  { key: 'blackink',      label: 'BlackInk', word: 'blackink' },
+  { key: 'financas',      label: 'Finanças', word: 'finanças' },
+] as const
+export type RoutingDomain = (typeof ROUTING_DOMAIN_OPTIONS)[number]['key']
+export type RoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type RoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
 
 export interface RoutingState {
@@ -19,6 +27,18 @@ export const ROUTING_DEFAULT: RoutingState = {
   domain: 'auto',
   executor: 'auto',
   style: 'clear',
+}
+
+export function routingExecutorAllowedForTask(executor: RoutingExecutor, task: RoutingTask): boolean {
+  void executor
+  void task
+  return true
+}
+
+export function sanitizeRoutingState(state: RoutingState): RoutingState {
+  return routingExecutorAllowedForTask(state.executor, state.task)
+    ? state
+    : { ...state, executor: 'auto' }
 }
 
 interface Props {
@@ -67,17 +87,24 @@ export function StatusRouting({ state, onPress, locked = false }: Props) {
 // "codex pensa em planejar para blackink"
 // Defaults gracefully when any dimension is auto.
 export function routingPhrase(state: RoutingState): string {
-  const subject = executorVerb(state.executor)
-  const taskClause = state.task === 'direct' ? '' : ` em ${taskWord(state.task)}`
-  const domainClause = state.domain === 'auto' ? '' : ` para ${domainWord(state.domain)}`
-  const styleClause = state.style === 'clear' ? '' : ` · ${styleWord(state.style)}`
+  const safeState = sanitizeRoutingState(state)
+  const subject = executorVerb(safeState.executor)
+  const taskClause = safeState.task === 'direct' ? '' : ` em ${taskWord(safeState.task)}`
+  const domainClause = safeState.domain === 'auto' ? '' : ` para ${domainWord(safeState.domain)}`
+  const styleClause = safeState.style === 'clear' ? '' : ` · ${styleWord(safeState.style)}`
   return `${subject}${taskClause}${domainClause}${styleClause}`
+}
+
+export function isRoutingDomainKey(value: unknown): value is RoutingDomain {
+  return typeof value === 'string'
+    && ROUTING_DOMAIN_OPTIONS.some((option) => option.key === value)
 }
 
 function executorVerb(executor: RoutingExecutor): string {
   switch (executor) {
     case 'claude_cli':   return 'claude pensa'
     case 'codex_cli':    return 'codex pensa'
+    case 'gemini_cli':   return 'gemini analisa'
     case 'claude_codex': return 'conselho responde'
     default:             return 'atlas decide'
   }
@@ -92,13 +119,7 @@ function taskWord(task: RoutingTask): string {
 }
 
 function domainWord(domain: RoutingDomain): string {
-  switch (domain) {
-    case 'vault-curador': return 'vault'
-    case 'saude':         return 'saúde'
-    case 'blackink':      return 'blackink'
-    case 'financas':      return 'finanças'
-    default:              return 'auto'
-  }
+  return ROUTING_DOMAIN_OPTIONS.find((option) => option.key === domain)?.word ?? 'auto'
 }
 
 function styleWord(style: RoutingStyle): string {
