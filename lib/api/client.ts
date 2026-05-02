@@ -1543,6 +1543,77 @@ export interface AtlasEngineeringCodeIndexResponse {
   generated_at: string
 }
 
+export interface AtlasEngineeringCodeAuditModuleCounts {
+  missing_in_index: number
+  removed_from_workspace: number
+  changed: number
+}
+
+export interface AtlasEngineeringCodeAuditSymbolCounts {
+  added: number
+  removed: number
+}
+
+export interface AtlasEngineeringCodeAuditDocLinkCounts {
+  current: number
+  persisted_missing_target_status: number
+  missing_targets: number
+  stale_target_hashes: number
+}
+
+export interface AtlasEngineeringCodeAuditSummary {
+  scanned: {
+    module_count?: number
+    symbol_count?: number
+    doc_link_count?: number
+    route_count?: number
+    command_count?: number
+    migration_count?: number
+    test_count?: number
+    file_count?: number
+    [key: string]: unknown
+  }
+  persisted: AtlasEngineeringCodeSummary
+  drift: {
+    total: number
+    modules: AtlasEngineeringCodeAuditModuleCounts
+    symbols: AtlasEngineeringCodeAuditSymbolCounts
+    doc_links: AtlasEngineeringCodeAuditDocLinkCounts
+  }
+}
+
+export interface AtlasEngineeringCodeAuditResponse {
+  ok: boolean
+  dry_run: boolean
+  writes: boolean
+  status: 'fresh' | 'drift_detected' | 'empty_index' | string
+  workspace: string
+  summary: AtlasEngineeringCodeAuditSummary
+  drift: {
+    modules: {
+      counts: AtlasEngineeringCodeAuditModuleCounts
+      missing_in_index: Array<Record<string, unknown>>
+      removed_from_workspace: Array<Record<string, unknown>>
+      changed: Array<Record<string, unknown>>
+    }
+    symbols: {
+      counts: AtlasEngineeringCodeAuditSymbolCounts
+      by_type: {
+        added: Record<string, number>
+        removed: Record<string, number>
+      }
+      added: Array<Record<string, unknown>>
+      removed: Array<Record<string, unknown>>
+    }
+    doc_links: {
+      counts: AtlasEngineeringCodeAuditDocLinkCounts
+      missing_targets: Array<Record<string, unknown>>
+      stale_target_hashes: Array<Record<string, unknown>>
+    }
+  }
+  generated_at: string
+}
+
 export interface AtlasEngineeringBenchmarkTrendSeries {
   benchmark_key: string
   provider: string | null
@@ -1648,6 +1719,134 @@ export interface AtlasEngineeringEvidenceResponse {
   status_snapshot: AtlasEngineeringStatusSnapshot
   latest_run: AtlasEngineeringRunSummary | null
   evidence_history: AtlasEngineeringEvidence[]
+}
+
+export interface AtlasToolDefinitionSummary {
+  id?: string
+  slug: string
+  name: string
+  type: string
+  category: string
+  risk_level: string
+  status: string
+  cost_posture: string
+  capabilities_json?: string[]
+  capabilities?: string[]
+  risks_json?: string[]
+  risks?: string[]
+  default_failure_policy?: string
+  default_timeout_seconds?: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface AtlasToolDoctorItem {
+  slug: string
+  name: string
+  type: string
+  category: string
+  capabilities: string[]
+  risks: string[]
+  risk_level: string
+  cost_posture: string
+  status: 'ready' | 'missing' | 'disabled' | 'skipped' | 'failed' | 'timeout' | string
+  execution_layer: string
+  binary: string
+  binary_path_hash: string | null
+  version: string | null
+  install_hint: string | null
+}
+
+export interface AtlasToolsDoctorResponse {
+  status: string
+  workspace_hash: string
+  tool_count: number
+  tools: AtlasToolDoctorItem[]
+}
+
+export interface AtlasToolArtifactSummary {
+  id: string
+  tool_run_id: string
+  type: string
+  path: string
+  filename: string
+  mime_type: string | null
+  size_bytes: number
+  sha256: string
+  is_redacted: boolean
+  preview_json: Record<string, unknown>
+  created_at: string | null
+  updated_at?: string | null
+}
+
+export interface AtlasToolFindingSummary {
+  id: string
+  tool_run_id: string
+  rule_id: string | null
+  title: string
+  message: string | null
+  severity: string
+  confidence: number | null
+  file_path: string | null
+  line: number | null
+  end_line: number | null
+  fingerprint: string | null
+  blocks_resolved: boolean
+  waiver_id: string | null
+  status: string
+  metadata_json: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AtlasToolRunSummary {
+  id: string
+  tool_definition_id: string | null
+  tool_slug: string
+  surface: string
+  workspace_hash: string | null
+  workspace: string | null
+  run_context_type: string | null
+  run_context_id: string | null
+  status: string
+  required: boolean
+  failure_policy: string
+  policy_decision: string
+  command_hash: string | null
+  exit_code: number | null
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number
+  summary_json: Record<string, unknown>
+  normalized_result_json: Record<string, unknown>
+  policy_decision_json: Record<string, unknown>
+  metadata_json: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+  tool?: AtlasToolDefinitionSummary | null
+  artifacts?: AtlasToolArtifactSummary[]
+  findings?: AtlasToolFindingSummary[]
+}
+
+export interface AtlasToolsIndexResponse {
+  data: AtlasToolDefinitionSummary[]
+}
+
+export interface AtlasToolsEvidenceResponse {
+  data: AtlasToolRunSummary[]
+}
+
+export interface AtlasToolsEvidenceFilters extends Record<string, unknown> {
+  workspace?: string | null
+  tool_slug?: string
+  tool?: string
+  surface?: string
+  status?: string
+  policy_decision?: string
+  run_context_type?: string
+  run_context_id?: string
+  required?: boolean
+  limit?: number
 }
 
 export interface AtlasProjectEvent {
@@ -2490,10 +2689,70 @@ export interface AtlasAiTrace {
   session?: AtlasAiSession
   job?: AtlasAiJob
   jobs?: AtlasAiJob[]
+  router_decision?: AtlasAiRouterDecision | null
+  atlas_decision?: AtlasAiDecision | null
+  decision_receipt?: AtlasAiDecisionReceipt | null
   quality_evaluation?: AtlasAiQualityEvaluation | null
   quality_actions?: AtlasAiQualityAction[]
   created_at: string
   updated_at: string
+}
+
+export interface AtlasAiRouterDecision {
+  id: string
+  mode: string
+  selected_provider: AtlasAiProvider | string | null
+  fallback_provider: AtlasAiProvider | string | null
+  signals: Record<string, unknown>
+  reason: string
+  was_overridden: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AtlasAiDecisionReceipt {
+  decision_id?: string
+  trace_id?: string
+  schema_version?: number
+  decision_mode?: 'atlas_decide' | 'manual_override' | string
+  candidate_provider?: AtlasAiProvider | string | null
+  selected_provider?: AtlasAiProvider | string | null
+  selected_model?: string | null
+  fallback_provider?: AtlasAiProvider | string | null
+  fallback_reason?: string | null
+  operator_requested_provider?: AtlasAiProvider | 'auto' | string | null
+  requested_provider?: AtlasAiProvider | string | null
+  was_overridden?: boolean
+  reason?: string
+  signals?: Record<string, unknown>
+  candidates?: Array<Record<string, unknown>>
+  constraints?: Record<string, unknown>
+  metrics_snapshot?: Record<string, unknown>
+}
+
+export interface AtlasAiDecision {
+  id: string
+  trace_id: string | null
+  router_decision_id: string | null
+  policy_version: string
+  decision_mode: 'atlas_decide' | 'manual_override' | string
+  route_mode: string | null
+  task_type: string | null
+  risk_level: string | null
+  selected_provider: AtlasAiProvider | string | null
+  selected_model: string | null
+  fallback_provider: AtlasAiProvider | string | null
+  operator_requested_provider: AtlasAiProvider | 'auto' | string | null
+  requested_provider: AtlasAiProvider | string | null
+  was_overridden: boolean
+  confidence_score: number | null
+  signals: Record<string, unknown>
+  candidates: Array<Record<string, unknown>>
+  constraints: Record<string, unknown>
+  metrics_snapshot: Record<string, unknown>
+  reason: string
+  created_at: string | null
+  updated_at: string | null
 }
 
 export interface AtlasAiAttachment {
@@ -4806,6 +5065,18 @@ export async function calibrateEngineeringHarnessability(
   return apiPost<AtlasEngineeringHarnessabilityCalibrationResponse>('/engineering/harnessability/calibrate', input)
 }
 
+export async function fetchAtlasToolsDoctor(
+  params: { workspace?: string | null } = {},
+): Promise<AtlasToolsDoctorResponse> {
+  return apiGet<AtlasToolsDoctorResponse>(`/tools/doctor${queryString(params)}`)
+}
+
+export async function listAtlasToolEvidence(
+  params: AtlasToolsEvidenceFilters = {},
+): Promise<AtlasToolsEvidenceResponse> {
+  return apiGet<AtlasToolsEvidenceResponse>(`/tools/evidence${queryString(params as Record<string, unknown>)}`)
+}
+
 export async function fetchEngineeringKnowledge(
   params: { category?: string; status?: string; q?: string; include_archived?: boolean; limit?: number } = {},
 ): Promise<AtlasEngineeringKnowledgeResponse> {
@@ -4834,6 +5105,12 @@ export async function indexEngineeringCodeKnowledge(
   input: { workspace?: string | null; dry_run?: boolean; prune?: boolean } = {},
 ): Promise<AtlasEngineeringCodeIndexResponse> {
   return apiPost<AtlasEngineeringCodeIndexResponse>('/engineering/knowledge/code/index', input)
+}
+
+export async function fetchEngineeringCodeAudit(
+  params: { workspace?: string | null; limit?: number } = {},
+): Promise<AtlasEngineeringCodeAuditResponse> {
+  return apiGet<AtlasEngineeringCodeAuditResponse>(`/engineering/knowledge/code/audit${queryString(params)}`)
 }
 
 export async function fetchEngineeringCodeModules(
@@ -5109,7 +5386,7 @@ export interface CreateAiInteractionInput {
   session_id?: string
   new_thread?: boolean
   agent_slug?: string
-  provider?: AtlasAiProvider
+  provider?: AtlasAiProvider | string
   kind?: AtlasAiJob['kind']
   source_type?: string
   source_id?: string
@@ -5361,6 +5638,28 @@ export async function listAiInteractions(params: {
   limit?: number
 } = {}): Promise<AiInteractionsResponse> {
   return apiGet<AiInteractionsResponse>(`/ai/interactions${queryString(params)}`)
+}
+
+export async function listAiDecisions(params: {
+  trace_id?: string
+  provider?: AtlasAiProvider | string
+  decision_mode?: 'atlas_decide' | 'manual_override' | string
+  task_type?: string
+  limit?: number
+} = {}): Promise<{ decisions: AtlasAiDecision[] }> {
+  return apiGet<{ decisions: AtlasAiDecision[] }>(`/ai/decisions${queryString(params)}`)
+}
+
+export async function previewAiDecision(input: {
+  input_text: string
+  provider?: AtlasAiProvider | 'auto' | string | null
+  model?: string | null
+  source_type?: string | null
+  agent_slug?: string | null
+  mode?: string | null
+  payload?: Record<string, unknown>
+}): Promise<{ decision: AtlasAiDecisionReceipt }> {
+  return apiPost<{ decision: AtlasAiDecisionReceipt }>('/ai/decisions/preview', input)
 }
 
 export async function searchAiAttachments(input: {

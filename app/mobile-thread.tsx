@@ -6,6 +6,7 @@ import { Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { discussMobileInboxItem } from '../lib/api/client'
+import { resolveMobileThreadBridgeTarget } from '../lib/mobileThreadBridge'
 import { useOverlays } from '../lib/overlays'
 
 export default function MobileThreadBridgeScreen() {
@@ -27,19 +28,20 @@ export default function MobileThreadBridgeScreen() {
     let timer: ReturnType<typeof setTimeout> | null = null
 
     async function openThread() {
-      let nextThreadId = threadId
+      let nextThreadId: string | null = null
 
-      if (!nextThreadId && inboxId && action === 'discuss') {
-        try {
-          const response = await discussMobileInboxItem(inboxId)
-          nextThreadId = threadIdFromActionResult(response.result)
-        } catch (error) {
-          if (!cancelled) {
-            showToast(error instanceof Error ? error.message : 'Falha ao abrir Atlas operacional')
+      try {
+        nextThreadId = await resolveMobileThreadBridgeTarget({ threadId, inboxId, action }, discussMobileInboxItem)
+      } catch (error) {
+        if (!cancelled) {
+          showToast(error instanceof Error ? error.message : 'Falha ao abrir Atlas operacional')
+          if (inboxId) {
             router.replace({ pathname: '/mobile-inbox-item', params: { inboxId } })
+          } else {
+            router.replace('/inbox')
           }
-          return
         }
+        return
       }
 
       if (cancelled) return
@@ -68,19 +70,6 @@ export default function MobileThreadBridgeScreen() {
       </View>
     </Screen>
   )
-}
-
-function threadIdFromActionResult(result: Record<string, unknown>): string | null {
-  const direct = result.thread_id
-  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim()
-
-  const nested = result.thread
-  if (nested && typeof nested === 'object') {
-    const id = (nested as Record<string, unknown>).id
-    if (typeof id === 'string' && id.trim().length > 0) return id.trim()
-  }
-
-  return null
 }
 
 const styles = StyleSheet.create({

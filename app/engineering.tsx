@@ -11,7 +11,11 @@ import {
   calibrateEngineeringBenchmarkSuite,
   calibrateEngineeringHarnessability,
   ensureDefaultEngineeringBenchmarkSuite,
+  fetchAtlasToolsDoctor,
+  fetchEngineeringCodeAudit,
+  fetchEngineeringCodeModule,
   fetchEngineeringCodeModules,
+  fetchEngineeringCodeSymbols,
   fetchEngineeringBenchmarkRun,
   fetchEngineeringBenchmarkSuite,
   fetchEngineeringBenchmarkTrends,
@@ -20,6 +24,7 @@ import {
   fetchEngineeringKnowledgeItem,
   fetchEngineeringRunPatchDiff,
   fetchEngineeringTestRunArtifactContent,
+  listAtlasToolEvidence,
   listEngineeringTestRunArtifacts,
   listEngineeringBenchmarkSuites,
   indexEngineeringCodeKnowledge,
@@ -34,15 +39,32 @@ import {
   type AtlasEngineeringBenchmarkSuiteResponse,
   type AtlasEngineeringBenchmarkSuiteSummary,
   type AtlasEngineeringBenchmarkTrendsResponse,
+  type AtlasEngineeringCodeAuditResponse,
+  type AtlasEngineeringCodeModuleResponse,
   type AtlasEngineeringCodeModulesResponse,
+  type AtlasEngineeringCodeSymbolsResponse,
   type AtlasEngineeringKnowledgeItemDetail,
   type AtlasEngineeringKnowledgeResponse,
   type AtlasEngineeringTestArtifactContentResponse,
   type AtlasEngineeringTestArtifactFile,
   type AtlasEngineeringRunSummary,
   type AtlasEngineeringTestRunSummary,
+  type AtlasToolsDoctorResponse,
+  type AtlasToolsEvidenceResponse,
 } from '../lib/api/client'
 import {
+  buildEngineeringToolRuntimeSummary,
+  toolRuntimeEvidenceLine,
+  toolRuntimeRiskLine,
+  type EngineeringToolRuntimeSummary,
+} from '../lib/engineeringToolRuntime'
+import {
+  engineeringCodeAuditDriftLine,
+  engineeringCodeAuditStatusLabel,
+  engineeringCodeModuleCoverageLine,
+  engineeringCodeModuleMetaLine,
+  engineeringCodeSymbolMetaLine,
+  engineeringCodeValuesLine,
   engineeringKnowledgeBodyPreview,
   engineeringKnowledgeMetaLine,
   engineeringKnowledgeValuesLine,
@@ -78,10 +100,21 @@ export default function EngineeringScreen() {
   const [calibratingHarness, setCalibratingHarness] = useState(false)
   const [knowledge, setKnowledge] = useState<AtlasEngineeringKnowledgeResponse | null>(null)
   const [codeKnowledge, setCodeKnowledge] = useState<AtlasEngineeringCodeModulesResponse | null>(null)
+  const [codeSymbols, setCodeSymbols] = useState<AtlasEngineeringCodeSymbolsResponse | null>(null)
+  const [codeAudit, setCodeAudit] = useState<AtlasEngineeringCodeAuditResponse | null>(null)
+  const [selectedCodeModule, setSelectedCodeModule] = useState<AtlasEngineeringCodeModuleResponse | null>(null)
   const [selectedKnowledgeItem, setSelectedKnowledgeItem] = useState<AtlasEngineeringKnowledgeItemDetail | null>(null)
   const [knowledgeDetailLoading, setKnowledgeDetailLoading] = useState(false)
+  const [codeDetailLoading, setCodeDetailLoading] = useState(false)
   const [syncingKnowledge, setSyncingKnowledge] = useState(false)
   const [indexingCodeKnowledge, setIndexingCodeKnowledge] = useState(false)
+  const [auditingCodeKnowledge, setAuditingCodeKnowledge] = useState(false)
+  const [toolRuntime, setToolRuntime] = useState<AtlasToolsDoctorResponse | null>(null)
+  const [toolEvidence, setToolEvidence] = useState<AtlasToolsEvidenceResponse | null>(null)
+  const [toolRuntimeLoading, setToolRuntimeLoading] = useState(false)
+  const [codeLayerFilter, setCodeLayerFilter] = useState('')
+  const [codeDocsStatusFilter, setCodeDocsStatusFilter] = useState('')
+  const [codeSymbolTypeFilter, setCodeSymbolTypeFilter] = useState('')
 
   const selectedSuiteSummary = useMemo(
     () => suites.find((suite) => suite.slug === selectedSuite || suite.id === selectedSuite) ?? null,
@@ -99,6 +132,11 @@ export default function EngineeringScreen() {
   const selectedEngineeringRun = useMemo(
     () => engineeringRuns.find((run) => run.id === selectedEngineeringRunId) ?? engineeringRuns[0] ?? null,
     [engineeringRuns, selectedEngineeringRunId],
+  )
+  const selectedCodeModuleSlug = selectedCodeModule?.module.slug ?? null
+  const toolRuntimeSummary = useMemo(
+    () => buildEngineeringToolRuntimeSummary(toolRuntime?.tools ?? [], toolEvidence?.data ?? []),
+    [toolEvidence, toolRuntime],
   )
 
   const loadSuites = useCallback(async () => {
@@ -157,6 +195,25 @@ export default function EngineeringScreen() {
     }
   }, [])
 
+  const loadToolRuntime = useCallback(async (workspaceInput = '') => {
+    setToolRuntimeLoading(true)
+    try {
+      const resolvedWorkspace = workspaceInput.trim()
+      const [doctorResponse, evidenceResponse] = await Promise.all([
+        fetchAtlasToolsDoctor({ workspace: resolvedWorkspace || null }),
+        listAtlasToolEvidence({ workspace: resolvedWorkspace || null, limit: 8 }),
+      ])
+      setToolRuntime(doctorResponse)
+      setToolEvidence(evidenceResponse)
+    } catch {
+      setToolRuntime(null)
+      setToolEvidence(null)
+      showToast('Não consegui carregar Tool Runtime')
+    } finally {
+      setToolRuntimeLoading(false)
+    }
+  }, [showToast])
+
   const loadKnowledge = useCallback(async () => {
     try {
       const response = await fetchEngineeringKnowledge({ limit: 8 })
@@ -168,12 +225,50 @@ export default function EngineeringScreen() {
 
   const loadCodeKnowledge = useCallback(async () => {
     try {
-      const response = await fetchEngineeringCodeModules({ limit: 8 })
+      const response = await fetchEngineeringCodeModules({
+        limit: 12,
+        layer: codeLayerFilter || undefined,
+        docs_status: codeDocsStatusFilter || undefined,
+      })
       setCodeKnowledge(response)
     } catch {
       setCodeKnowledge(null)
     }
-  }, [])
+  }, [codeDocsStatusFilter, codeLayerFilter])
+
+  const loadCodeSymbols = useCallback(async () => {
+    try {
+      const response = await fetchEngineeringCodeSymbols({
+        limit: 16,
+        module: selectedCodeModuleSlug ?? undefined,
+        symbol_type: codeSymbolTypeFilter || undefined,
+      })
+      setCodeSymbols(response)
+    } catch {
+      setCodeSymbols(null)
+    }
+  }, [codeSymbolTypeFilter, selectedCodeModuleSlug])
+
+  const auditCodeKnowledge = useCallback(async (showResultToast = true) => {
+    if (auditingCodeKnowledge) return null
+
+    setAuditingCodeKnowledge(true)
+    try {
+      const response = await fetchEngineeringCodeAudit({ limit: 12 })
+      setCodeAudit(response)
+      if (showResultToast) {
+        showToast(response.status === 'fresh' ? 'Code intelligence fresh' : 'Drift detectado no código')
+      }
+
+      return response
+    } catch {
+      if (showResultToast) showToast('Não consegui auditar code intelligence')
+
+      return null
+    } finally {
+      setAuditingCodeKnowledge(false)
+    }
+  }, [auditingCodeKnowledge, showToast])
 
   const openKnowledgeItem = useCallback(async (item: string) => {
     setKnowledgeDetailLoading(true)
@@ -187,12 +282,40 @@ export default function EngineeringScreen() {
     }
   }, [showToast])
 
+  const openCodeModule = useCallback(async (module: string) => {
+    setCodeDetailLoading(true)
+    try {
+      const [detailResponse, symbolsResponse] = await Promise.all([
+        fetchEngineeringCodeModule(module),
+        fetchEngineeringCodeSymbols({
+          limit: 16,
+          module,
+          symbol_type: codeSymbolTypeFilter || undefined,
+        }),
+      ])
+      setSelectedCodeModule(detailResponse)
+      setCodeSymbols(symbolsResponse)
+    } catch {
+      showToast('Não consegui abrir módulo de código')
+    } finally {
+      setCodeDetailLoading(false)
+    }
+  }, [codeSymbolTypeFilter, showToast])
+
   useEffect(() => {
     void loadSuites()
     void loadHarnessCalibration()
+    void loadToolRuntime()
     void loadKnowledge()
+  }, [loadSuites, loadHarnessCalibration, loadKnowledge, loadToolRuntime])
+
+  useEffect(() => {
     void loadCodeKnowledge()
-  }, [loadSuites, loadHarnessCalibration, loadKnowledge, loadCodeKnowledge])
+  }, [loadCodeKnowledge])
+
+  useEffect(() => {
+    void loadCodeSymbols()
+  }, [loadCodeSymbols])
 
   useEffect(() => {
     void loadSuite(selectedSuite)
@@ -211,8 +334,10 @@ export default function EngineeringScreen() {
       loadSuites(),
       loadSuite(selectedSuite),
       loadHarnessCalibration(),
+      loadToolRuntime(workspace),
       loadKnowledge(),
       loadCodeKnowledge(),
+      loadCodeSymbols(),
     ])
   }
 
@@ -330,7 +455,15 @@ export default function EngineeringScreen() {
     setIndexingCodeKnowledge(true)
     try {
       const response = await indexEngineeringCodeKnowledge({ prune: true })
-      await loadCodeKnowledge()
+      await Promise.all([
+        loadCodeKnowledge(),
+        loadCodeSymbols(),
+      ])
+      if (selectedCodeModuleSlug) {
+        const detailResponse = await fetchEngineeringCodeModule(selectedCodeModuleSlug)
+        setSelectedCodeModule(detailResponse)
+      }
+      await auditCodeKnowledge(false)
       showToast(`${response.summary.module_count} módulos indexados`)
     } catch {
       showToast('Não consegui indexar code intelligence')
@@ -369,14 +502,36 @@ export default function EngineeringScreen() {
       <KnowledgeBaseCard
         knowledge={knowledge}
         codeKnowledge={codeKnowledge}
+        codeSymbols={codeSymbols}
+        codeAudit={codeAudit}
         selectedItem={selectedKnowledgeItem}
+        selectedCodeModule={selectedCodeModule}
         detailLoading={knowledgeDetailLoading}
+        codeDetailLoading={codeDetailLoading}
         syncing={syncingKnowledge}
         indexingCode={indexingCodeKnowledge}
+        auditingCode={auditingCodeKnowledge}
+        codeLayerFilter={codeLayerFilter}
+        codeDocsStatusFilter={codeDocsStatusFilter}
+        codeSymbolTypeFilter={codeSymbolTypeFilter}
         onOpenItem={(item) => { void openKnowledgeItem(item) }}
         onCloseItem={() => setSelectedKnowledgeItem(null)}
+        onOpenCodeModule={(module) => { void openCodeModule(module) }}
+        onCloseCodeModule={() => setSelectedCodeModule(null)}
+        onChangeCodeLayer={setCodeLayerFilter}
+        onChangeCodeDocsStatus={setCodeDocsStatusFilter}
+        onChangeCodeSymbolType={setCodeSymbolTypeFilter}
         onSync={() => { void syncKnowledgeBase() }}
         onIndexCode={() => { void indexCodeKnowledge() }}
+        onAuditCode={() => { void auditCodeKnowledge() }}
+      />
+
+      <ToolRuntimeCard
+        runtime={toolRuntime}
+        evidence={toolEvidence}
+        summary={toolRuntimeSummary}
+        loading={toolRuntimeLoading}
+        onRefresh={() => { void loadToolRuntime(workspace) }}
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suiteRail}>
@@ -737,34 +892,74 @@ function CalibrationCard({ calibration }: { calibration: Record<string, unknown>
 function KnowledgeBaseCard({
   knowledge,
   codeKnowledge,
+  codeSymbols,
+  codeAudit,
   selectedItem,
+  selectedCodeModule,
   detailLoading,
+  codeDetailLoading,
   syncing,
   indexingCode,
+  auditingCode,
+  codeLayerFilter,
+  codeDocsStatusFilter,
+  codeSymbolTypeFilter,
   onOpenItem,
   onCloseItem,
+  onOpenCodeModule,
+  onCloseCodeModule,
+  onChangeCodeLayer,
+  onChangeCodeDocsStatus,
+  onChangeCodeSymbolType,
   onSync,
   onIndexCode,
+  onAuditCode,
 }: {
   knowledge: AtlasEngineeringKnowledgeResponse | null
   codeKnowledge: AtlasEngineeringCodeModulesResponse | null
+  codeSymbols: AtlasEngineeringCodeSymbolsResponse | null
+  codeAudit: AtlasEngineeringCodeAuditResponse | null
   selectedItem: AtlasEngineeringKnowledgeItemDetail | null
+  selectedCodeModule: AtlasEngineeringCodeModuleResponse | null
   detailLoading: boolean
+  codeDetailLoading: boolean
   syncing: boolean
   indexingCode: boolean
+  auditingCode: boolean
+  codeLayerFilter: string
+  codeDocsStatusFilter: string
+  codeSymbolTypeFilter: string
   onOpenItem: (item: string) => void
   onCloseItem: () => void
+  onOpenCodeModule: (module: string) => void
+  onCloseCodeModule: () => void
+  onChangeCodeLayer: (value: string) => void
+  onChangeCodeDocsStatus: (value: string) => void
+  onChangeCodeSymbolType: (value: string) => void
   onSync: () => void
   onIndexCode: () => void
+  onAuditCode: () => void
 }) {
   const c = usePalette()
   const summary = knowledge?.summary
   const codeSummary = codeKnowledge?.summary
   const items = knowledge?.items ?? []
   const modules = codeKnowledge?.modules ?? []
+  const symbols = codeSymbols?.symbols ?? []
   const categories = summary?.categories ?? {}
   const status = summary?.status ?? 'unknown'
   const codeStatus = codeSummary?.status ?? 'unknown'
+  const auditStatus = codeAudit?.status ?? 'not_audited'
+  const auditDrift = codeAudit?.summary.drift
+  const auditModuleDrift = auditDrift
+    ? auditDrift.modules.missing_in_index + auditDrift.modules.removed_from_workspace + auditDrift.modules.changed
+    : null
+  const auditSymbolDrift = auditDrift
+    ? auditDrift.symbols.added + auditDrift.symbols.removed
+    : null
+  const auditDocLinkDrift = auditDrift
+    ? auditDrift.doc_links.missing_targets + auditDrift.doc_links.stale_target_hashes
+    : null
 
   return (
     <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
@@ -825,6 +1020,92 @@ function KnowledgeBaseCard({
         <Metric label="rotas" value={String(codeSummary?.route_count ?? 0)} />
         <Metric label="doc links" value={String(codeSummary?.doc_link_count ?? 0)} tone={(codeSummary?.doc_link_count ?? 0) > 0 ? 'passed' : 'warning'} />
       </View>
+      <View style={[styles.gateBox, { borderColor: statusColor(auditStatus, c), backgroundColor: c.bg }]}>
+        <View style={styles.panelTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Code audit</Label>
+            <Sans weight="sb" size={13.5} lineHeight={19} color={c.ink} numberOfLines={1}>
+              {engineeringCodeAuditStatusLabel(codeAudit)}
+            </Sans>
+            <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+              {engineeringCodeAuditDriftLine(codeAudit)}
+            </Mono>
+          </View>
+          <View style={{ alignItems: 'flex-end', gap: 8 }}>
+            <StatusPill status={auditStatus} compact />
+            <Pressable
+              disabled={auditingCode}
+              onPress={onAuditCode}
+              style={({ pressed }) => [
+                styles.inlineButton,
+                {
+                  borderColor: c.border,
+                  backgroundColor: auditingCode ? c.surface : c.premium,
+                  opacity: pressed && !auditingCode ? 0.82 : 1,
+                },
+              ]}
+            >
+              <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+                {auditingCode ? 'Auditando' : 'Auditar'}
+              </Sans>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.metricsCompact}>
+          <Metric label="drift" value={String(auditDrift?.total ?? '-')} tone={auditStatus} />
+          <Metric label="módulos" value={auditModuleDrift == null ? '-' : String(auditModuleDrift)} tone={auditModuleDrift ? 'warning' : auditStatus} />
+          <Metric label="símbolos" value={auditSymbolDrift == null ? '-' : String(auditSymbolDrift)} tone={auditSymbolDrift ? 'warning' : auditStatus} />
+          <Metric label="doc links" value={auditDocLinkDrift == null ? '-' : String(auditDocLinkDrift)} tone={auditDocLinkDrift ? 'warning' : auditStatus} />
+        </View>
+        {codeAudit ? (
+          <Mono size={9.5} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+            {dateLabel(codeAudit.generated_at)} · {codeAudit.workspace}
+          </Mono>
+        ) : null}
+      </View>
+      <View style={styles.filterBlock}>
+        <FilterChips
+          label="Layer"
+          value={codeLayerFilter}
+          options={[
+            { value: '', label: 'todos' },
+            { value: 'service', label: 'service' },
+            { value: 'api', label: 'api' },
+            { value: 'model', label: 'model' },
+            { value: 'cli', label: 'cli' },
+            { value: 'database', label: 'db' },
+            { value: 'test', label: 'test' },
+            { value: 'documentation', label: 'docs' },
+          ]}
+          onChange={onChangeCodeLayer}
+        />
+        <FilterChips
+          label="Docs"
+          value={codeDocsStatusFilter}
+          options={[
+            { value: '', label: 'todos' },
+            { value: 'documented', label: 'documented' },
+            { value: 'module_documented', label: 'module' },
+            { value: 'undocumented', label: 'sem doc' },
+          ]}
+          onChange={onChangeCodeDocsStatus}
+        />
+        <FilterChips
+          label="Símbolos"
+          value={codeSymbolTypeFilter}
+          options={[
+            { value: '', label: 'todos' },
+            { value: 'route', label: 'route' },
+            { value: 'cli_command', label: 'cli' },
+            { value: 'class', label: 'class' },
+            { value: 'method', label: 'method' },
+            { value: 'migration_table', label: 'migration' },
+            { value: 'test_method', label: 'test' },
+            { value: 'doc_heading', label: 'doc' },
+          ]}
+          onChange={onChangeCodeSymbolType}
+        />
+      </View>
       {items.length ? (
         <View style={styles.auditSection}>
           {items.slice(0, 4).map((item) => (
@@ -855,17 +1136,60 @@ function KnowledgeBaseCard({
       ) : null}
       {modules.length ? (
         <View style={styles.auditSection}>
-          {modules.slice(0, 5).map((module) => (
-            <View key={module.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+          <View style={styles.sectionHead}>
+            <Label>Code modules</Label>
+            <Mono size={10.5} lineHeight={14} color={c.ink2}>
+              {modules.length}
+            </Mono>
+          </View>
+          {modules.slice(0, 8).map((module) => (
+            <Pressable
+              key={module.id}
+              onPress={() => onOpenCodeModule(module.slug)}
+              style={({ pressed }) => [
+                styles.auditRow,
+                {
+                  borderColor: selectedCodeModule?.module.id === module.id ? c.bronze : c.border,
+                  backgroundColor: selectedCodeModule?.module.id === module.id ? c.premium : c.bg,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Sans weight="med" size={12.5} lineHeight={18} color={c.ink} numberOfLines={1}>
                   {module.name}
                 </Sans>
                 <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
-                  {module.slug} · {module.file_count} files · {module.symbol_count} símbolos
+                  {engineeringCodeModuleMetaLine(module)}
+                </Mono>
+                <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+                  {engineeringCodeModuleCoverageLine(module)}
                 </Mono>
               </View>
               <StatusPill status={module.docs_status} compact />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {symbols.length ? (
+        <View style={styles.auditSection}>
+          <View style={styles.sectionHead}>
+            <Label>Símbolos</Label>
+            <Mono size={10.5} lineHeight={14} color={c.ink2}>
+              {symbols.length}
+            </Mono>
+          </View>
+          {symbols.slice(0, 8).map((symbol) => (
+            <View key={symbol.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                  {symbol.symbol_name}
+                </Sans>
+                <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                  {engineeringCodeSymbolMetaLine(symbol)}
+                </Mono>
+              </View>
+              <StatusPill status={symbol.docs_status} compact />
             </View>
           ))}
         </View>
@@ -874,6 +1198,13 @@ function KnowledgeBaseCard({
         <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
           <Sans weight="med" size={12.5} lineHeight={18} color={c.ink}>
             Carregando detalhe
+          </Sans>
+        </View>
+      ) : null}
+      {codeDetailLoading ? (
+        <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+          <Sans weight="med" size={12.5} lineHeight={18} color={c.ink}>
+            Carregando módulo
           </Sans>
         </View>
       ) : null}
@@ -920,8 +1251,216 @@ function KnowledgeBaseCard({
           </View>
         </View>
       ) : null}
+      {selectedCodeModule ? (
+        <View style={[styles.monoBox, { borderColor: c.border, backgroundColor: c.bg, marginTop: 12 }]}>
+          <View style={styles.panelTop}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Label>Módulo</Label>
+              <Sans weight="sb" size={14} lineHeight={20} color={c.ink} numberOfLines={2}>
+                {selectedCodeModule.module.name}
+              </Sans>
+              <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                {engineeringCodeModuleMetaLine(selectedCodeModule.module)}
+              </Mono>
+            </View>
+            <Pressable
+              onPress={onCloseCodeModule}
+              style={({ pressed }) => [
+                styles.inlineButton,
+                {
+                  borderColor: c.border,
+                  backgroundColor: c.surface,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+                Fechar
+              </Sans>
+            </Pressable>
+          </View>
+          <View style={styles.metricsCompact}>
+            <Metric label="files" value={String(selectedCodeModule.module.file_count)} />
+            <Metric label="rotas" value={String(selectedCodeModule.module.route_count)} />
+            <Metric label="cmds" value={String(selectedCodeModule.module.command_count)} />
+            <Metric label="tests" value={String(selectedCodeModule.module.test_count)} />
+          </View>
+          <KnowledgeDetailLine label="Coverage" value={engineeringCodeModuleCoverageLine(selectedCodeModule.module)} />
+          <KnowledgeDetailLine label="Tags" value={engineeringCodeValuesLine(selectedCodeModule.module.tags, 'sem tags')} />
+          <KnowledgeDetailLine label="Docs" value={engineeringCodeValuesLine(selectedCodeModule.module.related_docs, 'sem docs relacionados')} />
+          <KnowledgeDetailLine label="Testes" value={engineeringCodeValuesLine(selectedCodeModule.module.related_tests, 'sem testes relacionados')} />
+          {selectedCodeModule.doc_links.length ? (
+            <View style={styles.auditSection}>
+              <View style={styles.sectionHead}>
+                <Label>Doc links</Label>
+                <Mono size={10.5} lineHeight={14} color={c.ink2}>
+                  {selectedCodeModule.doc_links.length}
+                </Mono>
+              </View>
+              {selectedCodeModule.doc_links.slice(0, 5).map((link) => (
+                <View key={link.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.surface }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink} numberOfLines={1}>
+                      {link.canonical_path}
+                    </Mono>
+                    <Mono size={9.5} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+                      {link.link_type} · {link.target_path ?? '-'}
+                    </Mono>
+                  </View>
+                  <StatusPill status={link.status} compact />
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {selectedCodeModule.symbols.length ? (
+            <View style={styles.auditSection}>
+              <View style={styles.sectionHead}>
+                <Label>Símbolos do módulo</Label>
+                <Mono size={10.5} lineHeight={14} color={c.ink2}>
+                  {selectedCodeModule.symbols.length}
+                </Mono>
+              </View>
+              {selectedCodeModule.symbols.slice(0, 6).map((symbol) => (
+                <View key={symbol.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.surface }]}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                      {symbol.symbol_name}
+                    </Sans>
+                    <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                      {engineeringCodeSymbolMetaLine(symbol)}
+                    </Mono>
+                  </View>
+                  <StatusPill status={symbol.docs_status} compact />
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
+}
+
+function ToolRuntimeCard({
+  runtime,
+  evidence,
+  summary,
+  loading,
+  onRefresh,
+}: {
+  runtime: AtlasToolsDoctorResponse | null
+  evidence: AtlasToolsEvidenceResponse | null
+  summary: EngineeringToolRuntimeSummary
+  loading: boolean
+  onRefresh: () => void
+}) {
+  const c = usePalette()
+  const tools = [...(runtime?.tools ?? [])].sort((left, right) => (
+    statusWeight(left.status) - statusWeight(right.status)
+  ))
+  const runs = evidence?.data ?? []
+
+  return (
+    <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
+      <View style={styles.panelTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Super Tool Runtime</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink}>
+            {summary.readyCount}/{runtime?.tool_count ?? 0} ferramentas prontas
+          </Sans>
+          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+            {summary.lastEvidenceAt ? `última evidência ${dateLabel(summary.lastEvidenceAt)}` : 'sem evidência recente'}
+          </Mono>
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 8 }}>
+          <StatusPill status={summary.status} />
+          <Pressable
+            disabled={loading}
+            onPress={onRefresh}
+            style={({ pressed }) => [
+              styles.inlineButton,
+              {
+                borderColor: c.border,
+                backgroundColor: loading ? c.bg : c.surface,
+                opacity: pressed && !loading ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+              {loading ? 'Atualizando' : 'Atualizar'}
+            </Sans>
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="ready" value={String(summary.readyCount)} tone="ready" />
+        <Metric label="missing" value={String(summary.missingCount)} tone={summary.missingCount > 0 ? 'warning' : 'ready'} />
+        <Metric label="evidências" value={String(summary.evidenceCount)} tone={summary.evidenceCount > 0 ? summary.status : 'unknown'} />
+        <Metric label="falhas" value={String(summary.failedEvidenceCount + summary.blockingFindingCount)} tone={summary.failedEvidenceCount + summary.blockingFindingCount > 0 ? 'failed' : 'ready'} />
+      </View>
+      <View style={styles.auditSection}>
+        <View style={styles.sectionHead}>
+          <Label>Registry</Label>
+          <Mono size={10.5} lineHeight={14} color={c.ink2}>
+            {runtime?.status ?? 'unknown'}
+          </Mono>
+        </View>
+        {tools.slice(0, 8).map((tool) => (
+          <View key={tool.slug} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                {tool.name}
+              </Sans>
+              <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                {tool.binary} · {toolRuntimeRiskLine(tool)}
+              </Mono>
+            </View>
+            <StatusPill status={tool.status} compact />
+          </View>
+        ))}
+        {tools.length === 0 ? (
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            Registry ainda não carregado.
+          </Sans>
+        ) : null}
+      </View>
+      <View style={styles.auditSection}>
+        <View style={styles.sectionHead}>
+          <Label>Evidências recentes</Label>
+          <Mono size={10.5} lineHeight={14} color={c.ink2}>
+            {runs.length}
+          </Mono>
+        </View>
+        {runs.slice(0, 5).map((run) => (
+          <View key={run.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                {run.tool_slug}
+              </Sans>
+              <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                {toolRuntimeEvidenceLine(run)}
+              </Mono>
+            </View>
+            <StatusPill status={run.status} compact />
+          </View>
+        ))}
+        {runs.length === 0 ? (
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            Nenhuma execução registrada no Evidence Store.
+          </Sans>
+        ) : null}
+      </View>
+    </View>
+  )
+}
+
+function statusWeight(status: string): number {
+  if (status === 'ready') return 0
+  if (status === 'missing') return 1
+  if (['failed', 'timeout'].includes(status)) return 2
+  if (['disabled', 'skipped'].includes(status)) return 3
+
+  return 4
 }
 
 function KnowledgeDetailLine({ label, value }: { label: string; value: string }) {
@@ -933,6 +1472,50 @@ function KnowledgeDetailLine({ label, value }: { label: string; value: string })
       <Sans size={12.5} lineHeight={18} color={c.ink}>
         {value}
       </Sans>
+    </View>
+  )
+}
+
+function FilterChips({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+}) {
+  const c = usePalette()
+
+  return (
+    <View style={styles.filterGroup}>
+      <Label>{label}</Label>
+      <View style={styles.chipWrap}>
+        {options.map((option) => {
+          const active = option.value === value
+
+          return (
+            <Pressable
+              key={option.value || 'all'}
+              onPress={() => onChange(option.value)}
+              style={({ pressed }) => [
+                styles.filterChip,
+                {
+                  borderColor: active ? c.bronze : c.border,
+                  backgroundColor: active ? c.premium : c.bg,
+                  opacity: pressed ? 0.84 : 1,
+                },
+              ]}
+            >
+              <Mono size={10} lineHeight={13} letterSpacing={0.1} color={active ? c.ink : c.ink2}>
+                {option.label}
+              </Mono>
+            </Pressable>
+          )
+        })}
+      </View>
     </View>
   )
 }
@@ -1914,6 +2497,14 @@ function statusLabel(status: string): string {
       return 'aviso'
     case 'skipped':
       return 'pulado'
+    case 'missing':
+      return 'faltando'
+    case 'allowed':
+      return 'permitido'
+    case 'denied':
+      return 'negado'
+    case 'requires_approval':
+      return 'aprovar'
     case 'release_ready':
       return 'pronto'
     case 'needs_review':
@@ -1923,6 +2514,23 @@ function statusLabel(status: string): string {
     case 'healthy':
     case 'ready':
       return 'saudável'
+    case 'documented':
+      return 'doc'
+    case 'module_documented':
+      return 'módulo'
+    case 'undocumented':
+      return 'sem doc'
+    case 'current':
+    case 'fresh':
+      return 'atual'
+    case 'drift_detected':
+      return 'drift'
+    case 'empty_index':
+      return 'vazio'
+    case 'not_audited':
+      return 'auditar'
+    case 'missing_target':
+      return 'faltando'
     case 'accepted':
       return 'aceito'
     case 'degraded':
@@ -1973,10 +2581,10 @@ function statusLabel(status: string): string {
 function statusColor(status: string, c: ReturnType<typeof usePalette>): string {
   const normalized = status.toLowerCase()
   if (['passed', 'resolved', 'ok', 'active', 'ready'].includes(normalized)) return c.moss
-  if (['improved', 'melhor', 'release_ready', 'healthy', 'accepted', 'accept', 'best_repair_base'].includes(normalized)) return c.moss
-  if (['failed', 'unresolved', 'unsafe', 'falha', 'regressed', 'blocked', 'degraded', 'incident', 'rolled_back', 'cancelled', 'cancel', 'reject'].includes(normalized)) return c.recRed
+  if (['improved', 'melhor', 'release_ready', 'healthy', 'documented', 'current', 'fresh', 'accepted', 'accept', 'best_repair_base', 'allowed'].includes(normalized)) return c.moss
+  if (['failed', 'unresolved', 'unsafe', 'falha', 'regressed', 'blocked', 'degraded', 'incident', 'rolled_back', 'cancelled', 'cancel', 'reject', 'missing_target', 'missing', 'denied'].includes(normalized)) return c.recRed
   if (['avoid_replay_base'].includes(normalized)) return c.recRed
-  if (['partial', 'reviewing', 'running', 'first_baseline', 'stable', 'warning', 'needs_review', 'monitoring', 'pending', 'watch', 'conservative', 'adjusted', 'needs_human', 'ranked', 'single_attempt', 'review_before_replay'].includes(normalized)) return c.bronze
+  if (['partial', 'reviewing', 'running', 'first_baseline', 'stable', 'warning', 'needs_review', 'monitoring', 'pending', 'watch', 'conservative', 'adjusted', 'needs_human', 'ranked', 'single_attempt', 'review_before_replay', 'module_documented', 'undocumented', 'drift_detected', 'empty_index', 'requires_approval'].includes(normalized)) return c.bronze
   return c.ink2
 }
 
@@ -2248,6 +2856,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+  },
+  filterBlock: {
+    marginTop: 14,
+    gap: 10,
+  },
+  filterGroup: {
+    gap: 6,
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  filterChip: {
+    minHeight: 30,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 9,
   },
   memoryActionRow: {
     flexDirection: 'row',

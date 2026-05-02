@@ -190,6 +190,7 @@ interface PendingAiSubmission {
   threadId: string | null
   routing: RoutingState
   pinnedTraceIds: string[]
+  threadOriginPayload?: Record<string, unknown> | null
   startedAt: number
 }
 
@@ -203,6 +204,7 @@ interface SubmitTextOptions {
   fileAttachments?: ComposerFileAttachment[]
   startedAt?: number
   recovered?: boolean
+  threadOriginPayload?: Record<string, unknown> | null
 }
 
 type TurnBody =
@@ -908,17 +910,15 @@ export function AtlasAiSheet() {
       const pinnedTraceIdsSnapshot = options.pinnedTraceIdsSnapshot ?? pinnedTraceIds
       const startedAt = options.startedAt ?? Date.now()
       const threadViewVersion = threadViewVersionRef.current
+      const threadOriginPayload = options.threadOriginPayload ?? (!threadId ? pendingThreadOrigin : null)
       const agent = effectiveAgent(routingSnapshot)
       const hasAttachments = attachments.length + fileAttachments.length > 0
-      const manualGeminiSelected = routingSnapshot.executor === 'gemini_cli'
       const attachmentAnalysisPreferred =
         hasAttachments
         && routingSnapshot.executor === 'auto'
         && geminiAutomaticEnabled(providerStatus)
-      const pendingExecutor: RoutingExecutor =
-        attachmentAnalysisPreferred
-          ? 'gemini_cli'
-          : routingSnapshot.executor
+      const pendingExecutor: RoutingExecutor = routingSnapshot.executor
+      const decisionMode = routingSnapshot.executor === 'auto' ? 'atlas_decide' : 'manual_override'
       const telemetryRoute = {
         mode: routingSnapshot.mode,
         executor: routingSnapshot.executor,
@@ -950,6 +950,7 @@ export function AtlasAiSheet() {
         threadId,
         routing: routingSnapshot,
         pinnedTraceIds: pinnedTraceIdsSnapshot.slice(0, 24),
+        threadOriginPayload,
         startedAt,
       }
 
@@ -992,15 +993,12 @@ export function AtlasAiSheet() {
       try {
         const requestStartedAt = Date.now()
         const councilMode = routingSnapshot.executor === 'claude_codex'
-        const needsGeminiAnalysis = attachmentAnalysisPreferred || manualGeminiSelected
         const provider: AtlasAiProvider | undefined =
           councilMode
             ? 'claude_codex'
-            : needsGeminiAnalysis
-              ? 'gemini_cli'
-              : (routingSnapshot.executor === 'auto'
-                  ? undefined
-                  : (routingSnapshot.executor as AtlasAiProvider))
+            : (routingSnapshot.executor === 'auto'
+                ? undefined
+                : (routingSnapshot.executor as AtlasAiProvider))
         const kind = councilMode
           ? 'council'
           : routingSnapshot.task === 'direct'
@@ -1021,7 +1019,7 @@ export function AtlasAiSheet() {
         const runtimePolicy = {
           ...modePolicy,
           ...threadRuntimePolicy,
-          ...(!threadId && pendingThreadOrigin ? pendingThreadOrigin : {}),
+          ...(threadOriginPayload ?? {}),
         }
 
         void recordAtlasAiEvent({
@@ -1035,6 +1033,8 @@ export function AtlasAiSheet() {
             ...telemetryRoute,
             new_thread: threadId == null,
             execution_policy: executionPolicy,
+            decision_mode: decisionMode,
+            context_strategy_hint: attachmentAnalysisPreferred ? 'long_context_or_multimodal' : undefined,
             image_attachments: attachments.length,
           },
         })
@@ -1078,11 +1078,13 @@ export function AtlasAiSheet() {
             app_surface: 'atlas_ai_sheet',
             atlas_focus: atlasFocus,
             atlas_workflow_mode: routingSnapshot.task === 'debug' ? 'dev' : routingSnapshot.task,
+            decision_mode: decisionMode,
             routing_task: routingSnapshot.task,
             routing_domain: routingSnapshot.domain,
             requested_agent: routingSnapshot.domain,
-            requested_provider: provider ?? routingSnapshot.executor,
+            requested_provider: provider,
             operator_requested_provider: routingSnapshot.executor,
+            context_strategy_hint: attachmentAnalysisPreferred ? 'long_context_or_multimodal' : undefined,
             visual_input: attachments.length > 0
               ? {
                   image_count: attachments.length,
@@ -1273,6 +1275,7 @@ export function AtlasAiSheet() {
         fileAttachments: pendingSubmission.fileAttachments ?? [],
         startedAt: pendingSubmission.startedAt,
         recovered: true,
+        threadOriginPayload: pendingSubmission.threadOriginPayload ?? null,
       })
     } finally {
       recoveringPendingRef.current = false
@@ -1360,15 +1363,19 @@ export function AtlasAiSheet() {
       return
     }
 
-    threadViewVersionRef.current += 1
-    setRouting(sanitizeRoutingState({
+    const programmingRouting = sanitizeRoutingState({
       mode: 'programming',
       task: 'dev',
       domain: 'atlas',
       executor: 'codex_cli',
       style: 'technical',
-    }))
-    setPendingThreadOrigin(developmentThreadOriginPayload(currentThread, contextualIntro))
+    })
+    const threadOriginPayload = developmentThreadOriginPayload(currentThread, contextualIntro)
+    const developmentPrompt = developmentPromptFromContext(contextualIntro, currentThread, traces)
+
+    threadViewVersionRef.current += 1
+    setRouting(programmingRouting)
+    setPendingThreadOrigin(threadOriginPayload)
     setCurrentThreadId(null)
     setCurrentThread(null)
     setSessionState(null)
@@ -1376,16 +1383,22 @@ export function AtlasAiSheet() {
     setQualityActions([])
     setContextSnapshots([])
     setPending(null)
-    setDraft(developmentPromptFromContext(contextualIntro, currentThread, traces))
+    setDraft('')
     setDraftAttachments([])
     setDraftFileAttachments([])
     setAttachmentSheetOpen(false)
     setPreviewAttachment(null)
     setError(null)
     setThreadHistoryOpen(false)
-    showToast('Sessão de desenvolvimento preparada')
+    showToast('Programação iniciada com contexto operacional')
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }, [contextualIntro, currentThread, interactionLocked, showToast, traces])
+    void submitText(developmentPrompt, {
+      threadId: null,
+      routingSnapshot: programmingRouting,
+      pinnedTraceIdsSnapshot: [],
+      threadOriginPayload,
+    })
+  }, [contextualIntro, currentThread, interactionLocked, showToast, submitText, traces])
 
   const selectThread = useCallback(
     async (thread: AtlasAiThread) => {
@@ -2868,8 +2881,10 @@ interface AtlasAiContextIntroData {
   execution: string
 }
 
+type OperationalBootstrapStatus = AtlasAiStatus | 'ready' | 'skipped'
+
 interface OperationalBootstrapData {
-  status: AtlasAiStatus | 'ready'
+  status: OperationalBootstrapStatus
   title: string
   summary: string
   traceId: string | null
@@ -2919,7 +2934,7 @@ function OperationalBootstrapPanel({
 }) {
   const { c } = useTheme()
   const active = status.status === 'queued' || status.status === 'processing'
-  const failed = status.status === 'failed' || status.status === 'cancelled'
+  const failed = status.status === 'failed' || status.status === 'cancelled' || status.status === 'skipped'
 
   return (
     <View style={[
@@ -3379,6 +3394,9 @@ function ThreadHistorySheet({
                   <Mono size={9.5} lineHeight={13} color={c.ink2} letterSpacing={0.25}>
                     {atlasAiModeLabel(atlasAiModeFromThread(thread)).toUpperCase()}
                   </Mono>
+                  <Mono size={9.5} lineHeight={13} color={c.ink3} letterSpacing={0.25} numberOfLines={1}>
+                    ORIGEM {threadOriginLabel(thread).toUpperCase()}
+                  </Mono>
                 </View>
                 <Sans weight="med" size={15} lineHeight={20} color={c.ink} numberOfLines={1}>
                   {thread.title || 'Conversa Atlas'}
@@ -3832,6 +3850,7 @@ function ExecutionSheet({
   const quality = trace?.quality_evaluation ?? null
   const actions = trace?.quality_actions ?? []
   const artifacts = executionArtifacts(trace, jobs)
+  const decisionReceipt = trace?.decision_receipt ?? null
 
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
@@ -3863,6 +3882,23 @@ function ExecutionSheet({
               <DataRow label="latência" value={trace.latency_ms != null ? formatLatency(trace.latency_ms) : 'n/a'} />
               <DataRow label="criado" value={formatRelative(trace.created_at)} />
             </DataSection>
+
+            {decisionReceipt && (
+              <DataSection title="decisão Atlas">
+                <DataRow label="modo" value={decisionModeLabel(decisionReceipt.decision_mode)} />
+                <DataRow label="selecionado" value={providerWord(decisionReceipt.selected_provider) ?? String(decisionReceipt.selected_provider ?? 'atlas')} />
+                <DataRow label="pedido" value={decisionReceipt.was_overridden ? (providerWord(decisionReceipt.requested_provider) ?? String(decisionReceipt.requested_provider ?? 'manual')) : 'atlas decide'} />
+                <DataRow label="override" value={decisionReceipt.was_overridden ? 'sim' : 'não'} />
+                {decisionReceipt.fallback_provider && (
+                  <DataRow label="fallback" value={providerWord(decisionReceipt.fallback_provider) ?? String(decisionReceipt.fallback_provider)} />
+                )}
+                {decisionReceipt.reason && (
+                  <Sans size={12} lineHeight={17} color={c.ink2}>
+                    {decisionReceipt.reason}
+                  </Sans>
+                )}
+              </DataSection>
+            )}
 
             <DataSection title="artifacts dev">
               <DataList label="arquivos" items={artifacts.files} />
@@ -4426,6 +4462,26 @@ function threadHistorySubtitle(thread: AtlasAiThread): string {
   return [context, summary || fallback].filter(Boolean).join(' · ')
 }
 
+function threadOriginLabel(thread: AtlasAiThread): string {
+  const metadata = thread.metadata ?? {}
+  const explicit = metadataString(metadata, 'origin_label')
+  if (explicit) {
+    return explicit.toLowerCase().includes('operacional') ? 'Operacional' : explicit
+  }
+
+  const originType = metadataString(metadata, 'origin_type') ?? metadataString(metadata, 'created_from')
+  if (originType === 'operational_promotion') return 'Operacional'
+  if (originType === 'notification' || originType === 'push') return 'Notificação'
+
+  if (thread.source_type === 'inbox_item' || thread.source_type === 'ai_inbox_item') return 'Inbox'
+  if (metadataString(metadata, 'discussion_entrypoint') === 'atlas_ai_sheet') return 'Inbox'
+  if (metadataString(metadata, 'source_type') === 'ai_inbox_item') return 'Inbox'
+  if (metadataString(metadata, 'source_operational_thread_id')) return 'Operacional'
+  if (thread.source_type === 'app' || thread.source_type === 'manual' || !thread.source_type) return 'Manual'
+
+  return humanizeRuntimeKey(thread.source_type)
+}
+
 function modeFilterColor(filter: ThreadHistoryModeFilter, c: ReturnType<typeof useTheme>['c']): string {
   if (filter === 'all') return c.ink2
   return modeColor(filter, c)
@@ -4758,7 +4814,7 @@ function statusColor(status: string, c: ReturnType<typeof useTheme>['c']): strin
   return c.ink3
 }
 
-function providerWord(provider: AtlasAiTrace['provider']): string | undefined {
+function providerWord(provider: AtlasAiTrace['provider'] | undefined): string | undefined {
   if (provider === 'claude_codex') return 'conselho'
   if (provider === 'claude_cli')   return 'claude'
   if (provider === 'codex_cli')    return 'codex'
@@ -4766,6 +4822,12 @@ function providerWord(provider: AtlasAiTrace['provider']): string | undefined {
   if (provider == null || provider === 'auto') return undefined
   // Unknown string provider — show as-is, lowercased.
   return String(provider).toLowerCase()
+}
+
+function decisionModeLabel(mode: unknown): string {
+  if (mode === 'manual_override') return 'override manual'
+  if (mode === 'atlas_decide') return 'atlas decide'
+  return typeof mode === 'string' && mode.trim() ? mode : 'atlas decide'
 }
 
 function executorAsProviderWord(executor: RoutingExecutor): string | undefined {
@@ -5208,14 +5270,55 @@ function runtimePolicyPayloadForThread(thread: AtlasAiThread | null, focusOverri
 }
 
 function operationalBootstrapStatus(thread: AtlasAiThread | null, traces: AtlasAiTrace[]): OperationalBootstrapData | null {
-  if (!isOperationalContextThread(thread)) return null
+  if (!thread || !isOperationalContextThread(thread)) return null
 
-  const bootstrapTrace = traces.find(isDiscussionBootstrapTrace) ?? null
+  const metadata = thread.metadata ?? {}
+  const metadataTraceId = metadataString(metadata, 'discussion_bootstrap_trace_id')
+  const metadataStatus = normalizeOperationalBootstrapStatus(metadataString(metadata, 'discussion_bootstrap_status'))
+  const metadataError = metadataString(metadata, 'discussion_bootstrap_error')
+  const bootstrapTrace = traces.find((trace) => {
+    return isDiscussionBootstrapTrace(trace) || (metadataTraceId != null && trace.id === metadataTraceId)
+  }) ?? null
   if (!bootstrapTrace) {
+    if (metadataStatus) {
+      if (metadataStatus === 'queued' || metadataStatus === 'processing') {
+        return {
+          status: metadataStatus,
+          title: 'Atlas está montando o diagnóstico inicial',
+          summary: 'O contexto do Inbox foi registrado; aguarde ou atualize para acompanhar o bootstrap automático.',
+          traceId: metadataTraceId,
+          responsePreview: null,
+          steps: operationalBootstrapSteps(metadataStatus, false),
+        }
+      }
+
+      if (metadataStatus === 'failed' || metadataStatus === 'cancelled' || metadataStatus === 'skipped') {
+        return {
+          status: metadataStatus,
+          title: metadataStatus === 'skipped' ? 'Bootstrap operacional indisponível' : 'Diagnóstico inicial não completou',
+          summary: metadataError
+            ? `O Atlas abriu a conversa, mas o bootstrap automático falhou antes de concluir: ${metadataError}.`
+            : 'O Atlas abriu a conversa, mas o bootstrap automático falhou antes de concluir.',
+          traceId: metadataTraceId,
+          responsePreview: null,
+          steps: operationalBootstrapSteps(metadataStatus, false),
+        }
+      }
+
+      return {
+        status: metadataStatus,
+        title: 'Diagnóstico inicial registrado',
+        summary: 'O Atlas registrou o bootstrap desta conversa operacional, mas a trace ainda não apareceu no histórico local.',
+        traceId: metadataTraceId,
+        responsePreview: null,
+        steps: operationalBootstrapSteps(metadataStatus, false),
+      }
+    }
+
     return {
       status: 'ready',
       title: 'Contexto operacional carregado',
-      summary: 'Atlas abriu esta conversa com contexto, permissão e execução preparados para diagnosticar o item.',
+      summary: 'Atlas abriu esta conversa com contexto, permissão e execução preparados. Nenhum bootstrap automático foi registrado.',
       traceId: null,
       responsePreview: null,
       steps: operationalBootstrapSteps('ready', false),
@@ -5257,10 +5360,10 @@ function operationalBootstrapStatus(thread: AtlasAiThread | null, traces: AtlasA
 }
 
 function operationalBootstrapSteps(
-  status: AtlasAiStatus | 'ready',
+  status: OperationalBootstrapStatus,
   hasResponse: boolean,
 ): OperationalBootstrapStep[] {
-  const failed = status === 'failed' || status === 'cancelled'
+  const failed = status === 'failed' || status === 'cancelled' || status === 'skipped'
   const active = status === 'queued' || status === 'processing'
   const completed = status === 'succeeded' || status === 'awaiting_user_choice'
 
@@ -5297,9 +5400,29 @@ function bootstrapStatusLabel(status: OperationalBootstrapData['status']): strin
   if (status === 'queued') return 'fila'
   if (status === 'processing') return 'rodando'
   if (status === 'failed') return 'falhou'
+  if (status === 'skipped') return 'indisponível'
   if (status === 'cancelled') return 'cancelado'
   if (status === 'awaiting_user_choice') return 'pausado'
   return 'pronto'
+}
+
+function normalizeOperationalBootstrapStatus(value: string | null): OperationalBootstrapStatus | null {
+  if (!value) return null
+  if (
+    value === 'ready'
+    || value === 'skipped'
+    || value === 'queued'
+    || value === 'processing'
+    || value === 'succeeded'
+    || value === 'failed'
+    || value === 'cancelled'
+    || value === 'awaiting_user_choice'
+  ) {
+    return value
+  }
+
+  if (value === 'already_queued') return 'queued'
+  return null
 }
 
 function bootstrapStepColor(
@@ -5404,6 +5527,25 @@ function developmentPromptFromContext(
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
 
   return sections.join('\n\n')
+}
+
+function developmentThreadOriginPayload(
+  sourceThread: AtlasAiThread,
+  intro: AtlasAiContextIntroData,
+): Record<string, unknown> {
+  const metadata = sourceThread.metadata ?? {}
+
+  return {
+    created_from: 'operational_promotion',
+    origin_type: 'operational_promotion',
+    origin_label: 'Operacional para Programação',
+    source_operational_thread_id: sourceThread.id,
+    source_operational_title: intro.title,
+    source_inbox_item_id: metadataString(metadata, 'inbox_item_id') ?? sourceThread.source_id ?? undefined,
+    source_context_bundle_id: metadataString(metadata, 'context_bundle_id') ?? undefined,
+    source_thread_mode: atlasAiModeFromThread(sourceThread),
+    source_thread_focus: atlasAiFocusFromThread(sourceThread),
+  }
 }
 
 function isOperationalContextThread(thread: AtlasAiThread | null): boolean {
@@ -5700,11 +5842,18 @@ function parsePendingSubmission(raw: string | null): PendingAiSubmission | null 
       threadId: typeof value.threadId === 'string' ? value.threadId : null,
       routing: normalizeStoredRouting(JSON.stringify(value.routing ?? ROUTING_DEFAULT)),
       pinnedTraceIds,
+      threadOriginPayload: normalizeStoredRecord(value.threadOriginPayload),
       startedAt,
     }
   } catch {
     return null
   }
+}
+
+function normalizeStoredRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
 }
 
 function normalizeStoredAttachments(value: unknown): ComposerImageAttachment[] {
