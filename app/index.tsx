@@ -919,6 +919,32 @@ export default function HomeScreen() {
       </Pressable>
 
       <Pressable
+        onPress={() => router.push('/open-brain')}
+        accessibilityLabel="Abrir Atlas Open Brain. Recall, context pack, auditorias e manutenção."
+        style={({ pressed }) => [
+          styles.engineeringEntry,
+          {
+            backgroundColor: pressed ? c.premium : c.surface,
+            borderColor: c.border,
+            borderLeftColor: c.moss,
+          },
+        ]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Atlas Open Brain</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
+            Recall e context pack
+          </Sans>
+          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
+            memória · auditorias · maintain · MCP
+          </Mono>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
+          abrir
+        </Mono>
+      </Pressable>
+
+      <Pressable
         onPress={() => router.push('/engineering')}
         style={({ pressed }) => [
           styles.engineeringEntry,

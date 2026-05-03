@@ -1806,6 +1806,11 @@ export interface AtlasToolDefinitionSummary {
   risk_level: string
   status: string
   cost_posture: string
+  execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string
+  expected_cost?: string | null
+  default_trigger?: string | null
+  authority_role?: string | null
+  authority_group?: string | null
   capabilities_json?: string[]
   capabilities?: string[]
   risks_json?: string[]
@@ -1825,12 +1830,31 @@ export interface AtlasToolDoctorItem {
   risks: string[]
   risk_level: string
   cost_posture: string
+  execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string
+  expected_cost?: string | null
+  default_trigger?: string | null
+  authority_role?: string | null
+  authority_group?: string | null
   status: 'ready' | 'missing' | 'disabled' | 'skipped' | 'failed' | 'timeout' | string
   execution_layer: string
   binary: string
   binary_path_hash: string | null
   version: string | null
   install_hint: string | null
+  safe_commands?: AtlasToolSafeCommand[]
+}
+
+export interface AtlasToolSafeCommand {
+  name: string
+  description: string
+  command: string[]
+  dry_run_default: boolean
+  network_allowed: boolean
+  max_execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string | null
+  sandbox_mode?: 'workspace' | 'worktree' | 'docker' | 'host' | 'none' | string | null
+  privacy_level?: 'standard' | 'sensitive' | 'restricted' | string | null
+  task_type?: string | null
+  requires_provider_safe?: boolean
 }
 
 export interface AtlasToolsDoctorResponse {
@@ -1838,6 +1862,64 @@ export interface AtlasToolsDoctorResponse {
   workspace_hash: string
   tool_count: number
   tools: AtlasToolDoctorItem[]
+}
+
+export interface AtlasToolCommandsResponse {
+  tool: AtlasToolDoctorItem
+  commands: AtlasToolSafeCommand[]
+}
+
+export interface AtlasToolAuthorityTool {
+  slug: string
+  name: string
+  execution_tier: 'T0' | 'T1' | 'T2' | 'T3' | string
+  expected_cost: string
+  default_trigger: string
+  authority_role: string
+  risk_level: string
+  status: string
+}
+
+export interface AtlasToolAuthorityGroup {
+  authority_group: string
+  tool_count: number
+  tier_span: string[]
+  primary_tools: AtlasToolAuthorityTool[]
+  complementary_tools: AtlasToolAuthorityTool[]
+  fallback_tools: AtlasToolAuthorityTool[]
+  executor_tools: AtlasToolAuthorityTool[]
+  high_risk_tools: AtlasToolAuthorityTool[]
+  release_heavy_tools: AtlasToolAuthorityTool[]
+  missing_primary: boolean
+  duplicate_primary: boolean
+}
+
+export interface AtlasToolAuthorityRecommendation {
+  code: string
+  severity: 'low' | 'medium' | 'high' | string
+  authority_group: string
+  message: string
+}
+
+export interface AtlasToolsAuthorityResponse {
+  status: string
+  generated_at: string
+  summary: {
+    tool_count: number
+    authority_group_count: number
+    primary_count: number
+    complementary_count: number
+    fallback_count: number
+    executor_count: number
+    high_risk_count: number
+    t0_count: number
+    t1_count: number
+    t2_count: number
+    t3_count: number
+  }
+  tiers: Record<string, { tool_count: number; tools: AtlasToolAuthorityTool[] }>
+  authority_groups: AtlasToolAuthorityGroup[]
+  recommendations: AtlasToolAuthorityRecommendation[]
 }
 
 export interface AtlasToolArtifactSummary {
@@ -1925,6 +2007,91 @@ export interface AtlasToolsEvidenceFilters extends Record<string, unknown> {
   limit?: number
 }
 
+export interface AtlasToolRunInput {
+  workspace?: string | null
+  command: string[]
+  dry_run?: boolean
+  approved?: boolean
+  required?: boolean
+  network_allowed?: boolean
+  max_execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string
+  sandbox_mode?: 'workspace' | 'worktree' | 'docker' | 'host' | 'none' | string
+  privacy_level?: 'standard' | 'sensitive' | 'restricted' | string
+  task_type?: string
+  requires_provider_safe?: boolean
+  env?: Record<string, string> | string[]
+  output_limit?: number
+}
+
+export interface AtlasToolRunRecipeInput {
+  workspace?: string | null
+  dry_run?: boolean
+  approved?: boolean
+  required?: boolean
+  env?: Record<string, string> | string[]
+  output_limit?: number
+}
+
+export interface AtlasToolRunResponse {
+  data: AtlasToolRunSummary
+}
+
+export interface AtlasToolPolicySummary {
+  id: string
+  scope_type: 'workspace' | 'global' | string
+  scope_id: string | null
+  tool_slug: string
+  enabled: boolean
+  required_when_json: Record<string, unknown> | null
+  failure_policy: string | null
+  timeout_seconds: number | null
+  thresholds_json: Record<string, unknown> | null
+  metadata: {
+    approved?: boolean
+    approved_at?: string
+    approved_until?: string
+    approved_by?: string
+    approval_reason?: string
+    network_allowed?: boolean
+    max_execution_tier?: string
+    sandbox_mode?: string
+    privacy_level?: string
+    task_type?: string
+    requires_provider_safe?: boolean
+    workspace_hash?: string
+    ttl_hours?: number
+    approval_source?: string
+    revoked_at?: string
+    revocation_source?: string
+    [key: string]: unknown
+  } | null
+  created_at: string | null
+  updated_at: string | null
+  approval_status?: string
+}
+
+export interface AtlasToolsPoliciesResponse {
+  data: AtlasToolPolicySummary[]
+}
+
+export interface AtlasToolApprovalInput {
+  workspace?: string | null
+  scope_type?: 'workspace' | 'global' | string
+  reason?: string | null
+  ttl_hours?: number
+  network_allowed?: boolean
+  max_execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string
+  sandbox_mode?: 'workspace' | 'worktree' | 'docker' | 'host' | 'none' | string
+  privacy_level?: 'standard' | 'sensitive' | 'restricted' | string
+  task_type?: string
+  requires_provider_safe?: boolean
+}
+
+export interface AtlasToolApprovalResponse {
+  data: AtlasToolPolicySummary | null
+  approval_status: string
+}
+
 export interface AtlasToolsGateResponse {
   status: 'passed' | 'warning' | 'blocked' | string
   allowed: boolean
@@ -1937,9 +2104,12 @@ export interface AtlasToolsGateResponse {
     failed_run_count: number
     blocking_failure_count: number
     warning_count: number
+    correlated_finding_group_count?: number
+    suppressed_duplicate_finding_count?: number
   }
   blocking_failures: Array<Record<string, unknown>>
   warnings: Array<Record<string, unknown>>
+  finding_correlations?: Array<Record<string, unknown>>
   runs: Array<Record<string, unknown>>
 }
 
@@ -3852,6 +4022,131 @@ export interface AtlasVerbatimMemoryEntry {
   metadata: Record<string, unknown>
 }
 
+export interface AtlasMemoryRecallItem {
+  rank?: number
+  source?: string
+  source_ref_type?: string
+  source_ref_id?: string
+  id?: string
+  type?: string
+  scope?: string
+  title?: string | null
+  summary?: string | null
+  excerpt?: string | null
+  body?: string | null
+  snippet?: string | null
+  score?: number
+  reason?: string | null
+  estimated_chars?: number
+  [key: string]: unknown
+}
+
+export interface AtlasMemoryRecall {
+  query: string
+  context: Record<string, unknown>
+  summary: {
+    registry_candidates?: number
+    verbatim_candidates?: number
+    semantic_candidates?: number
+    recall_count?: number
+    budget_chars?: number
+    policy?: string
+    [key: string]: unknown
+  }
+  recall: AtlasMemoryRecallItem[]
+  sources: {
+    registry?: AtlasMemoryRecallItem[]
+    verbatim?: AtlasMemoryRecallItem[]
+    semantic?: AtlasMemoryRecallItem[]
+    [key: string]: unknown
+  }
+}
+
+export interface AtlasMemoryRecallResponse {
+  memory_recall: AtlasMemoryRecall
+}
+
+export interface AtlasOpenBrainContextPack {
+  ok: boolean
+  schema_version: number
+  context_pack_hash: string
+  context_pack: Record<string, unknown>
+  context_refs: Record<string, unknown>[]
+  summary: {
+    context_refs_count?: number
+    memory_refs_count?: number
+    recall_count?: number
+    registry_count?: number
+    verbatim_count?: number
+    semantic_count?: number
+    provider_safe?: boolean
+    [key: string]: unknown
+  }
+  audit?: Record<string, unknown> | null
+  prompt_section?: string
+}
+
+export interface AtlasOpenBrainContextPackResponse {
+  open_brain: AtlasOpenBrainContextPack
+}
+
+export interface AtlasOpenBrainAudit {
+  id: string
+  surface: string
+  requester: string | null
+  action: string
+  status: string
+  workspace_hash: string | null
+  workspace_label: string | null
+  context_pack_hash: string | null
+  context_refs_count: number
+  memory_refs_count: number
+  provider_safe: boolean
+  query: Record<string, unknown>
+  result_summary: Record<string, unknown>
+  accessed_at: string | null
+}
+
+export interface AtlasOpenBrainAuditsResponse {
+  open_brain_audits: AtlasOpenBrainAudit[]
+}
+
+export interface AtlasMemoryMaintenanceStage {
+  ok?: boolean
+  status?: string
+  summary?: Record<string, unknown>
+  overall_status?: string
+  next_actions?: string[]
+  [key: string]: unknown
+}
+
+export interface AtlasMemoryMaintenance {
+  ok: boolean
+  status: string
+  workspace: string
+  dry_run: boolean
+  prune: boolean
+  writes: {
+    knowledge_sync?: boolean
+    code_index?: boolean
+    provider_projection_apply?: boolean
+    [key: string]: boolean | undefined
+  }
+  stages: {
+    knowledge_sync?: AtlasMemoryMaintenanceStage
+    code_index?: AtlasMemoryMaintenanceStage
+    provider_projection_status?: AtlasMemoryMaintenanceStage
+    provider_projection_apply?: AtlasMemoryMaintenanceStage
+    mcp_health?: AtlasMemoryMaintenanceStage
+    [key: string]: AtlasMemoryMaintenanceStage | undefined
+  }
+  generated_at: string
+}
+
+export interface AtlasMemoryMaintenanceResponse {
+  memory_maintenance: AtlasMemoryMaintenance
+}
+
 export interface CapturesResponse {
   captures: AtlasCapture[]
   next_cursor: string | null
@@ -5333,10 +5628,61 @@ export async function fetchAtlasToolsDoctor(
   return apiGet<AtlasToolsDoctorResponse>(`/tools/doctor${queryString(params)}`)
 }
 
+export async function fetchAtlasToolsAuthority(): Promise<AtlasToolsAuthorityResponse> {
+  return apiGet<AtlasToolsAuthorityResponse>('/tools/authority')
+}
+
 export async function listAtlasToolEvidence(
   params: AtlasToolsEvidenceFilters = {},
 ): Promise<AtlasToolsEvidenceResponse> {
   return apiGet<AtlasToolsEvidenceResponse>(`/tools/evidence${queryString(params as Record<string, unknown>)}`)
+}
+
+export async function runAtlasTool(
+  tool: string,
+  input: AtlasToolRunInput,
+): Promise<AtlasToolRunResponse> {
+  return apiPost<AtlasToolRunResponse>(`/tools/${encodeURIComponent(tool)}/run`, input)
+}
+
+export async function fetchAtlasToolCommands(
+  tool: string,
+  params: { workspace?: string | null } = {},
+): Promise<AtlasToolCommandsResponse> {
+  return apiGet<AtlasToolCommandsResponse>(`/tools/${encodeURIComponent(tool)}/commands${queryString(params)}`)
+}
+
+export async function runAtlasToolRecipe(
+  tool: string,
+  recipe: string,
+  input: AtlasToolRunRecipeInput = {},
+): Promise<AtlasToolRunResponse> {
+  return apiPost<AtlasToolRunResponse>(
+    `/tools/${encodeURIComponent(tool)}/commands/${encodeURIComponent(recipe)}/run`,
+    input,
+  )
+}
+
+export async function listAtlasToolPolicies(
+  params: { workspace?: string | null; limit?: number } = {},
+): Promise<AtlasToolsPoliciesResponse> {
+  return apiGet<AtlasToolsPoliciesResponse>(`/tools/policies${queryString(params)}`)
+}
+
+export async function approveAtlasTool(
+  tool: string,
+  input: AtlasToolApprovalInput = {},
+): Promise<AtlasToolApprovalResponse> {
+  return apiPost<AtlasToolApprovalResponse>(`/tools/${encodeURIComponent(tool)}/approval`, input)
+}
+
+export async function revokeAtlasToolApproval(
+  tool: string,
+  input: { workspace?: string | null; scope_type?: 'workspace' | 'global' | string } = {},
+): Promise<AtlasToolApprovalResponse> {
+  return apiDelete<AtlasToolApprovalResponse>(
+    `/tools/${encodeURIComponent(tool)}/approval${queryString(input as Record<string, unknown>)}`,
+  )
 }
 
 export async function evaluateAtlasToolGate(
@@ -6202,6 +6548,47 @@ export async function listAtlasMemoryReviewQueue(params: {
   limit?: number
 } = {}): Promise<AtlasMemoryReviewQueueResponse> {
   return apiGet<AtlasMemoryReviewQueueResponse>(`/ai/memory/review-queue${queryString(params)}`)
+}
+
+export async function recallAtlasMemory(input: {
+  query: string
+  context?: Record<string, unknown>
+  filters?: Record<string, unknown>
+  options?: Record<string, unknown>
+}): Promise<AtlasMemoryRecallResponse> {
+  return apiPost<AtlasMemoryRecallResponse>('/ai/memory/recall', input)
+}
+
+export async function buildAtlasOpenBrainContextPack(input: {
+  objective: string
+  workspace?: string
+  task_type?: 'direct' | 'dev' | 'debug' | 'review' | 'research' | 'decision' | 'memory'
+  desired_mode?: string
+  agent?: string
+  intent?: string
+  requester?: string
+  include_prompt?: boolean
+  payload?: Record<string, unknown>
+  options?: Record<string, unknown>
+}): Promise<AtlasOpenBrainContextPackResponse> {
+  return apiPost<AtlasOpenBrainContextPackResponse>('/ai/open-brain/context-pack', input)
+}
+
+export async function listAtlasOpenBrainAudits(params: { limit?: number } = {}): Promise<AtlasOpenBrainAuditsResponse> {
+  return apiGet<AtlasOpenBrainAuditsResponse>(`/ai/open-brain/audits${queryString(params)}`)
+}
+
+export async function runAtlasMemoryMaintenance(input: {
+  workspace?: string
+  dry_run?: boolean
+  sync?: boolean
+  index_code?: boolean
+  prune?: boolean
+  include_drift_audit?: boolean
+  apply_projection?: boolean
+  confirm?: boolean
+}): Promise<AtlasMemoryMaintenanceResponse> {
+  return apiPost<AtlasMemoryMaintenanceResponse>('/ai/memory/maintain', input)
 }
 
 export async function getAtlasMemoryProviderProjectionStatus(

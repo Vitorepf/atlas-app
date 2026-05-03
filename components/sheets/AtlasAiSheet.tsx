@@ -1155,6 +1155,7 @@ export function AtlasAiSheet() {
             app_surface: 'atlas_ai_sheet',
             atlas_focus: atlasFocus,
             atlas_workflow_mode: routingSnapshot.task === 'debug' ? 'dev' : routingSnapshot.task,
+            open_brain: openBrainPayloadForRouting(routingSnapshot),
             decision_mode: decisionMode,
             routing_task: routingSnapshot.task,
             routing_domain: routingSnapshot.domain,
@@ -2744,6 +2745,7 @@ function TurnBodyView({ body, onCopyResponse }: { body: TurnBody; onCopyResponse
         <PageResponse text={body.text} />
       </Pressable>
       <CaptionWhisper text={body.attribution} />
+      <OpenBrainTraceBadge trace={body.trace} />
       <QualityBar
         trace={body.trace}
         onRunQualityAction={body.onRunQualityAction}
@@ -3369,6 +3371,34 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
+function OpenBrainTraceBadge({ trace }: { trace: AtlasAiTrace }) {
+  const { c } = useTheme()
+  const openBrain = openBrainInjectionFromTrace(trace)
+
+  if (!openBrain || openBrain.status === 'skipped') return null
+
+  const color = openBrainStatusColor(openBrain.status, c)
+  const parts = [
+    openBrain.refs != null ? `${openBrain.refs} refs` : null,
+    openBrain.hash ? `hash ${shortId(openBrain.hash)}` : null,
+    openBrain.warnings.length > 0 ? `${openBrain.warnings.length} aviso${openBrain.warnings.length === 1 ? '' : 's'}` : null,
+  ].filter(Boolean)
+
+  return (
+    <View style={[styles.openBrainBadge, { borderTopColor: c.border }]}>
+      <View style={[styles.openBrainDot, { backgroundColor: color }]} />
+      <Sans weight="med" size={11} lineHeight={16} color={color}>
+        Open Brain {openBrainStatusLabel(openBrain.status)}
+      </Sans>
+      {parts.length > 0 && (
+        <Sans size={11} lineHeight={16} color={c.ink2} style={styles.openBrainText}>
+          {parts.join(' · ')}
+        </Sans>
+      )}
+    </View>
+  )
+}
+
 type ThreadHistoryModeFilter = 'all' | RoutingMode
 
 function ThreadHistorySheet({
@@ -3969,6 +3999,7 @@ function ExecutionSheet({
   const actions = trace?.quality_actions ?? []
   const artifacts = executionArtifacts(trace, jobs)
   const decisionReceipt = trace?.decision_receipt ?? null
+  const openBrain = openBrainInjectionFromTrace(trace)
 
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
@@ -4000,6 +4031,17 @@ function ExecutionSheet({
               <DataRow label="latência" value={trace.latency_ms != null ? formatLatency(trace.latency_ms) : 'n/a'} />
               <DataRow label="criado" value={formatRelative(trace.created_at)} />
             </DataSection>
+
+            {openBrain && (
+              <DataSection title="open brain">
+                <DataRow label="status" value={openBrainStatusLabel(openBrain.status)} />
+                <DataRow label="surface" value={openBrain.surface ?? 'n/a'} />
+                <DataRow label="refs" value={String(openBrain.refs ?? 0)} />
+                <DataRow label="hash" value={openBrain.hash ? shortId(openBrain.hash) : 'n/a'} />
+                <DataRow label="audit" value={openBrain.auditId ? shortId(openBrain.auditId) : 'n/a'} />
+                <DataRow label="avisos" value={openBrain.warnings.length > 0 ? openBrain.warnings.join(' · ') : 'nenhum'} />
+              </DataSection>
+            )}
 
             {decisionReceipt && (
               <DataSection title="decisão Atlas">
@@ -5332,6 +5374,13 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+function metadataRecord(metadata: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = metadata[key]
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
 function stringFromRecord(value: unknown, key: string): string | null {
   if (!value || typeof value !== 'object') return null
   const next = (value as Record<string, unknown>)[key]
@@ -5380,6 +5429,68 @@ function humanizeRuntimeKey(value: string): string {
   const normalized = value.replace(/[_-]+/g, ' ').trim()
   if (!normalized) return 'n/d'
   return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function openBrainPayloadForRouting(routing: RoutingState): Record<string, unknown> | undefined {
+  const shouldInject = routing.mode === 'programming' || routing.task === 'dev' || routing.task === 'debug' || routing.task === 'review'
+  if (!shouldInject) return undefined
+
+  return {
+    mode: 'auto',
+    surface: 'app_ai',
+    provider_safe_only: true,
+  }
+}
+
+interface OpenBrainTraceMetadata {
+  status: string
+  surface: string | null
+  hash: string | null
+  auditId: string | null
+  refs: number | null
+  warnings: string[]
+}
+
+function openBrainInjectionFromTrace(trace: AtlasAiTrace | null): OpenBrainTraceMetadata | null {
+  if (!trace) return null
+
+  const traceInjection = metadataRecord(trace.metadata ?? {}, 'open_brain_injection')
+  const jobInjection = trace.job ? metadataRecord(trace.job.metadata ?? {}, 'open_brain_injection') : null
+  const source = traceInjection ?? jobInjection
+  const status = stringFromRecord(source, 'status')
+
+  if (!source || !status) return null
+
+  const summary = metadataRecord(source, 'summary') ?? {}
+  const warningsRaw = source.warnings
+  const warnings = Array.isArray(warningsRaw)
+    ? warningsRaw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : []
+
+  return {
+    status,
+    surface: stringFromRecord(source, 'surface'),
+    hash: stringFromRecord(source, 'context_pack_hash'),
+    auditId: stringFromRecord(source, 'audit_id'),
+    refs: numberFromRecord(summary, 'context_refs'),
+    warnings,
+  }
+}
+
+function openBrainStatusLabel(status: string): string {
+  if (status === 'injected') return 'usado'
+  if (status === 'degraded') return 'parcial'
+  if (status === 'failed_open') return 'falhou aberto'
+  if (status === 'failed_closed') return 'bloqueado'
+  if (status === 'skipped') return 'ignorado'
+  return humanizeRuntimeKey(status).toLowerCase()
+}
+
+function openBrainStatusColor(status: string, c: ReturnType<typeof useTheme>['c']): string {
+  if (status === 'injected') return c.moss
+  if (status === 'degraded') return c.bronze
+  if (status === 'failed_open' || status === 'failed_closed') return c.recRed
+  return c.ink2
 }
 
 function truncateForContext(text: string, max: number): string {
@@ -6014,6 +6125,23 @@ const styles = StyleSheet.create({
   progressMain: {
     flex: 1,
     gap: 1,
+  },
+  openBrainBadge: {
+    marginTop: 10,
+    paddingTop: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  openBrainDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  openBrainText: {
+    flexShrink: 1,
   },
   mappedList: {
     gap: 9,

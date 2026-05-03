@@ -12,6 +12,8 @@ import {
   calibrateEngineeringHarnessability,
   ensureDefaultEngineeringBenchmarkSuite,
   evaluateAtlasToolGate,
+  approveAtlasTool,
+  fetchAtlasToolsAuthority,
   fetchAtlasToolsDoctor,
   fetchEngineeringCodeAudit,
   fetchEngineeringCodeModule,
@@ -26,11 +28,14 @@ import {
   fetchEngineeringRunPatchDiff,
   fetchEngineeringTestRunArtifactContent,
   listAtlasToolEvidence,
+  listAtlasToolPolicies,
   listEngineeringTestRunArtifacts,
   listEngineeringBenchmarkSuites,
   indexEngineeringCodeKnowledge,
   replayEngineeringRun,
   replayEngineeringRunAttempt,
+  revokeAtlasToolApproval,
+  runAtlasToolRecipe,
   promoteEngineeringRunToBenchmarkCase,
   runEngineeringBenchmarkSuite,
   runEngineeringApiContract,
@@ -52,17 +57,22 @@ import {
   type AtlasEngineeringTestArtifactFile,
   type AtlasEngineeringRunSummary,
   type AtlasEngineeringTestRunSummary,
+  type AtlasToolsAuthorityResponse,
   type AtlasToolsDoctorResponse,
   type AtlasToolsEvidenceResponse,
   type AtlasToolsGateResponse,
+  type AtlasToolsPoliciesResponse,
 } from '../lib/api/client'
 import {
   buildToolRuntimeGateFilters,
+  buildEngineeringToolAuthoritySummary,
   buildEngineeringToolRuntimeSummary,
+  toolAuthorityGroupLine,
   toolRuntimeEvidenceLine,
   toolRuntimeGateIssueLine,
   toolRuntimeGateLine,
   toolRuntimeGateModeLine,
+  toolApprovalPolicyLine,
   toolRuntimeRiskLine,
   type EngineeringToolGateMode,
   type EngineeringToolRuntimeSummary,
@@ -119,10 +129,13 @@ export default function EngineeringScreen() {
   const [indexingCodeKnowledge, setIndexingCodeKnowledge] = useState(false)
   const [auditingCodeKnowledge, setAuditingCodeKnowledge] = useState(false)
   const [toolRuntime, setToolRuntime] = useState<AtlasToolsDoctorResponse | null>(null)
+  const [toolAuthority, setToolAuthority] = useState<AtlasToolsAuthorityResponse | null>(null)
   const [toolEvidence, setToolEvidence] = useState<AtlasToolsEvidenceResponse | null>(null)
   const [toolGate, setToolGate] = useState<AtlasToolsGateResponse | null>(null)
+  const [toolPolicies, setToolPolicies] = useState<AtlasToolsPoliciesResponse | null>(null)
   const [toolGateMode, setToolGateMode] = useState<EngineeringToolGateMode>('observe')
   const [toolRuntimeLoading, setToolRuntimeLoading] = useState(false)
+  const [toolActionRunning, setToolActionRunning] = useState<string | null>(null)
   const [apiContractRunning, setApiContractRunning] = useState(false)
   const [codeLayerFilter, setCodeLayerFilter] = useState('')
   const [codeDocsStatusFilter, setCodeDocsStatusFilter] = useState('')
@@ -149,6 +162,10 @@ export default function EngineeringScreen() {
   const toolRuntimeSummary = useMemo(
     () => buildEngineeringToolRuntimeSummary(toolRuntime?.tools ?? [], toolEvidence?.data ?? []),
     [toolEvidence, toolRuntime],
+  )
+  const toolAuthoritySummary = useMemo(
+    () => buildEngineeringToolAuthoritySummary(toolAuthority),
+    [toolAuthority],
   )
 
   const loadSuites = useCallback(async () => {
@@ -211,22 +228,28 @@ export default function EngineeringScreen() {
     setToolRuntimeLoading(true)
     try {
       const resolvedWorkspace = workspaceInput.trim()
-      const [doctorResponse, evidenceResponse, gateResponse] = await Promise.all([
+      const [doctorResponse, authorityResponse, evidenceResponse, gateResponse, policiesResponse] = await Promise.all([
         fetchAtlasToolsDoctor({ workspace: resolvedWorkspace || null }),
+        fetchAtlasToolsAuthority(),
         listAtlasToolEvidence({ workspace: resolvedWorkspace || null, limit: 8 }),
         evaluateAtlasToolGate(buildToolRuntimeGateFilters({
           workspace: resolvedWorkspace,
           mode: gateMode,
           limit: 8,
         })),
+        listAtlasToolPolicies({ workspace: resolvedWorkspace || null, limit: 8 }),
       ])
       setToolRuntime(doctorResponse)
+      setToolAuthority(authorityResponse)
       setToolEvidence(evidenceResponse)
       setToolGate(gateResponse)
+      setToolPolicies(policiesResponse)
     } catch {
       setToolRuntime(null)
+      setToolAuthority(null)
       setToolEvidence(null)
       setToolGate(null)
+      setToolPolicies(null)
       showToast('Não consegui carregar Tool Runtime')
     } finally {
       setToolRuntimeLoading(false)
@@ -254,6 +277,104 @@ export default function EngineeringScreen() {
       showToast('API Contract falhou antes de registrar evidência')
     } finally {
       setApiContractRunning(false)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
+
+  const approveToolFromApp = useCallback(async (tool: {
+    slug: string
+    executionTier?: string | null
+    risks?: string[]
+  }) => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de aprovar ferramenta')
+      return
+    }
+
+    const actionKey = `approve:${tool.slug}`
+    setToolActionRunning(actionKey)
+    try {
+      await approveAtlasTool(tool.slug, {
+        workspace: resolvedWorkspace,
+        scope_type: 'workspace',
+        reason: 'Engineering app operator approval',
+        ttl_hours: 2,
+        network_allowed: false,
+        max_execution_tier: tool.executionTier || 'T1',
+        sandbox_mode: tool.risks?.includes('writes_workspace') ? 'worktree' : 'workspace',
+        privacy_level: 'standard',
+        task_type: 'manual',
+        requires_provider_safe: false,
+      })
+      showToast(`${tool.slug} aprovado por 2h`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('Não consegui aprovar a ferramenta')
+    } finally {
+      setToolActionRunning(null)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
+
+  const revokeToolFromApp = useCallback(async (toolSlug: string) => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de revogar approval')
+      return
+    }
+
+    const actionKey = `revoke:${toolSlug}`
+    setToolActionRunning(actionKey)
+    try {
+      await revokeAtlasToolApproval(toolSlug, {
+        workspace: resolvedWorkspace,
+        scope_type: 'workspace',
+      })
+      showToast(`${toolSlug} revogado`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('Não consegui revogar a approval')
+    } finally {
+      setToolActionRunning(null)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
+
+  const dryRunToolFromApp = useCallback(async (tool: {
+    slug: string
+    binary: string
+    executionTier?: string | null
+    safeCommands?: Array<{
+      name: string
+      command: string[]
+      dry_run_default: boolean
+      network_allowed: boolean
+      max_execution_tier?: string | null
+      sandbox_mode?: string | null
+      privacy_level?: string | null
+      task_type?: string | null
+      requires_provider_safe?: boolean
+    }>
+  }) => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de rodar dry-run')
+      return
+    }
+
+    const actionKey = `dry-run:${tool.slug}`
+    setToolActionRunning(actionKey)
+    try {
+      const recipe = tool.safeCommands?.find((command) => command.dry_run_default) ?? tool.safeCommands?.[0]
+      const response = await runAtlasToolRecipe(tool.slug, recipe?.name ?? 'version', {
+        workspace: resolvedWorkspace,
+        dry_run: recipe?.dry_run_default ?? true,
+        output_limit: 12000,
+      })
+      showToast(`Dry-run ${response.data.status}`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('Não consegui registrar dry-run')
+    } finally {
+      setToolActionRunning(null)
     }
   }, [loadToolRuntime, showToast, toolGateMode, workspace])
 
@@ -571,17 +692,24 @@ export default function EngineeringScreen() {
 
       <ToolRuntimeCard
         runtime={toolRuntime}
+        authority={toolAuthority}
         evidence={toolEvidence}
         gate={toolGate}
+        policies={toolPolicies}
         gateMode={toolGateMode}
         summary={toolRuntimeSummary}
+        authoritySummary={toolAuthoritySummary}
         loading={toolRuntimeLoading}
+        actionRunning={toolActionRunning}
         apiContractRunning={apiContractRunning}
         onGateModeChange={(mode) => {
           setToolGateMode(mode)
           void loadToolRuntime(workspace, mode)
         }}
         onRefresh={() => { void loadToolRuntime(workspace, toolGateMode) }}
+        onApproveTool={(tool) => { void approveToolFromApp(tool) }}
+        onRevokeTool={(toolSlug) => { void revokeToolFromApp(toolSlug) }}
+        onDryRunTool={(tool) => { void dryRunToolFromApp(tool) }}
         onRunApiContract={() => { void runApiContract() }}
       />
 
@@ -1394,25 +1522,54 @@ function KnowledgeBaseCard({
 
 function ToolRuntimeCard({
   runtime,
+  authority,
   evidence,
   gate,
+  policies,
   gateMode,
   summary,
+  authoritySummary,
   loading,
+  actionRunning,
   apiContractRunning,
   onGateModeChange,
   onRefresh,
+  onApproveTool,
+  onRevokeTool,
+  onDryRunTool,
   onRunApiContract,
 }: {
   runtime: AtlasToolsDoctorResponse | null
+  authority: AtlasToolsAuthorityResponse | null
   evidence: AtlasToolsEvidenceResponse | null
   gate: AtlasToolsGateResponse | null
+  policies: AtlasToolsPoliciesResponse | null
   gateMode: EngineeringToolGateMode
   summary: EngineeringToolRuntimeSummary
+  authoritySummary: ReturnType<typeof buildEngineeringToolAuthoritySummary>
   loading: boolean
+  actionRunning: string | null
   apiContractRunning: boolean
   onGateModeChange: (mode: EngineeringToolGateMode) => void
   onRefresh: () => void
+  onApproveTool: (tool: { slug: string; executionTier?: string | null; risks?: string[] }) => void
+  onRevokeTool: (toolSlug: string) => void
+  onDryRunTool: (tool: {
+    slug: string
+    binary: string
+    executionTier?: string | null
+    safeCommands?: Array<{
+      name: string
+      command: string[]
+      dry_run_default: boolean
+      network_allowed: boolean
+      max_execution_tier?: string | null
+      sandbox_mode?: string | null
+      privacy_level?: string | null
+      task_type?: string | null
+      requires_provider_safe?: boolean
+    }>
+  }) => void
   onRunApiContract: () => void
 }) {
   const c = usePalette()
@@ -1420,7 +1577,16 @@ function ToolRuntimeCard({
     statusWeight(left.status) - statusWeight(right.status)
   ))
   const runs = evidence?.data ?? []
+  const policyRows = policies?.data ?? []
+  const policyByTool = new Map(policyRows.map((policy) => [policy.tool_slug, policy]))
   const gateIssue = gate?.blocking_failures?.[0] ?? gate?.warnings?.[0] ?? null
+  const authorityGroups = [...(authority?.authority_groups ?? [])].sort((left, right) => (
+    Number(right.missing_primary) - Number(left.missing_primary)
+    || Number(right.duplicate_primary) - Number(left.duplicate_primary)
+    || right.high_risk_tools.length - left.high_risk_tools.length
+    || left.authority_group.localeCompare(right.authority_group)
+  ))
+  const authorityRecommendations = authority?.recommendations ?? []
 
   return (
     <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
@@ -1476,6 +1642,34 @@ function ToolRuntimeCard({
         <Metric label="evidências" value={String(summary.evidenceCount)} tone={summary.evidenceCount > 0 ? summary.status : 'unknown'} />
         <Metric label="falhas" value={String(summary.failedEvidenceCount + summary.blockingFindingCount)} tone={summary.failedEvidenceCount + summary.blockingFindingCount > 0 ? 'failed' : 'ready'} />
       </View>
+      <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+        <View style={styles.panelTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Matriz de autoridade</Label>
+            <Sans weight="sb" size={13.5} lineHeight={19} color={c.ink} numberOfLines={1}>
+              {authoritySummary.toolCount} tools · {authoritySummary.authorityGroupCount} grupos
+            </Sans>
+            <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+              {authoritySummary.tierLine}
+            </Mono>
+          </View>
+          <StatusPill
+            status={authoritySummary.highRecommendationCount > 0 || authoritySummary.missingPrimaryCount > 0 ? 'warning' : 'ready'}
+            compact
+          />
+        </View>
+        <View style={styles.metricsCompact}>
+          <Metric label="recomendações" value={String(authoritySummary.recommendationCount)} tone={authoritySummary.recommendationCount > 0 ? 'warning' : 'ready'} />
+          <Metric label="alta" value={String(authoritySummary.highRecommendationCount)} tone={authoritySummary.highRecommendationCount > 0 ? 'failed' : 'ready'} />
+          <Metric label="sem primária" value={String(authoritySummary.missingPrimaryCount)} tone={authoritySummary.missingPrimaryCount > 0 ? 'warning' : 'ready'} />
+          <Metric label="coautoridade" value={String(authoritySummary.duplicatePrimaryCount)} tone={authoritySummary.duplicatePrimaryCount > 0 ? 'warning' : 'ready'} />
+        </View>
+        {authorityRecommendations.slice(0, 2).map((recommendation) => (
+          <Mono key={`${recommendation.authority_group}-${recommendation.code}`} size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+            {recommendation.severity} · {recommendation.authority_group} · {recommendation.message}
+          </Mono>
+        ))}
+      </View>
       <View style={[styles.gateBox, { borderColor: statusColor(gate?.status ?? 'unknown', c), backgroundColor: c.bg }]}>
         <View style={styles.panelTop}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -1524,22 +1718,151 @@ function ToolRuntimeCard({
             {runtime?.status ?? 'unknown'}
           </Mono>
         </View>
-        {tools.slice(0, 8).map((tool) => (
-          <View key={tool.slug} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
-                {tool.name}
-              </Sans>
-              <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
-                {tool.binary} · {toolRuntimeRiskLine(tool)}
-              </Mono>
+        {tools.slice(0, 8).map((tool) => {
+          const policy = policyByTool.get(tool.slug)
+          const approved = policy?.approval_status === 'approved'
+          const approving = actionRunning === `approve:${tool.slug}`
+          const revoking = actionRunning === `revoke:${tool.slug}`
+          const dryRunning = actionRunning === `dry-run:${tool.slug}`
+
+          return (
+            <View key={tool.slug} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                  {tool.name}
+                </Sans>
+                <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                  {tool.binary} · {toolRuntimeRiskLine(tool)} · {(tool.safe_commands?.length ?? 0)} recipes
+                </Mono>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                <StatusPill status={tool.status} compact />
+                <View style={styles.rowActions}>
+                  <Pressable
+                    disabled={Boolean(actionRunning)}
+                    onPress={() => onDryRunTool({
+                      slug: tool.slug,
+                      binary: tool.binary,
+                      executionTier: tool.execution_tier,
+                      safeCommands: tool.safe_commands,
+                    })}
+                    style={({ pressed }) => [
+                      styles.inlineButtonTiny,
+                      {
+                        borderColor: c.border,
+                        backgroundColor: dryRunning ? c.bg : c.surface,
+                        opacity: pressed && !actionRunning ? 0.82 : 1,
+                      },
+                    ]}
+                  >
+                    <Sans weight="sb" size={11} lineHeight={14} color={c.ink}>
+                      {dryRunning ? 'Dry' : 'Dry-run'}
+                    </Sans>
+                  </Pressable>
+                  <Pressable
+                    disabled={Boolean(actionRunning)}
+                    onPress={() => approved
+                      ? onRevokeTool(tool.slug)
+                      : onApproveTool({
+                        slug: tool.slug,
+                        executionTier: tool.execution_tier,
+                        risks: tool.risks,
+                      })}
+                    style={({ pressed }) => [
+                      styles.inlineButtonTiny,
+                      {
+                        borderColor: approved ? c.recRed : c.border,
+                        backgroundColor: approving || revoking ? c.bg : c.surface,
+                        opacity: pressed && !actionRunning ? 0.82 : 1,
+                      },
+                    ]}
+                  >
+                    <Sans weight="sb" size={11} lineHeight={14} color={approved ? c.recRed : c.ink}>
+                      {revoking ? 'Revogando' : approving ? 'Aprovando' : approved ? 'Revogar' : 'Aprovar 2h'}
+                    </Sans>
+                  </Pressable>
+                </View>
+              </View>
             </View>
-            <StatusPill status={tool.status} compact />
-          </View>
-        ))}
+          )
+        })}
         {tools.length === 0 ? (
           <Sans size={12.5} lineHeight={18} color={c.ink2}>
             Registry ainda não carregado.
+          </Sans>
+        ) : null}
+      </View>
+      <View style={styles.auditSection}>
+        <View style={styles.sectionHead}>
+          <Label>Approval policies</Label>
+          <Mono size={10.5} lineHeight={14} color={c.ink2}>
+            {policyRows.length}
+          </Mono>
+        </View>
+        {policyRows.slice(0, 5).map((policy) => {
+          const revoking = actionRunning === `revoke:${policy.tool_slug}`
+
+          return (
+            <View key={policy.id} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                  {policy.tool_slug}
+                </Sans>
+                <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                  {toolApprovalPolicyLine(policy)}
+                </Mono>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                <StatusPill status={policy.approval_status ?? 'unknown'} compact />
+                <Pressable
+                  disabled={Boolean(actionRunning) || policy.approval_status !== 'approved'}
+                  onPress={() => onRevokeTool(policy.tool_slug)}
+                  style={({ pressed }) => [
+                    styles.inlineButtonTiny,
+                    {
+                      borderColor: c.recRed,
+                      backgroundColor: revoking ? c.bg : c.surface,
+                      opacity: pressed && !actionRunning ? 0.82 : 1,
+                    },
+                  ]}
+                >
+                  <Sans weight="sb" size={11} lineHeight={14} color={c.recRed}>
+                    {revoking ? 'Revogando' : 'Revogar'}
+                  </Sans>
+                </Pressable>
+              </View>
+            </View>
+          )
+        })}
+        {policyRows.length === 0 ? (
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            Nenhuma approval policy configurada.
+          </Sans>
+        ) : null}
+      </View>
+      <View style={styles.auditSection}>
+        <View style={styles.sectionHead}>
+          <Label>Autoridade</Label>
+          <Mono size={10.5} lineHeight={14} color={c.ink2}>
+            {authorityGroups.length}
+          </Mono>
+        </View>
+        {authorityGroups.slice(0, 5).map((group) => (
+          <View key={group.authority_group} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                {group.authority_group}
+              </Sans>
+              <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                {toolAuthorityGroupLine(group)}
+              </Mono>
+            </View>
+            <StatusPill status={group.missing_primary || group.duplicate_primary ? 'warning' : 'ready'} compact />
+          </View>
+        ))}
+        {authorityGroups.length === 0 ? (
+          <Sans size={12.5} lineHeight={18} color={c.ink2}>
+            Matriz de autoridade ainda não carregada.
           </Sans>
         ) : null}
       </View>
@@ -2664,6 +2987,12 @@ function statusLabel(status: string): string {
       return 'faltando'
     case 'allowed':
       return 'permitido'
+    case 'approved':
+      return 'aprovado'
+    case 'not_approved':
+      return 'sem aprovação'
+    case 'not_configured':
+      return 'sem policy'
     case 'denied':
       return 'negado'
     case 'requires_approval':
@@ -2744,10 +3073,10 @@ function statusLabel(status: string): string {
 function statusColor(status: string, c: ReturnType<typeof usePalette>): string {
   const normalized = status.toLowerCase()
   if (['passed', 'resolved', 'ok', 'active', 'ready'].includes(normalized)) return c.moss
-  if (['improved', 'melhor', 'release_ready', 'healthy', 'documented', 'current', 'fresh', 'accepted', 'accept', 'best_repair_base', 'allowed'].includes(normalized)) return c.moss
+  if (['improved', 'melhor', 'release_ready', 'healthy', 'documented', 'current', 'fresh', 'accepted', 'accept', 'best_repair_base', 'allowed', 'approved'].includes(normalized)) return c.moss
   if (['failed', 'unresolved', 'unsafe', 'falha', 'regressed', 'blocked', 'degraded', 'incident', 'rolled_back', 'cancelled', 'cancel', 'reject', 'missing_target', 'missing', 'denied'].includes(normalized)) return c.recRed
   if (['avoid_replay_base'].includes(normalized)) return c.recRed
-  if (['partial', 'reviewing', 'running', 'first_baseline', 'stable', 'warning', 'needs_review', 'monitoring', 'pending', 'watch', 'conservative', 'adjusted', 'needs_human', 'ranked', 'single_attempt', 'review_before_replay', 'module_documented', 'undocumented', 'drift_detected', 'empty_index', 'requires_approval'].includes(normalized)) return c.bronze
+  if (['partial', 'reviewing', 'running', 'first_baseline', 'stable', 'warning', 'needs_review', 'monitoring', 'pending', 'watch', 'conservative', 'adjusted', 'needs_human', 'ranked', 'single_attempt', 'review_before_replay', 'module_documented', 'undocumented', 'drift_detected', 'empty_index', 'requires_approval', 'not_approved', 'not_configured'].includes(normalized)) return c.bronze
   return c.ink2
 }
 
@@ -3019,6 +3348,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+  },
+  inlineButtonTiny: {
+    minHeight: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  rowActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 6,
+    maxWidth: 190,
   },
   filterBlock: {
     marginTop: 14,
