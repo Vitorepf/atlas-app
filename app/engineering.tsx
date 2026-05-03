@@ -11,6 +11,7 @@ import {
   calibrateEngineeringBenchmarkSuite,
   calibrateEngineeringHarnessability,
   ensureDefaultEngineeringBenchmarkSuite,
+  evaluateAtlasToolGate,
   fetchAtlasToolsDoctor,
   fetchEngineeringCodeAudit,
   fetchEngineeringCodeModule,
@@ -30,7 +31,9 @@ import {
   indexEngineeringCodeKnowledge,
   replayEngineeringRun,
   replayEngineeringRunAttempt,
+  promoteEngineeringRunToBenchmarkCase,
   runEngineeringBenchmarkSuite,
+  runEngineeringApiContract,
   syncEngineeringKnowledge,
   type AtlasEngineeringAttemptComparisonRow,
   type AtlasEngineeringBenchmarkResultSummary,
@@ -51,11 +54,17 @@ import {
   type AtlasEngineeringTestRunSummary,
   type AtlasToolsDoctorResponse,
   type AtlasToolsEvidenceResponse,
+  type AtlasToolsGateResponse,
 } from '../lib/api/client'
 import {
+  buildToolRuntimeGateFilters,
   buildEngineeringToolRuntimeSummary,
   toolRuntimeEvidenceLine,
+  toolRuntimeGateIssueLine,
+  toolRuntimeGateLine,
+  toolRuntimeGateModeLine,
   toolRuntimeRiskLine,
+  type EngineeringToolGateMode,
   type EngineeringToolRuntimeSummary,
 } from '../lib/engineeringToolRuntime'
 import {
@@ -111,7 +120,10 @@ export default function EngineeringScreen() {
   const [auditingCodeKnowledge, setAuditingCodeKnowledge] = useState(false)
   const [toolRuntime, setToolRuntime] = useState<AtlasToolsDoctorResponse | null>(null)
   const [toolEvidence, setToolEvidence] = useState<AtlasToolsEvidenceResponse | null>(null)
+  const [toolGate, setToolGate] = useState<AtlasToolsGateResponse | null>(null)
+  const [toolGateMode, setToolGateMode] = useState<EngineeringToolGateMode>('observe')
   const [toolRuntimeLoading, setToolRuntimeLoading] = useState(false)
+  const [apiContractRunning, setApiContractRunning] = useState(false)
   const [codeLayerFilter, setCodeLayerFilter] = useState('')
   const [codeDocsStatusFilter, setCodeDocsStatusFilter] = useState('')
   const [codeSymbolTypeFilter, setCodeSymbolTypeFilter] = useState('')
@@ -195,24 +207,55 @@ export default function EngineeringScreen() {
     }
   }, [])
 
-  const loadToolRuntime = useCallback(async (workspaceInput = '') => {
+  const loadToolRuntime = useCallback(async (workspaceInput = '', gateMode: EngineeringToolGateMode = 'observe') => {
     setToolRuntimeLoading(true)
     try {
       const resolvedWorkspace = workspaceInput.trim()
-      const [doctorResponse, evidenceResponse] = await Promise.all([
+      const [doctorResponse, evidenceResponse, gateResponse] = await Promise.all([
         fetchAtlasToolsDoctor({ workspace: resolvedWorkspace || null }),
         listAtlasToolEvidence({ workspace: resolvedWorkspace || null, limit: 8 }),
+        evaluateAtlasToolGate(buildToolRuntimeGateFilters({
+          workspace: resolvedWorkspace,
+          mode: gateMode,
+          limit: 8,
+        })),
       ])
       setToolRuntime(doctorResponse)
       setToolEvidence(evidenceResponse)
+      setToolGate(gateResponse)
     } catch {
       setToolRuntime(null)
       setToolEvidence(null)
+      setToolGate(null)
       showToast('Não consegui carregar Tool Runtime')
     } finally {
       setToolRuntimeLoading(false)
     }
   }, [showToast])
+
+  const runApiContract = useCallback(async () => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de rodar API Contract')
+      return
+    }
+
+    setApiContractRunning(true)
+    try {
+      const response = await runEngineeringApiContract({
+        workspace: resolvedWorkspace,
+        strict: toolGateMode === 'release',
+        run_context_type: 'engineering_dashboard',
+        run_context_id: 'api-contract',
+      })
+      showToast(`API Contract ${response.status} · ${response.summary.finding_count} findings`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('API Contract falhou antes de registrar evidência')
+    } finally {
+      setApiContractRunning(false)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
 
   const loadKnowledge = useCallback(async () => {
     try {
@@ -334,7 +377,7 @@ export default function EngineeringScreen() {
       loadSuites(),
       loadSuite(selectedSuite),
       loadHarnessCalibration(),
-      loadToolRuntime(workspace),
+      loadToolRuntime(workspace, toolGateMode),
       loadKnowledge(),
       loadCodeKnowledge(),
       loadCodeSymbols(),
@@ -529,9 +572,17 @@ export default function EngineeringScreen() {
       <ToolRuntimeCard
         runtime={toolRuntime}
         evidence={toolEvidence}
+        gate={toolGate}
+        gateMode={toolGateMode}
         summary={toolRuntimeSummary}
         loading={toolRuntimeLoading}
-        onRefresh={() => { void loadToolRuntime(workspace) }}
+        apiContractRunning={apiContractRunning}
+        onGateModeChange={(mode) => {
+          setToolGateMode(mode)
+          void loadToolRuntime(workspace, mode)
+        }}
+        onRefresh={() => { void loadToolRuntime(workspace, toolGateMode) }}
+        onRunApiContract={() => { void runApiContract() }}
       />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suiteRail}>
@@ -1344,21 +1395,32 @@ function KnowledgeBaseCard({
 function ToolRuntimeCard({
   runtime,
   evidence,
+  gate,
+  gateMode,
   summary,
   loading,
+  apiContractRunning,
+  onGateModeChange,
   onRefresh,
+  onRunApiContract,
 }: {
   runtime: AtlasToolsDoctorResponse | null
   evidence: AtlasToolsEvidenceResponse | null
+  gate: AtlasToolsGateResponse | null
+  gateMode: EngineeringToolGateMode
   summary: EngineeringToolRuntimeSummary
   loading: boolean
+  apiContractRunning: boolean
+  onGateModeChange: (mode: EngineeringToolGateMode) => void
   onRefresh: () => void
+  onRunApiContract: () => void
 }) {
   const c = usePalette()
   const tools = [...(runtime?.tools ?? [])].sort((left, right) => (
     statusWeight(left.status) - statusWeight(right.status)
   ))
   const runs = evidence?.data ?? []
+  const gateIssue = gate?.blocking_failures?.[0] ?? gate?.warnings?.[0] ?? null
 
   return (
     <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
@@ -1390,6 +1452,22 @@ function ToolRuntimeCard({
               {loading ? 'Atualizando' : 'Atualizar'}
             </Sans>
           </Pressable>
+          <Pressable
+            disabled={apiContractRunning}
+            onPress={onRunApiContract}
+            style={({ pressed }) => [
+              styles.inlineButton,
+              {
+                borderColor: c.border,
+                backgroundColor: apiContractRunning ? c.bg : c.surface,
+                opacity: pressed && !apiContractRunning ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+              {apiContractRunning ? 'Validando' : 'API Contract'}
+            </Sans>
+          </Pressable>
         </View>
       </View>
       <View style={styles.metricsCompact}>
@@ -1397,6 +1475,47 @@ function ToolRuntimeCard({
         <Metric label="missing" value={String(summary.missingCount)} tone={summary.missingCount > 0 ? 'warning' : 'ready'} />
         <Metric label="evidências" value={String(summary.evidenceCount)} tone={summary.evidenceCount > 0 ? summary.status : 'unknown'} />
         <Metric label="falhas" value={String(summary.failedEvidenceCount + summary.blockingFindingCount)} tone={summary.failedEvidenceCount + summary.blockingFindingCount > 0 ? 'failed' : 'ready'} />
+      </View>
+      <View style={[styles.gateBox, { borderColor: statusColor(gate?.status ?? 'unknown', c), backgroundColor: c.bg }]}>
+        <View style={styles.panelTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Evidence gate</Label>
+            <Sans weight="sb" size={13.5} lineHeight={19} color={c.ink} numberOfLines={1}>
+              {gate ? (gate.allowed ? 'Fluxo liberado' : 'Fluxo bloqueado') : 'Gate não avaliado'}
+            </Sans>
+            <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+              {toolRuntimeGateLine(gate)}
+            </Mono>
+            <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+              {toolRuntimeGateModeLine(gateMode)}
+            </Mono>
+          </View>
+          <StatusPill status={gate?.status ?? 'unknown'} compact />
+        </View>
+        <View style={styles.filterBlock}>
+          <FilterChips
+            label="Gate"
+            value={gateMode}
+            options={[
+              { value: 'observe', label: 'observação' },
+              { value: 'release', label: 'release' },
+            ]}
+            onChange={(value) => onGateModeChange(value as EngineeringToolGateMode)}
+          />
+        </View>
+        {gate ? (
+          <View style={styles.metricsCompact}>
+            <Metric label="runs" value={String(gate.summary?.run_count ?? 0)} tone={gate.status} />
+            <Metric label="tools" value={String(gate.summary?.tool_count ?? 0)} tone={gate.status} />
+            <Metric label="bloqueios" value={String(gate.summary?.blocking_failure_count ?? 0)} tone={(gate.summary?.blocking_failure_count ?? 0) > 0 ? 'failed' : 'passed'} />
+            <Metric label="avisos" value={String(gate.summary?.warning_count ?? 0)} tone={(gate.summary?.warning_count ?? 0) > 0 ? 'warning' : 'passed'} />
+          </View>
+        ) : null}
+        {gateIssue ? (
+          <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+            {toolRuntimeGateIssueLine(gateIssue)}
+          </Mono>
+        ) : null}
       </View>
       <View style={styles.auditSection}>
         <View style={styles.sectionHead}>
@@ -1757,6 +1876,7 @@ function EngineeringRunDetail({
   const [artifactLoading, setArtifactLoading] = useState(false)
   const [artifactContent, setArtifactContent] = useState<AtlasEngineeringTestArtifactContentResponse | null>(null)
   const [artifactContentLoading, setArtifactContentLoading] = useState(false)
+  const [promoting, setPromoting] = useState(false)
 
   useEffect(() => {
     setReplayedRun(null)
@@ -1907,6 +2027,33 @@ function EngineeringRunDetail({
     }
   }, [activeRun.id, operatorActioning, showToast])
 
+  const promoteRun = useCallback(async () => {
+    if (!activeRun.id || promoting) return
+    setPromoting(true)
+    try {
+      await ensureDefaultEngineeringBenchmarkSuite({
+        slug: 'atlas-real-runs',
+        name: 'Atlas real runs',
+        description: 'Corpus promovido a partir de runs reais do Harness.',
+      })
+      await promoteEngineeringRunToBenchmarkCase('atlas-real-runs', {
+        run_id: activeRun.id,
+        title: `Run real ${String(activeRun.id).slice(0, 8)}`,
+        expected_decision: activeRun.decision ?? 'resolved',
+        status: 'active',
+        metadata: {
+          source: 'atlas_app',
+          promoted_from_flow: 'engineering_run_detail',
+        },
+      })
+      showToast('Run promovido para Atlas-Bench', { variant: 'checkin' })
+    } catch {
+      showToast('Não consegui promover o run')
+    } finally {
+      setPromoting(false)
+    }
+  }, [activeRun.decision, activeRun.id, promoting, showToast])
+
   return (
     <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
       <View style={styles.panelTop}>
@@ -1973,6 +2120,22 @@ function EngineeringRunDetail({
         >
           <Sans weight="sb" size={12} lineHeight={16} color={c.prussian}>
             {replaying ? 'Replay' : 'Replay sensores'}
+          </Sans>
+        </Pressable>
+        <Pressable
+          disabled={!activeRun.id || promoting}
+          onPress={() => { void promoteRun() }}
+          style={({ pressed }) => [
+            styles.inlineButton,
+            {
+              borderColor: c.border,
+              backgroundColor: pressed && activeRun.id && !promoting ? c.premium : c.surface,
+              opacity: activeRun.id && !promoting ? 1 : 0.45,
+            },
+          ]}
+        >
+          <Sans weight="sb" size={12} lineHeight={16} color={c.prussian}>
+            {promoting ? 'Promovendo' : 'Promover Bench'}
           </Sans>
         </Pressable>
       </View>

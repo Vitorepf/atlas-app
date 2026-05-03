@@ -13,6 +13,14 @@ import {
   traceMatchesTurnFilter,
   type AtlasAiTurnFilter,
 } from '../lib/atlasAiRuntime'
+import {
+  atlasDefaultTaskForMode,
+  atlasDomainAllowedForMode,
+  atlasModeContractForRouting,
+  atlasModePayloadForRoutingContract,
+  atlasQualityPolicyForMode,
+  atlasTaskAllowedForMode,
+} from '../lib/atlasAiModeContract'
 import type { AtlasAiQualityAction, AtlasAiSessionState, AtlasAiTrace } from '../lib/api/client'
 
 function trace(input: Partial<AtlasAiTrace> & { id: string; created_at?: string }): AtlasAiTrace {
@@ -71,6 +79,38 @@ function action(input: Partial<AtlasAiQualityAction> = {}): AtlasAiQualityAction
     created_at: input.created_at ?? '2026-04-29T12:00:00.000Z',
     updated_at: input.updated_at ?? '2026-04-29T12:00:00.000Z',
   }
+}
+
+{
+  const routing = { mode: 'general', task: 'direct', domain: 'auto', executor: 'auto', style: 'clear' } as const
+  const general = atlasModePayloadForRoutingContract(routing, 'general')
+  assert.equal(general.atlas_mode, 'general')
+  assert.equal((general as Record<string, unknown>).permission_mode, undefined)
+  assert.deepEqual(atlasQualityPolicyForMode('general'), {
+    keep_context_light: true,
+    avoid_operational_or_programming_assumptions: true,
+  })
+
+  const operational = atlasModeContractForRouting('operational', { ...routing, mode: 'operational', task: 'review', domain: 'atlas' })
+  assert.equal(operational.mode, 'operational')
+  assert.ok(Array.isArray(operational.expected_output))
+  assert.ok((operational.expected_output as string[]).includes('evidencias'))
+
+  const programming = atlasModePayloadForRoutingContract({ ...routing, mode: 'programming', task: 'dev', domain: 'atlas', executor: 'codex_cli', style: 'technical' }, 'programming')
+  assert.equal(programming.atlas_mode, 'programming')
+  assert.equal(programming.permission_mode, 'danger')
+  assert.equal((programming.mobile_runtime_policy as Record<string, unknown>).allows_code_execution, true)
+  assert.equal((programming.programming_harness as Record<string, unknown>).workspace_required, true)
+  const programmingWithWorkspace = atlasModePayloadForRoutingContract(
+    { ...routing, mode: 'programming', task: 'dev', domain: 'atlas', executor: 'codex_cli', style: 'technical' },
+    'programming',
+    { workspace: '/Users/vitorepf/Develop/atlas' },
+  )
+  assert.equal(((programmingWithWorkspace.tool_permissions as Record<string, unknown>).workspace), '/Users/vitorepf/Develop/atlas')
+  assert.equal(atlasTaskAllowedForMode('dev', 'general'), false)
+  assert.equal(atlasTaskAllowedForMode('dev', 'programming'), true)
+  assert.equal(atlasDefaultTaskForMode('operational'), 'review')
+  assert.equal(atlasDomainAllowedForMode('atlas', 'general'), false)
 }
 
 {

@@ -1,6 +1,12 @@
 import { Pressable, StyleSheet, View } from 'react-native'
 import { Frau } from '../../design/Type'
 import { usePalette } from '../../design/theme'
+import {
+  atlasDefaultTaskForMode,
+  atlasDomainAllowedForMode,
+  atlasTaskAllowedForMode,
+  type AtlasAiMode,
+} from '../../lib/atlasAiModeContract'
 
 export type RoutingTask = 'direct' | 'plan' | 'review' | 'dev' | 'debug'
 export const ROUTING_DOMAIN_OPTIONS = [
@@ -14,7 +20,7 @@ export const ROUTING_DOMAIN_OPTIONS = [
 export type RoutingDomain = (typeof ROUTING_DOMAIN_OPTIONS)[number]['key']
 export type RoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type RoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
-export type RoutingMode = 'general' | 'operational' | 'programming'
+export type RoutingMode = AtlasAiMode
 
 export interface RoutingState {
   mode: RoutingMode
@@ -42,7 +48,9 @@ export function sanitizeRoutingState(state: RoutingState): RoutingState {
   const mode = isRoutingMode(state.mode) ? state.mode : legacyModeForTask(state.task, state.domain)
   const task = taskAllowedForMode(state.task, mode) ? state.task : defaultTaskForMode(mode)
   const domain = routingDomainAllowedForMode(state.domain, mode) ? state.domain : 'auto'
-  const next = { ...state, mode, task, domain }
+  const executor = isRoutingExecutor(state.executor) ? state.executor : 'auto'
+  const style = isRoutingStyle(state.style) ? state.style : 'clear'
+  const next = { ...state, mode, task, domain, executor, style }
 
   return routingExecutorAllowedForTask(next.executor, next.task)
     ? next
@@ -110,9 +118,7 @@ export function isRoutingDomainKey(value: unknown): value is RoutingDomain {
 }
 
 export function routingDomainAllowedForMode(domain: RoutingDomain, mode: RoutingMode): boolean {
-  if (domain === 'auto') return true
-  if (mode === 'general') return domain !== 'atlas'
-  return true
+  return atlasDomainAllowedForMode(domain, mode)
 }
 
 function executorVerb(executor: RoutingExecutor): string {
@@ -158,16 +164,20 @@ function isRoutingMode(value: unknown): value is RoutingMode {
   return value === 'general' || value === 'operational' || value === 'programming'
 }
 
+function isRoutingExecutor(value: unknown): value is RoutingExecutor {
+  return value === 'auto' || value === 'claude_cli' || value === 'codex_cli' || value === 'gemini_cli' || value === 'claude_codex'
+}
+
+function isRoutingStyle(value: unknown): value is RoutingStyle {
+  return value === 'clear' || value === 'brief' || value === 'technical' || value === 'complete'
+}
+
 function taskAllowedForMode(task: RoutingTask, mode: RoutingMode): boolean {
-  if (mode === 'programming') return task === 'plan' || task === 'review' || task === 'dev' || task === 'debug'
-  if (mode === 'operational') return task === 'direct' || task === 'plan' || task === 'review'
-  return task === 'direct' || task === 'plan' || task === 'review'
+  return atlasTaskAllowedForMode(task, mode)
 }
 
 function defaultTaskForMode(mode: RoutingMode): RoutingTask {
-  if (mode === 'programming') return 'dev'
-  if (mode === 'operational') return 'review'
-  return 'direct'
+  return atlasDefaultTaskForMode(mode)
 }
 
 function legacyModeForTask(task: RoutingTask, domain: RoutingDomain): RoutingMode {

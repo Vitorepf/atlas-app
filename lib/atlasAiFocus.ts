@@ -20,10 +20,13 @@ const FOCUS_LABELS: Record<AtlasAiFocus, string> = {
 
 export function normalizeAtlasAiFocus(value: unknown, fallback: AtlasAiFocus = 'general'): AtlasAiFocus {
   if (typeof value !== 'string') return fallback
-  const normalized = value.trim().toLowerCase().replace(/-/g, '_')
+  const normalized = value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/-/g, '_')
   if (normalized === 'coding' || normalized === 'engineering') return 'programming'
+  if (normalized === 'programacao') return 'programming'
   if (normalized === 'operations') return 'operational'
+  if (normalized === 'operacional') return 'operational'
   if (normalized === 'conversation') return 'general'
+  if (normalized === 'revisao') return 'review'
   return (ATLAS_AI_FOCI as readonly string[]).includes(normalized) ? normalized as AtlasAiFocus : fallback
 }
 

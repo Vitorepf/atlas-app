@@ -1,4 +1,11 @@
-import type { AtlasToolDoctorItem, AtlasToolRunSummary } from './api/client'
+import type {
+  AtlasToolDoctorItem,
+  AtlasToolRunSummary,
+  AtlasToolsGateFilters,
+  AtlasToolsGateResponse,
+} from './api/client'
+
+export type EngineeringToolGateMode = 'observe' | 'release'
 
 export interface EngineeringToolRuntimeSummary {
   status: 'ready' | 'warning' | 'failed' | 'unknown'
@@ -65,6 +72,54 @@ export function toolRuntimeEvidenceLine(run: AtlasToolRunSummary): string {
     .join(' · ')
 }
 
+export function toolRuntimeGateLine(gate: AtlasToolsGateResponse | null | undefined): string {
+  if (!gate) return 'gate ainda não avaliado'
+
+  const runCount = gate.summary?.run_count ?? 0
+  const blockingCount = gate.summary?.blocking_failure_count ?? gate.blocking_failures?.length ?? 0
+  const warningCount = gate.summary?.warning_count ?? gate.warnings?.length ?? 0
+  const requiredTools = gate.required_tools?.length ?? 0
+
+  return [
+    gate.allowed ? 'liberado' : 'bloqueado',
+    pluralize(runCount, 'evidência', 'evidências'),
+    pluralize(blockingCount, 'bloqueio', 'bloqueios'),
+    pluralize(warningCount, 'aviso', 'avisos'),
+    requiredTools > 0 ? pluralize(requiredTools, 'ferramenta exigida', 'ferramentas exigidas') : null,
+  ].filter(Boolean).join(' · ')
+}
+
+export function toolRuntimeGateIssueLine(issue: Record<string, unknown> | null | undefined): string {
+  if (!issue) return 'sem detalhe'
+
+  const tool = stringValue(issue.tool_slug ?? issue.tool ?? issue.required_tool)
+  const rule = stringValue(issue.rule_id ?? issue.rule ?? issue.type)
+  const message = stringValue(issue.title ?? issue.message ?? issue.reason ?? issue.status)
+
+  return [tool, rule, message].filter(Boolean).join(' · ') || 'sem detalhe'
+}
+
+export function buildToolRuntimeGateFilters(input: {
+  workspace?: string | null
+  mode?: EngineeringToolGateMode
+  limit?: number
+}): AtlasToolsGateFilters {
+  const workspace = input.workspace?.trim() || null
+  const mode = input.mode ?? 'observe'
+
+  return {
+    workspace,
+    limit: input.limit ?? 8,
+    require_evidence: mode === 'release',
+  }
+}
+
+export function toolRuntimeGateModeLine(mode: EngineeringToolGateMode): string {
+  return mode === 'release'
+    ? 'release · exige evidência para liberar'
+    : 'observação · ausência de evidência vira aviso'
+}
+
 function statusForToolRuntime(input: {
   toolCount: number
   readyCount: number
@@ -79,4 +134,15 @@ function statusForToolRuntime(input: {
   if (input.readyCount > 0) return 'ready'
 
   return 'unknown'
+}
+
+function pluralize(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+
+  return null
 }

@@ -6,7 +6,7 @@
     "start": "expo start",
     "typecheck": "tsc --noEmit",
     "test:health": "tsx scripts/health-metrics.test.ts",
-    "test:atlas-ai": "tsx scripts/atlas-ai-runtime.test.ts && tsx scripts/mobile-deep-link.test.ts",
+    "test:atlas-ai": "tsx scripts/atlas-ai-runtime.test.ts && tsx scripts/atlas-ai-thread-routing.test.ts && tsx scripts/atlas-operational-bootstrap.test.ts && tsx scripts/mobile-deep-link.test.ts",
     "test:front": "npm run test:health && npm run test:atlas-ai && npm run test:memory && npm run test:engineering",
     "test:memory": "tsx scripts/memory-review-filters.test.ts && tsx scripts/memory-review-navigation.test.ts && tsx scripts/memory-review-shortcuts.test.ts && tsx scripts/memory-review-batch.test.ts && tsx scripts/memory-review-safety.test.ts && tsx scripts/memory-home-summary.test.ts && tsx scripts/memory-provider-projection.test.ts",
     "test:engineering": "tsx scripts/engineering-knowledge.test.ts && tsx scripts/engineering-tool-runtime.test.ts",

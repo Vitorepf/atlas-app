@@ -14,10 +14,14 @@ import {
   completeTask,
   convertProjectBlockerToTask,
   createProject,
+  createProjectEngineeringBlueprint,
   createProjectNextAction,
   deferTask,
   fetchTaskEngineering,
+  fetchProjectEngineeringBlueprint,
   freezeTaskEngineeringBlueprint,
+  freezeProjectEngineeringBlueprint,
+  generateProjectEngineeringTasks,
   listProjectEvents,
   listProjectBlockers,
   listProjects,
@@ -29,6 +33,7 @@ import {
   rebuildProjectPlan,
   recoverProjectExecution,
   recordTaskEngineeringEvidence,
+  recordTaskEngineeringQa,
   resolveProjectBlocker,
   reviewProject,
   scheduleTask,
@@ -38,6 +43,8 @@ import {
   type AtlasEngineeringEvidenceStatus,
   type AtlasEngineeringEvidenceType,
   type AtlasEngineeringPackageResponse,
+  type AtlasEngineeringProjectBlueprintResponse,
+  type AtlasEngineeringQaInput,
   type AtlasProject,
   type AtlasProjectBlocker,
   type AtlasProjectBlockerReasonCode,
@@ -87,6 +94,15 @@ type EngineeringEvidenceDraft = {
   status: AtlasEngineeringEvidenceStatus
   confidence: string
   summary: string
+}
+type EngineeringQaDraft = {
+  steps: string
+  expected: string
+  actual: string
+  screenshot: string
+  consoleOutput: string
+  networkOutput: string
+  riskNotes: string
 }
 type EngineeringEvidenceTarget = {
   id: string
@@ -201,6 +217,7 @@ export default function ProjectsScreen() {
   const [events, setEvents] = useState<AtlasProjectEvent[]>([])
   const [blockers, setBlockers] = useState<AtlasProjectBlocker[]>([])
   const [engineeringPackage, setEngineeringPackage] = useState<AtlasEngineeringPackageResponse | null>(null)
+  const [projectBlueprint, setProjectBlueprint] = useState<AtlasEngineeringProjectBlueprintResponse | null>(null)
   const [engineeringLoading, setEngineeringLoading] = useState(false)
   const [reviewItems, setReviewItems] = useState<ProjectReviewItem[]>([])
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -310,10 +327,14 @@ export default function ProjectsScreen() {
       setSteps([])
       setEvents([])
       setBlockers([])
+      setProjectBlueprint(null)
       return
     }
 
     void loadProjectDetails(selectedProjectId)
+    void fetchProjectEngineeringBlueprint(selectedProjectId)
+      .then(setProjectBlueprint)
+      .catch(() => setProjectBlueprint(null))
   }, [loadProjectDetails, selectedProjectId])
 
   useEffect(() => {
@@ -371,6 +392,12 @@ export default function ProjectsScreen() {
 
       return response
     })
+  }, [])
+
+  const refreshProjectBlueprint = useCallback(async (projectId: string) => {
+    const response = await fetchProjectEngineeringBlueprint(projectId)
+    setProjectBlueprint(response)
+    return response
   }, [])
 
   const reloadProject = async (projectId: string) => {
@@ -853,6 +880,7 @@ export default function ProjectsScreen() {
             events={selectedProjectId === project.id ? events : []}
             blockers={selectedProjectId === project.id ? blockers : []}
             engineeringPackage={selectedProjectId === project.id ? engineeringPackage : null}
+            projectBlueprint={selectedProjectId === project.id ? projectBlueprint : null}
             engineeringLoading={selectedProjectId === project.id ? engineeringLoading : false}
             detailLoading={detailLoading && selectedProjectId === project.id}
             nextActionText={selectedProjectId === project.id ? nextActionText : project.next_action ?? ''}
@@ -883,6 +911,7 @@ export default function ProjectsScreen() {
             onResolveBlocker={(blocker) => { void resolveBlocker(project, blocker) }}
             onEngineeringEvidenceRecorded={applyEngineeringEvidenceResponse}
             onEngineeringBlueprintFrozen={applyEngineeringPackageResponse}
+            onProjectBlueprintChanged={refreshProjectBlueprint}
             onOpenProjectMemory={() => {
               router.push({ pathname: '/memory', params: memoryProjectReviewParams(project.id) })
             }}
@@ -905,6 +934,7 @@ function ProjectCard({
   events,
   blockers,
   engineeringPackage,
+  projectBlueprint,
   engineeringLoading,
   detailLoading,
   nextActionText,
@@ -935,6 +965,7 @@ function ProjectCard({
   onResolveBlocker,
   onEngineeringEvidenceRecorded,
   onEngineeringBlueprintFrozen,
+  onProjectBlueprintChanged,
   onOpenProjectMemory,
   onOpenActiveTaskMemory,
 }: {
@@ -944,6 +975,7 @@ function ProjectCard({
   events: AtlasProjectEvent[]
   blockers: AtlasProjectBlocker[]
   engineeringPackage: AtlasEngineeringPackageResponse | null
+  projectBlueprint: AtlasEngineeringProjectBlueprintResponse | null
   engineeringLoading: boolean
   detailLoading: boolean
   nextActionText: string
@@ -974,6 +1006,7 @@ function ProjectCard({
   onResolveBlocker: (blocker: AtlasProjectBlocker) => void
   onEngineeringEvidenceRecorded: (response: AtlasEngineeringEvidenceResponse) => void
   onEngineeringBlueprintFrozen: (response: AtlasEngineeringPackageResponse) => void
+  onProjectBlueprintChanged: (projectId: string) => Promise<AtlasEngineeringProjectBlueprintResponse>
   onOpenProjectMemory: () => void
   onOpenActiveTaskMemory: () => void
 }) {
@@ -1212,6 +1245,13 @@ function ProjectCard({
                 <ExecutionPacketView packet={executionPacket} />
               ) : null}
 
+              <ProjectBlueprintPanel
+                project={project}
+                blueprint={projectBlueprint}
+                disabled={busyAction != null}
+                onChanged={onProjectBlueprintChanged}
+              />
+
               {project.active_next_task ? (
                 <EngineeringPanel
                   packet={engineeringPackage}
@@ -1389,11 +1429,13 @@ function EngineeringPanel({
   const [recording, setRecording] = useState(false)
   const [freezingBlueprint, setFreezingBlueprint] = useState(false)
   const [draft, setDraft] = useState<EngineeringEvidenceDraft>(() => defaultEngineeringEvidenceDraft())
+  const [qaDraft, setQaDraft] = useState<EngineeringQaDraft>(() => defaultEngineeringQaDraft())
 
   const targetOptions = useMemo(() => packet ? engineeringEvidenceTargets(packet) : [], [packet])
 
   useEffect(() => {
     setDraft(defaultEngineeringEvidenceDraft(packet))
+    setQaDraft(defaultEngineeringQaDraft())
     setFormOpen(false)
   }, [packet?.task_id])
 
@@ -1424,25 +1466,47 @@ function EngineeringPanel({
 
     setRecording(true)
     try {
-      const input: AtlasEngineeringEvidenceInput = {
-        evidence_type: selectedTarget?.evidenceType ?? draft.evidenceType,
-        target_id: (selectedTarget?.id ?? draft.targetId) || null,
-        status: draft.status,
-        confidence: parsedEngineeringConfidence(draft.confidence),
-        summary,
+      if ((selectedTarget?.evidenceType ?? draft.evidenceType) === 'manual_qa') {
+        const qaInput: AtlasEngineeringQaInput = {
+          target_id: (selectedTarget?.id ?? draft.targetId) || null,
+          status: draft.status,
+          confidence: parsedEngineeringConfidence(draft.confidence),
+          summary,
+          steps: qaDraft.steps.split(/\r?\n/).map((step) => step.trim()).filter(Boolean),
+          expected_result: qaDraft.expected.trim(),
+          actual_result: qaDraft.actual.trim(),
+          screenshot_url: qaDraft.screenshot.trim() || null,
+          console_output: qaDraft.consoleOutput.trim() || null,
+          network_output: qaDraft.networkOutput.trim() || null,
+          risk_notes: qaDraft.riskNotes.trim() || null,
+          visual_required: true,
+        }
+        await recordTaskEngineeringQa(packet.task_id, qaInput)
+        const refreshed = await fetchTaskEngineering(packet.task_id, { limit: 6 })
+        onBlueprintFrozen(refreshed)
+        setDraft(defaultEngineeringEvidenceDraft(refreshed))
+        setQaDraft(defaultEngineeringQaDraft())
+      } else {
+        const input: AtlasEngineeringEvidenceInput = {
+          evidence_type: selectedTarget?.evidenceType ?? draft.evidenceType,
+          target_id: (selectedTarget?.id ?? draft.targetId) || null,
+          status: draft.status,
+          confidence: parsedEngineeringConfidence(draft.confidence),
+          summary,
+        }
+        const response = await recordTaskEngineeringEvidence(packet.task_id, input)
+        onRecorded(response)
+        setDraft(defaultEngineeringEvidenceDraft({
+          ...packet,
+          contract: response.contract,
+          blueprint: response.blueprint,
+          blueprint_snapshot: response.blueprint_snapshot,
+          status_snapshot: response.status_snapshot,
+          latest_run: response.latest_run,
+          latest_evidence: response.evidence,
+          evidence_history: response.evidence_history,
+        }))
       }
-      const response = await recordTaskEngineeringEvidence(packet.task_id, input)
-      onRecorded(response)
-      setDraft(defaultEngineeringEvidenceDraft({
-        ...packet,
-        contract: response.contract,
-        blueprint: response.blueprint,
-        blueprint_snapshot: response.blueprint_snapshot,
-        status_snapshot: response.status_snapshot,
-        latest_run: response.latest_run,
-        latest_evidence: response.evidence,
-        evidence_history: response.evidence_history,
-      }))
       setFormOpen(false)
       showToast('Evidência registrada', { variant: 'checkin' })
     } catch {
@@ -1651,6 +1715,48 @@ function EngineeringPanel({
             style={[styles.input, styles.textArea, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
           />
 
+          {(selectedTarget?.evidenceType ?? draft.evidenceType) === 'manual_qa' ? (
+            <View style={styles.blockerReasonBox}>
+              <Label>QA manual</Label>
+              <TextInput
+                value={qaDraft.steps}
+                onChangeText={(steps) => setQaDraft({ ...qaDraft, steps })}
+                placeholder="um passo por linha"
+                placeholderTextColor={c.ink3}
+                multiline
+                style={[styles.input, styles.textArea, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+              <TextInput
+                value={qaDraft.expected}
+                onChangeText={(expected) => setQaDraft({ ...qaDraft, expected })}
+                placeholder="resultado esperado"
+                placeholderTextColor={c.ink3}
+                style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+              <TextInput
+                value={qaDraft.actual}
+                onChangeText={(actual) => setQaDraft({ ...qaDraft, actual })}
+                placeholder="resultado real"
+                placeholderTextColor={c.ink3}
+                style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+              <TextInput
+                value={qaDraft.screenshot}
+                onChangeText={(screenshot) => setQaDraft({ ...qaDraft, screenshot })}
+                placeholder="screenshot/artifact"
+                placeholderTextColor={c.ink3}
+                style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+              <TextInput
+                value={qaDraft.riskNotes}
+                onChangeText={(riskNotes) => setQaDraft({ ...qaDraft, riskNotes })}
+                placeholder="notas de risco"
+                placeholderTextColor={c.ink3}
+                style={[styles.input, { borderColor: c.border, color: c.ink, backgroundColor: c.surface }]}
+              />
+            </View>
+          ) : null}
+
           <SmallAction
             label={recording ? 'Registrando' : 'Salvar evidência'}
             disabled={recording || !draft.summary.trim()}
@@ -1665,6 +1771,88 @@ function EngineeringPanel({
           atualizando...
         </Mono>
       ) : null}
+    </View>
+  )
+}
+
+function ProjectBlueprintPanel({
+  project,
+  blueprint,
+  disabled,
+  onChanged,
+}: {
+  project: AtlasProject
+  blueprint: AtlasEngineeringProjectBlueprintResponse | null
+  disabled: boolean
+  onChanged: (projectId: string) => Promise<AtlasEngineeringProjectBlueprintResponse>
+}) {
+  const c = usePalette()
+  const { showToast } = useShell()
+  const [busy, setBusy] = useState<string | null>(null)
+  const record = blueprint?.latest ?? blueprint?.frozen ?? null
+  const validation = (record?.validation ?? blueprint?.validation ?? {}) as Record<string, unknown>
+  const summary = (validation.summary ?? {}) as Record<string, unknown>
+  const missingEvidence = Array.isArray(validation.missing_evidence) ? validation.missing_evidence : []
+  const blockingGates = Array.isArray(validation.blocking_gates) ? validation.blocking_gates : []
+
+  async function run(action: 'create' | 'freeze' | 'tasks') {
+    if (busy || disabled) return
+    setBusy(action)
+    try {
+      if (action === 'create') {
+        await createProjectEngineeringBlueprint(project.id)
+        await onChanged(project.id)
+        showToast('Blueprint de projeto criado', { variant: 'checkin' })
+      } else if (action === 'freeze') {
+        await freezeProjectEngineeringBlueprint(project.id)
+        await onChanged(project.id)
+        showToast('Blueprint de projeto fixado', { variant: 'checkin' })
+      } else {
+        await generateProjectEngineeringTasks(project.id)
+        await onChanged(project.id)
+        showToast('Tasks geradas do blueprint', { variant: 'checkin' })
+      }
+    } catch {
+      showToast(action === 'freeze' ? 'Blueprint bloqueado por coverage' : 'Não consegui operar o blueprint')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <View style={[styles.engineeringBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+      <View style={styles.executionTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Blueprint</Label>
+          <Sans weight="sb" size={13} lineHeight={18} color={c.ink} numberOfLines={2}>
+            {record ? `v${record.version} · ${record.status}` : 'sem draft project-level'}
+          </Sans>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={record?.stale ? c.bronze : engineeringStatusColor(String(validation.status ?? record?.status ?? 'draft'), c)}>
+          {record?.stale ? 'stale' : String(validation.status ?? record?.status ?? 'draft')}
+        </Mono>
+      </View>
+      <View style={styles.cardFacts}>
+        <Fact label="telas" value={String(summary.screen_count ?? 0)} />
+        <Fact label="APIs" value={String(summary.api_surface_count ?? 0)} />
+        <Fact label="cenários" value={String(summary.scenario_count ?? 0)} />
+        <Fact label="gates" value={String(blockingGates.length)} />
+      </View>
+      {record ? (
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.ink2}>
+          {record.content_hash.slice(0, 12)} · {record.frozen_at ? dateLabel(record.frozen_at) : dateLabel(record.prepared_at)}
+        </Mono>
+      ) : null}
+      {missingEvidence.length > 0 ? (
+        <Sans size={11.5} lineHeight={16} color={c.bronze} numberOfLines={2}>
+          evidências pendentes: {missingEvidence.length}
+        </Sans>
+      ) : null}
+      <View style={styles.actionRow}>
+        <SmallAction label={busy === 'create' ? 'Criando' : 'Criar draft'} disabled={disabled || busy != null} onPress={() => { void run('create') }} />
+        <SmallAction label={busy === 'freeze' ? 'Fixando' : 'Fixar'} disabled={disabled || busy != null || !record} onPress={() => { void run('freeze') }} />
+        <SmallAction label={busy === 'tasks' ? 'Gerando' : 'Gerar tasks'} disabled={disabled || busy != null || record?.status !== 'frozen'} onPress={() => { void run('tasks') }} />
+      </View>
     </View>
   )
 }
@@ -2228,6 +2416,18 @@ function defaultProjectCompletionDraft(): ProjectCompletionDraft {
     evidence: '',
     note: '',
     force: false,
+  }
+}
+
+function defaultEngineeringQaDraft(): EngineeringQaDraft {
+  return {
+    steps: '',
+    expected: '',
+    actual: '',
+    screenshot: '',
+    consoleOutput: '',
+    networkOutput: '',
+    riskNotes: '',
   }
 }
 

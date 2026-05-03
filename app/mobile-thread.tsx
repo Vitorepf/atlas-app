@@ -6,6 +6,7 @@ import { Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { discussMobileInboxItem } from '../lib/api/client'
+import { newAtlasAiCorrelationId, recordAtlasAiEvent } from '../lib/atlasAiTelemetry'
 import { resolveMobileThreadBridgeTarget } from '../lib/mobileThreadBridge'
 import { useOverlays } from '../lib/overlays'
 
@@ -29,11 +30,33 @@ export default function MobileThreadBridgeScreen() {
 
     async function openThread() {
       let nextThreadId: string | null = null
+      const correlationId = newAtlasAiCorrelationId()
+
+      if (inboxId && action === 'discuss') {
+        void recordAtlasAiEvent({
+          eventName: 'inbox_discuss_opened',
+          correlation_id: correlationId,
+          metadata: {
+            inbox_item_id: inboxId,
+            entrypoint: 'mobile_thread_bridge',
+          },
+        })
+      }
 
       try {
         nextThreadId = await resolveMobileThreadBridgeTarget({ threadId, inboxId, action }, discussMobileInboxItem)
       } catch (error) {
         if (!cancelled) {
+          void recordAtlasAiEvent({
+            eventName: 'inbox_discuss_open_failed',
+            correlation_id: correlationId,
+            metadata: {
+              inbox_item_id: inboxId,
+              thread_id: threadId,
+              action,
+              error: error instanceof Error ? error.message : 'unknown',
+            },
+          })
           showToast(error instanceof Error ? error.message : 'Falha ao abrir Atlas operacional')
           if (inboxId) {
             router.replace({ pathname: '/mobile-inbox-item', params: { inboxId } })
@@ -46,6 +69,16 @@ export default function MobileThreadBridgeScreen() {
 
       if (cancelled) return
 
+      void recordAtlasAiEvent({
+        eventName: 'atlas_opened_from_deeplink',
+        correlation_id: correlationId,
+        thread_id: nextThreadId,
+        metadata: {
+          inbox_item_id: inboxId,
+          action,
+          target: 'atlas_ai',
+        },
+      })
       openAtlasAi(nextThreadId)
       timer = setTimeout(() => {
         router.replace('/inbox')

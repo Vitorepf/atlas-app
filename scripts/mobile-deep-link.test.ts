@@ -53,6 +53,14 @@ async function main(): Promise<void> {
     assert.equal(threadId, 'thread-direct')
   }
 
+  await assert.rejects(
+    () => resolveMobileThreadBridgeTarget(
+      { inboxId: 'inbox-1', action: 'discuss' },
+      async () => ({ result: {} }),
+    ),
+    /conversa operacional/,
+  )
+
   console.info('mobile deep link routing tests passed')
 }
 

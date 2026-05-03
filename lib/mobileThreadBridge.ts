@@ -17,7 +17,12 @@ export async function resolveMobileThreadBridgeTarget(
   const action = cleanString(input.action)
   if (inboxId && action === 'discuss') {
     const response = await discussInboxItem(inboxId)
-    return threadIdFromMobileThreadActionResult(response.result)
+    const threadId = threadIdFromMobileThreadActionResult(response.result)
+    if (!threadId) {
+      throw new Error('Atlas nao recebeu a conversa operacional deste item.')
+    }
+
+    return threadId
   }
 
   return null

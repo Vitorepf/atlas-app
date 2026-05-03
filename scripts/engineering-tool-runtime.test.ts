@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import {
   buildEngineeringToolRuntimeSummary,
+  buildToolRuntimeGateFilters,
   toolRuntimeEvidenceLine,
+  toolRuntimeGateIssueLine,
+  toolRuntimeGateLine,
+  toolRuntimeGateModeLine,
   toolRuntimeRiskLine,
 } from '../lib/engineeringToolRuntime'
 import type {
@@ -9,6 +13,7 @@ import type {
   AtlasToolDoctorItem,
   AtlasToolFindingSummary,
   AtlasToolRunSummary,
+  AtlasToolsGateResponse,
 } from '../lib/api/client'
 
 const readyTool: AtlasToolDoctorItem = {
@@ -104,3 +109,54 @@ assert.equal(
   }),
   'engineering_quality_scan · allowed · engineering_run:run-123 · 1000ms · 1 artefatos · 1 findings',
 )
+
+const blockedGate: AtlasToolsGateResponse = {
+  status: 'blocked',
+  allowed: false,
+  filters: { workspace: '/repo' },
+  required_tools: ['semgrep'],
+  fail_statuses: ['failed', 'timeout'],
+  summary: {
+    run_count: 2,
+    tool_count: 1,
+    failed_run_count: 1,
+    blocking_failure_count: 1,
+    warning_count: 1,
+  },
+  blocking_failures: [{
+    tool_slug: 'semgrep',
+    rule_id: 'blocking_finding',
+    title: 'Critical issue',
+  }],
+  warnings: [{
+    rule_id: 'stale_evidence',
+    message: 'Evidence is old',
+  }],
+  runs: [],
+}
+
+assert.equal(
+  toolRuntimeGateLine(blockedGate),
+  'bloqueado · 2 evidências · 1 bloqueio · 1 aviso · 1 ferramenta exigida',
+)
+assert.equal(
+  toolRuntimeGateIssueLine(blockedGate.blocking_failures[0]),
+  'semgrep · blocking_finding · Critical issue',
+)
+assert.equal(
+  toolRuntimeGateIssueLine(blockedGate.warnings[0]),
+  'stale_evidence · Evidence is old',
+)
+assert.equal(toolRuntimeGateLine(null), 'gate ainda não avaliado')
+assert.deepEqual(buildToolRuntimeGateFilters({ workspace: ' /repo ', mode: 'observe', limit: 12 }), {
+  workspace: '/repo',
+  limit: 12,
+  require_evidence: false,
+})
+assert.deepEqual(buildToolRuntimeGateFilters({ workspace: '', mode: 'release' }), {
+  workspace: null,
+  limit: 8,
+  require_evidence: true,
+})
+assert.equal(toolRuntimeGateModeLine('observe'), 'observação · ausência de evidência vira aviso')
+assert.equal(toolRuntimeGateModeLine('release'), 'release · exige evidência para liberar')

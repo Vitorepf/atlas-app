@@ -54,7 +54,6 @@ import {
   type AtlasAiQualityAction,
   type AtlasAiQualityEvaluation,
   type AtlasAiSessionState,
-  type AtlasAiStatus,
   type AtlasAiThread,
   type AtlasAiTrace,
   cancelAiJob,
@@ -72,6 +71,7 @@ import {
   listAiQualityActions,
   listAiThreadSnapshots,
   listAiThreads,
+  retryMobileInboxDiscussionBootstrap,
   retryAiJob,
   runAiQualityAction,
   switchAiThreadProvider,
@@ -123,6 +123,26 @@ import {
   normalizeAtlasAiFocus,
   type AtlasAiFocus,
 } from '../../lib/atlasAiFocus'
+import {
+  atlasAiFocusForRouting,
+  atlasAiModeFromThread,
+  atlasAiModeLabel,
+  normalizeAtlasAiMode,
+  threadRoutingMetadataPatch,
+} from '../../lib/atlasAiThreadRouting'
+import {
+  atlasModePayloadForRoutingContract,
+} from '../../lib/atlasAiModeContract'
+import {
+  bootstrapRetryResultMessage,
+  bootstrapStatusLabel,
+  inboxItemIdFromThread,
+  isDiscussionBootstrapTrace,
+  isOperationalContextThread,
+  operationalBootstrapStatus,
+  type OperationalBootstrapData,
+  type OperationalBootstrapStep,
+} from '../../lib/atlasOperationalBootstrap'
 
 const OPEN_ACTION_STATUSES = new Set(['queued', 'running', 'blocked', 'failed'])
 const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
@@ -270,6 +290,7 @@ export function AtlasAiSheet() {
   const [observability, setObservability] = useState<AiObservabilityResponse | null>(null)
   const [qualityActions, setQualityActions] = useState<AtlasAiQualityAction[]>([])
   const [operationBusy, setOperationBusy] = useState<string | null>(null)
+  const [bootstrapRetrying, setBootstrapRetrying] = useState(false)
   const [routingHydrated, setRoutingHydrated] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
@@ -492,6 +513,62 @@ export function AtlasAiSheet() {
     },
     [currentThreadId, loadThreadData],
   )
+
+  const retryOperationalBootstrap = useCallback(async () => {
+    const inboxItemId = inboxItemIdFromThread(currentThread)
+    if (!currentThreadId || !inboxItemId) {
+      showToast('Nao encontrei o item operacional desta conversa')
+      return
+    }
+
+    const correlationId = newAtlasAiCorrelationId()
+    setBootstrapRetrying(true)
+    void recordAtlasAiEvent({
+      eventName: 'bootstrap_retry_requested',
+      correlation_id: correlationId,
+      thread_id: currentThreadId,
+      metadata: {
+        inbox_item_id: inboxItemId,
+        bootstrap_status: currentThread?.metadata?.discussion_bootstrap_status ?? null,
+        bootstrap_trace_id: currentThread?.metadata?.discussion_bootstrap_trace_id ?? null,
+      },
+    })
+
+    try {
+      const response = await retryMobileInboxDiscussionBootstrap(inboxItemId)
+      const bootstrap = response.result.bootstrap
+      const bootstrapStatus = stringFromRecord(bootstrap, 'status')
+      const bootstrapReason = stringFromRecord(bootstrap, 'reason')
+      void recordAtlasAiEvent({
+        eventName: 'bootstrap_retry_result',
+        correlation_id: correlationId,
+        thread_id: currentThreadId,
+        trace_id: stringFromRecord(bootstrap, 'trace_id') ?? null,
+        metadata: {
+          inbox_item_id: inboxItemId,
+          bootstrap_status: bootstrapStatus,
+          attempt: numberFromRecord(bootstrap, 'attempt'),
+          reason: bootstrapReason,
+        },
+      })
+      showToast(bootstrapRetryResultMessage(bootstrapStatus, bootstrapReason))
+      await loadThreadData(currentThreadId, { silent: true })
+    } catch (retryError) {
+      const message = humanAiError(retryError, 'Falha ao tentar novamente.')
+      void recordAtlasAiEvent({
+        eventName: 'bootstrap_retry_failed',
+        correlation_id: correlationId,
+        thread_id: currentThreadId,
+        metadata: {
+          inbox_item_id: inboxItemId,
+          error: message,
+        },
+      })
+      showToast(message)
+    } finally {
+      setBootstrapRetrying(false)
+    }
+  }, [currentThread, currentThreadId, loadThreadData, showToast])
 
   useEffect(() => {
     if (!visible) return
@@ -1011,7 +1088,7 @@ export function AtlasAiSheet() {
         const atlasFocus = currentThread && isOperationalContextThread(currentThread) && routeFocus === 'general'
           ? 'operational'
           : routeFocus
-        const modePolicy = atlasModePayloadForRouting(routingSnapshot, atlasFocus)
+        const modePolicy = atlasModePayloadForRouting(routingSnapshot, atlasFocus, currentThread?.workspace ?? null)
         const threadRuntimePolicy =
           threadId && currentThread?.id === threadId
             ? runtimePolicyPayloadForThread(currentThread, atlasFocus)
@@ -1372,6 +1449,7 @@ export function AtlasAiSheet() {
     })
     const threadOriginPayload = developmentThreadOriginPayload(currentThread, contextualIntro)
     const developmentPrompt = developmentPromptFromContext(contextualIntro, currentThread, traces)
+    const promotionCorrelationId = newAtlasAiCorrelationId()
 
     threadViewVersionRef.current += 1
     setRouting(programmingRouting)
@@ -1392,7 +1470,30 @@ export function AtlasAiSheet() {
     setThreadHistoryOpen(false)
     showToast('Programação iniciada com contexto operacional')
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    void recordAtlasAiEvent({
+      eventName: 'promoted_to_programming',
+      correlation_id: promotionCorrelationId,
+      thread_id: currentThread.id,
+      metadata: {
+        source_thread_id: currentThread.id,
+        source_inbox_item_id: inboxItemIdFromThread(currentThread),
+        target_mode: programmingRouting.mode,
+        target_task: programmingRouting.task,
+        target_executor: programmingRouting.executor,
+      },
+    })
+    void recordAtlasAiEvent({
+      eventName: 'programming_auto_started',
+      correlation_id: promotionCorrelationId,
+      thread_id: null,
+      metadata: {
+        source_thread_id: currentThread.id,
+        source_inbox_item_id: inboxItemIdFromThread(currentThread),
+        prompt_chars: developmentPrompt.length,
+      },
+    })
     void submitText(developmentPrompt, {
+      correlationId: promotionCorrelationId,
       threadId: null,
       routingSnapshot: programmingRouting,
       pinnedTraceIdsSnapshot: [],
@@ -1476,54 +1577,6 @@ export function AtlasAiSheet() {
     showToast,
   ])
 
-  const switchProvider = useCallback(
-    async (executor: Extract<RoutingExecutor, 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'>) => {
-      setRouting((current) => ({ ...current, executor }))
-      if (interactionLocked) {
-        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
-        return
-      }
-
-      const previousRouting = routing
-      if (!currentThreadId) return
-
-      const currentProvider = currentThread?.last_provider ?? providerFromRouting(routing)
-      if (currentProvider === executor) {
-        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
-        return
-      }
-
-      setOperationBusy(`provider:${executor}`)
-      try {
-        const response = await switchAiThreadProvider(currentThreadId, {
-          to_provider: executor,
-          from_provider: currentProvider ?? null,
-          reason: 'operator_switch',
-          metadata: {
-            app_surface: 'atlas_ai_sheet',
-            requested_from: 'continuity_panel',
-          },
-        })
-        setCurrentThread((thread) =>
-          thread
-            ? {
-                ...thread,
-                last_provider: executor,
-                latest_provider_handoff: response.handoff,
-              }
-            : thread,
-        )
-        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
-      } catch (providerError) {
-        setRouting(previousRouting)
-        showToast(humanAiError(providerError, 'Falha ao trocar provider.'))
-      } finally {
-        setOperationBusy(null)
-      }
-    },
-    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast],
-  )
-
   const syncThreadRoutingMetadata = useCallback(
     (next: RoutingState) => {
       if (!currentThreadId || !currentThread) return
@@ -1560,19 +1613,69 @@ export function AtlasAiSheet() {
     [currentThread, currentThreadId, showToast],
   )
 
+  const switchProvider = useCallback(
+    async (executor: Extract<RoutingExecutor, 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'>) => {
+      const nextRouting = sanitizeRoutingState({ ...routing, executor })
+      setRouting(nextRouting)
+      if (interactionLocked) {
+        syncThreadRoutingMetadata(nextRouting)
+        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
+        return
+      }
+
+      const previousRouting = routing
+      if (!currentThreadId) return
+
+      const currentProvider = currentThread?.last_provider ?? providerFromRouting(routing)
+      if (currentProvider === executor) {
+        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
+        return
+      }
+
+      setOperationBusy(`provider:${executor}`)
+      try {
+        const response = await switchAiThreadProvider(currentThreadId, {
+          to_provider: executor,
+          from_provider: currentProvider ?? null,
+          reason: 'operator_switch',
+          metadata: {
+            app_surface: 'atlas_ai_sheet',
+            requested_from: 'continuity_panel',
+          },
+        })
+        setCurrentThread((thread) =>
+          thread
+            ? {
+                ...thread,
+                last_provider: executor,
+                latest_provider_handoff: response.handoff,
+              }
+            : thread,
+        )
+        syncThreadRoutingMetadata(nextRouting)
+        showToast(`Próxima resposta: ${providerWord(executor) ?? executor}`)
+      } catch (providerError) {
+        setRouting(previousRouting)
+        showToast(humanAiError(providerError, 'Falha ao trocar provider.'))
+      } finally {
+        setOperationBusy(null)
+      }
+    },
+    [currentThread?.last_provider, currentThreadId, interactionLocked, routing, showToast, syncThreadRoutingMetadata],
+  )
+
   const confirmRouting = useCallback(
     (next: RoutingState) => {
       const previousProvider = providerFromRouting(routing)
       const nextProvider = providerFromRouting(next)
       const currentProvider = currentThread?.last_provider ?? previousProvider
       setRouting(next)
+      syncThreadRoutingMetadata(next)
 
       if (interactionLocked) {
         showToast('Rota atualizada para a próxima mensagem')
         return
       }
-
-      syncThreadRoutingMetadata(next)
 
       if (
         currentThreadId
@@ -1947,7 +2050,14 @@ export function AtlasAiSheet() {
                 ? (
                     <>
                       {modeNotice ? <AtlasAiModeNotice notice={modeNotice} /> : null}
-                      {operationalBootstrap ? <OperationalBootstrapPanel status={operationalBootstrap} onRefresh={() => void refresh({ silent: false })} /> : null}
+                      {operationalBootstrap ? (
+                        <OperationalBootstrapPanel
+                          status={operationalBootstrap}
+                          retrying={bootstrapRetrying}
+                          onRefresh={() => void refresh({ silent: false })}
+                          onRetry={() => void retryOperationalBootstrap()}
+                        />
+                      ) : null}
                       {contextualIntro ? <AtlasAiContextIntro intro={contextualIntro} onPromoteToDevelopment={promoteContextToDevelopment} /> : null}
                     </>
                   )
@@ -2881,23 +2991,6 @@ interface AtlasAiContextIntroData {
   execution: string
 }
 
-type OperationalBootstrapStatus = AtlasAiStatus | 'ready' | 'skipped'
-
-interface OperationalBootstrapData {
-  status: OperationalBootstrapStatus
-  title: string
-  summary: string
-  traceId: string | null
-  responsePreview: string | null
-  steps: OperationalBootstrapStep[]
-}
-
-interface OperationalBootstrapStep {
-  key: string
-  label: string
-  state: 'done' | 'active' | 'pending' | 'failed'
-}
-
 interface AtlasAiModeNoticeData {
   title: string
   summary: string
@@ -2927,14 +3020,22 @@ function AtlasAiModeNotice({ notice }: { notice: AtlasAiModeNoticeData }) {
 
 function OperationalBootstrapPanel({
   status,
+  retrying,
   onRefresh,
+  onRetry,
 }: {
   status: OperationalBootstrapData
+  retrying: boolean
   onRefresh: () => void
+  onRetry: () => void
 }) {
   const { c } = useTheme()
-  const active = status.status === 'queued' || status.status === 'processing'
+  const active = status.status === 'queued' || status.status === 'processing' || status.status === 'retrying'
   const failed = status.status === 'failed' || status.status === 'cancelled' || status.status === 'skipped'
+  const primaryAction = failed ? onRetry : onRefresh
+  const primaryLabel = failed
+    ? (retrying ? 'Tentando...' : 'Tentar novamente')
+    : 'Atualizar'
 
   return (
     <View style={[
@@ -2991,14 +3092,15 @@ function OperationalBootstrapPanel({
 
       {(active || failed) ? (
         <Pressable
-          onPress={onRefresh}
+          onPress={primaryAction}
+          disabled={retrying}
           style={({ pressed }) => [
             styles.bootstrapRefresh,
-            { borderColor: c.border, opacity: pressed ? 0.68 : 1 },
+            { borderColor: c.border, opacity: pressed || retrying ? 0.68 : 1 },
           ]}
         >
           <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian}>
-            Atualizar
+            {primaryLabel}
           </Sans>
         </Pressable>
       ) : null}
@@ -3692,6 +3794,8 @@ function OperationsSheet({
   const metricsHealth = observability?.metrics_health
   const metricTotals = metrics?.available ? metrics.totals : null
   const surfaceBuckets = metrics?.available ? metrics.by_surface ?? [] : []
+  const atlasDecideMetrics = metrics?.available ? metrics.atlas_decide : null
+  const atlasDecideBuckets = metrics?.available ? metrics.by_atlas_decide_execution_strategy ?? [] : []
   const missingCostRates = metricsHealth?.evidence?.missing_cost_rates ?? []
 
   return (
@@ -3788,6 +3892,20 @@ function OperationsSheet({
               <DataRow label="custo incerto" value={String(metricTotals.unknown_cost_count)} />
               <DataRow label="custo estimado" value={String(metricTotals.estimated_cost_count ?? 0)} />
               <DataRow label="custo real" value={String(metricTotals.actual_cost_count ?? 0)} />
+              {atlasDecideMetrics?.available && (
+                <>
+                  <DataRow label="atlas decide" value={`${atlasDecideMetrics.traces} traces`} />
+                  <DataRow label="multi-stage" value={`${atlasDecideMetrics.multi_stage_count} · ${formatRate(atlasDecideMetrics.multi_stage_rate)}`} />
+                  <DataRow label="degradado" value={`${atlasDecideMetrics.degraded_count} · ${formatRate(atlasDecideMetrics.degraded_rate)}`} />
+                  {atlasDecideBuckets.slice(0, 2).map((bucket) => (
+                    <DataRow
+                      key={`atlas-decide-${bucket.bucket}`}
+                      label={bucket.bucket.replace(/_/g, ' ')}
+                      value={`${bucket.traces} · q ${formatScore(bucket.quality_avg)} · e ${formatScore(bucket.efficiency_avg)}`}
+                    />
+                  ))}
+                </>
+              )}
               {surfaceBuckets.slice(0, 3).map((bucket) => (
                 <DataRow
                   key={bucket.bucket}
@@ -3889,6 +4007,12 @@ function ExecutionSheet({
                 <DataRow label="selecionado" value={providerWord(decisionReceipt.selected_provider) ?? String(decisionReceipt.selected_provider ?? 'atlas')} />
                 <DataRow label="pedido" value={decisionReceipt.was_overridden ? (providerWord(decisionReceipt.requested_provider) ?? String(decisionReceipt.requested_provider ?? 'manual')) : 'atlas decide'} />
                 <DataRow label="override" value={decisionReceipt.was_overridden ? 'sim' : 'não'} />
+                {decisionReceipt.context_strategy && (
+                  <DataRow label="contexto" value={String(decisionReceipt.context_strategy).replaceAll('_', ' ')} />
+                )}
+                {decisionReceipt.execution_strategy && (
+                  <DataRow label="execução" value={String(decisionReceipt.execution_strategy).replaceAll('_', ' ')} />
+                )}
                 {decisionReceipt.fallback_provider && (
                   <DataRow label="fallback" value={providerWord(decisionReceipt.fallback_provider) ?? String(decisionReceipt.fallback_provider)} />
                 )}
@@ -4859,103 +4983,6 @@ function effectiveAgent(routing: RoutingState): string | undefined {
   return undefined
 }
 
-function atlasAiFocusForRouting(routing: RoutingState): AtlasAiFocus {
-  const safeRouting = sanitizeRoutingState(routing)
-  if (safeRouting.mode === 'programming') return 'programming'
-  if (safeRouting.mode === 'operational') return 'operational'
-  if (safeRouting.task === 'dev' || safeRouting.task === 'debug') return 'programming'
-  if (safeRouting.task === 'review') return 'review'
-  if (safeRouting.task === 'plan') return 'project'
-  if (safeRouting.domain === 'vault-curador') return 'research'
-  if (safeRouting.domain === 'atlas') return 'operational'
-
-  return 'general'
-}
-
-function atlasAiModeFromThread(thread: AtlasAiThread | null | undefined): RoutingMode {
-  const metadata = thread?.metadata ?? {}
-  const explicit = metadataString(metadata, 'current_mode') ?? metadataString(metadata, 'atlas_mode')
-  if (explicit) return normalizeAtlasAiMode(explicit)
-
-  const focus = atlasAiFocusFromThread(thread)
-  if (focus === 'programming') return 'programming'
-  if (focus === 'operational') return 'operational'
-  return 'general'
-}
-
-function normalizeAtlasAiMode(value: unknown, fallback: RoutingMode = 'general'): RoutingMode {
-  if (typeof value !== 'string') return fallback
-  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_')
-  if (normalized === 'programacao' || normalized === 'programming' || normalized === 'dev' || normalized === 'debug') return 'programming'
-  if (normalized === 'operacional' || normalized === 'operational' || normalized === 'operations') return 'operational'
-  if (normalized === 'geral' || normalized === 'general' || normalized === 'conversation') return 'general'
-  return fallback
-}
-
-function atlasAiModeLabel(mode: RoutingMode): string {
-  if (mode === 'programming') return 'Programação'
-  if (mode === 'operational') return 'Operacional'
-  return 'Geral'
-}
-
-function threadRoutingMetadataPatch(thread: AtlasAiThread, routing: RoutingState): Record<string, unknown> {
-  const safeRouting = sanitizeRoutingState(routing)
-  const metadata = thread.metadata ?? {}
-  const mode = safeRouting.mode
-  const focus = atlasAiFocusForRouting(safeRouting)
-  const now = new Date().toISOString()
-  const initialMode = metadataString(metadata, 'initial_mode')
-    ?? metadataString(metadata, 'atlas_mode')
-    ?? atlasAiModeFromThread(thread)
-  const initialFocus = metadataString(metadata, 'initial_focus')
-    ?? metadataString(metadata, 'atlas_focus')
-    ?? atlasAiFocusFromThread(thread)
-
-  return {
-    initial_mode: normalizeAtlasAiMode(initialMode, mode),
-    current_mode: mode,
-    atlas_mode: mode,
-    mode_history: appendRoutingHistory(metadata.mode_history, mode, now, safeRouting),
-    initial_focus: normalizeAtlasAiFocus(initialFocus, focus),
-    current_focus: focus,
-    atlas_focus: focus,
-    focus_history: appendRoutingHistory(metadata.focus_history, focus, now, safeRouting),
-    routing_task: safeRouting.task,
-    routing_domain: safeRouting.domain,
-    routing_style: safeRouting.style,
-    requested_provider: providerFromRouting(safeRouting),
-    routing_updated_from: 'atlas_ai_sheet',
-    routing_updated_at: now,
-  }
-}
-
-function appendRoutingHistory(
-  raw: unknown,
-  value: string,
-  changedAt: string,
-  routing: RoutingState,
-): Array<Record<string, unknown>> {
-  const history = (Array.isArray(raw) ? raw : [])
-    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object' && !Array.isArray(item))
-    .slice(-11)
-  const last = history[history.length - 1]
-
-  if (last && last.value === value) return history
-
-  return [
-    ...history,
-    {
-      value,
-      changed_at: changedAt,
-      source: 'atlas_ai_sheet',
-      task: routing.task,
-      domain: routing.domain,
-      executor: routing.executor,
-      style: routing.style,
-    },
-  ]
-}
-
 function responsePolicyFor(style: RoutingStyle, task: RoutingState['task']) {
   const devMode = task === 'dev' || task === 'debug'
   if (style === 'technical') {
@@ -5138,100 +5165,8 @@ function buildConversationContext(traces: AtlasAiTrace[], threadId: string | nul
   }
 }
 
-function atlasModePayloadForRouting(routing: RoutingState, focus: AtlasAiFocus): Record<string, unknown> {
-  const mode = focus === 'programming'
-    ? 'programming'
-    : focus === 'operational'
-      ? 'operational'
-      : 'general'
-
-  const base = {
-    atlas_mode: mode,
-    atlas_mode_contract: atlasModeContract(mode, routing),
-    quality_policy: atlasQualityPolicy(mode),
-  }
-
-  if (mode !== 'programming') return base
-
-  return {
-    ...base,
-    capability_profile: 'atlas_programming',
-    permission_policy: 'full_access',
-    permission_mode: 'danger',
-    tool_permissions: {
-      mode: 'danger',
-      workspace: undefined,
-      confirmed: true,
-      allow_unsandboxed_provider: true,
-      source: 'atlas_ai_programming_mode',
-    },
-    mobile_runtime_policy: {
-      allows_code_execution: true,
-      reason: 'Modo Programacao habilita o runtime completo do Atlas AI para codigo, scripts, testes e automacoes.',
-    },
-    programming_harness: {
-      schema_version: 1,
-      workspace_required: true,
-      expected_artifacts: ['plan', 'diff_or_reason', 'tests_or_reason', 'risks'],
-      escalation_policy: 'ask_before_destructive_or_external_write',
-    },
-  }
-}
-
-function atlasModeContract(mode: 'general' | 'operational' | 'programming', routing: RoutingState): Record<string, unknown> {
-  if (mode === 'programming') {
-    return {
-      schema_version: 1,
-      mode,
-      objective: 'resolver trabalho de engenharia com contexto, plano, execucao, verificacao e evidencias',
-      routing_task: routing.task,
-      default_runtime: 'engineering_harness',
-      expected_output: ['diagnostico', 'plano', 'execucao', 'testes', 'riscos', 'proximos_passos'],
-    }
-  }
-
-  if (mode === 'operational') {
-    return {
-      schema_version: 1,
-      mode,
-      objective: 'explicar situacao operacional, isolar causa, medir impacto e propor proxima acao',
-      routing_task: routing.task,
-      expected_output: ['resumo', 'evidencias', 'risco', 'acao_recomendada', 'quando_promover_para_programacao'],
-    }
-  }
-
-  return {
-    schema_version: 1,
-    mode,
-    objective: 'conversa geral, pesquisa, ideias e organizacao sem herdar contexto operacional ou de codigo por acidente',
-    routing_task: routing.task,
-    expected_output: ['resposta_clara', 'perguntas_necessarias', 'proximos_passos_quando_util'],
-  }
-}
-
-function atlasQualityPolicy(mode: 'general' | 'operational' | 'programming'): Record<string, unknown> {
-  if (mode === 'programming') {
-    return {
-      require_plan: true,
-      require_tests_or_reason: true,
-      require_diff_or_reason: true,
-      require_risk_summary: true,
-    }
-  }
-
-  if (mode === 'operational') {
-    return {
-      require_evidence: true,
-      require_uncertainty: true,
-      require_next_actions: true,
-      avoid_raw_json_as_primary_output: true,
-    }
-  }
-
-  return {
-    keep_context_light: true,
-    avoid_operational_or_programming_assumptions: true,
-  }
+function atlasModePayloadForRouting(routing: RoutingState, focus: AtlasAiFocus, workspace?: string | null): Record<string, unknown> {
+  return atlasModePayloadForRoutingContract(routing, focus, { workspace })
 }
 
 function runtimePolicyPayloadForThread(thread: AtlasAiThread | null, focusOverride?: AtlasAiFocus): Record<string, unknown> {
@@ -5267,162 +5202,6 @@ function runtimePolicyPayloadForThread(thread: AtlasAiThread | null, focusOverri
       reason: 'Atlas app runtime settings allow provider execution and full-access tooling.',
     },
   }
-}
-
-function operationalBootstrapStatus(thread: AtlasAiThread | null, traces: AtlasAiTrace[]): OperationalBootstrapData | null {
-  if (!thread || !isOperationalContextThread(thread)) return null
-
-  const metadata = thread.metadata ?? {}
-  const metadataTraceId = metadataString(metadata, 'discussion_bootstrap_trace_id')
-  const metadataStatus = normalizeOperationalBootstrapStatus(metadataString(metadata, 'discussion_bootstrap_status'))
-  const metadataError = metadataString(metadata, 'discussion_bootstrap_error')
-  const bootstrapTrace = traces.find((trace) => {
-    return isDiscussionBootstrapTrace(trace) || (metadataTraceId != null && trace.id === metadataTraceId)
-  }) ?? null
-  if (!bootstrapTrace) {
-    if (metadataStatus) {
-      if (metadataStatus === 'queued' || metadataStatus === 'processing') {
-        return {
-          status: metadataStatus,
-          title: 'Atlas está montando o diagnóstico inicial',
-          summary: 'O contexto do Inbox foi registrado; aguarde ou atualize para acompanhar o bootstrap automático.',
-          traceId: metadataTraceId,
-          responsePreview: null,
-          steps: operationalBootstrapSteps(metadataStatus, false),
-        }
-      }
-
-      if (metadataStatus === 'failed' || metadataStatus === 'cancelled' || metadataStatus === 'skipped') {
-        return {
-          status: metadataStatus,
-          title: metadataStatus === 'skipped' ? 'Bootstrap operacional indisponível' : 'Diagnóstico inicial não completou',
-          summary: metadataError
-            ? `O Atlas abriu a conversa, mas o bootstrap automático falhou antes de concluir: ${metadataError}.`
-            : 'O Atlas abriu a conversa, mas o bootstrap automático falhou antes de concluir.',
-          traceId: metadataTraceId,
-          responsePreview: null,
-          steps: operationalBootstrapSteps(metadataStatus, false),
-        }
-      }
-
-      return {
-        status: metadataStatus,
-        title: 'Diagnóstico inicial registrado',
-        summary: 'O Atlas registrou o bootstrap desta conversa operacional, mas a trace ainda não apareceu no histórico local.',
-        traceId: metadataTraceId,
-        responsePreview: null,
-        steps: operationalBootstrapSteps(metadataStatus, false),
-      }
-    }
-
-    return {
-      status: 'ready',
-      title: 'Contexto operacional carregado',
-      summary: 'Atlas abriu esta conversa com contexto, permissão e execução preparados. Nenhum bootstrap automático foi registrado.',
-      traceId: null,
-      responsePreview: null,
-      steps: operationalBootstrapSteps('ready', false),
-    }
-  }
-
-  if (bootstrapTrace.status === 'queued' || bootstrapTrace.status === 'processing') {
-    return {
-      status: bootstrapTrace.status,
-      title: 'Atlas está montando o diagnóstico inicial',
-      summary: 'O contexto do Inbox já foi enviado; evidências, risco e próximas ações estão sendo preparados.',
-      traceId: bootstrapTrace.id,
-      responsePreview: null,
-      steps: operationalBootstrapSteps(bootstrapTrace.status, false),
-    }
-  }
-
-  if (bootstrapTrace.status === 'failed' || bootstrapTrace.status === 'cancelled') {
-    return {
-      status: bootstrapTrace.status,
-      title: 'Diagnóstico inicial não completou',
-      summary: 'O contexto continua preso à conversa. Atualize ou envie uma mensagem para o Atlas continuar a análise.',
-      traceId: bootstrapTrace.id,
-      responsePreview: null,
-      steps: operationalBootstrapSteps(bootstrapTrace.status, false),
-    }
-  }
-
-  const preview = pickResponseText(bootstrapTrace).trim()
-
-  return {
-    status: bootstrapTrace.status,
-    title: 'Diagnóstico inicial pronto',
-    summary: 'O Atlas já analisou o alerta antes da sua primeira mensagem nesta conversa.',
-    traceId: bootstrapTrace.id,
-    responsePreview: preview ? truncateForContext(preview, 360) : null,
-    steps: operationalBootstrapSteps(bootstrapTrace.status, preview.length > 0),
-  }
-}
-
-function operationalBootstrapSteps(
-  status: OperationalBootstrapStatus,
-  hasResponse: boolean,
-): OperationalBootstrapStep[] {
-  const failed = status === 'failed' || status === 'cancelled' || status === 'skipped'
-  const active = status === 'queued' || status === 'processing'
-  const completed = status === 'succeeded' || status === 'awaiting_user_choice'
-
-  return [
-    { key: 'context', label: 'contexto carregado', state: 'done' },
-    { key: 'evidence', label: 'evidências preparadas', state: failed ? 'failed' : active || completed || status === 'ready' ? 'done' : 'pending' },
-    {
-      key: 'diagnostic',
-      label: 'diagnóstico inicial',
-      state: failed ? 'failed' : active ? 'active' : completed ? 'done' : 'pending',
-    },
-    {
-      key: 'action',
-      label: 'próxima ação',
-      state: failed ? 'pending' : hasResponse ? 'done' : active ? 'pending' : status === 'ready' ? 'pending' : 'pending',
-    },
-  ]
-}
-
-function isDiscussionBootstrapTrace(trace: AtlasAiTrace): boolean {
-  const metadata = trace.metadata ?? {}
-  const clientId = metadataString(metadata, 'client_id') ?? metadataString(metadata, 'clientId')
-  const bootstrap = metadata.discussion_bootstrap
-  const bootstrapSource = bootstrap && typeof bootstrap === 'object'
-    ? metadataString(bootstrap as Record<string, unknown>, 'source')
-    : null
-
-  return clientId?.startsWith('inbox-discuss-bootstrap-') === true
-    || bootstrapSource === 'inbox_discuss_action'
-    || trace.operator_input.includes('Analise este item operacional do Inbox')
-}
-
-function bootstrapStatusLabel(status: OperationalBootstrapData['status']): string {
-  if (status === 'queued') return 'fila'
-  if (status === 'processing') return 'rodando'
-  if (status === 'failed') return 'falhou'
-  if (status === 'skipped') return 'indisponível'
-  if (status === 'cancelled') return 'cancelado'
-  if (status === 'awaiting_user_choice') return 'pausado'
-  return 'pronto'
-}
-
-function normalizeOperationalBootstrapStatus(value: string | null): OperationalBootstrapStatus | null {
-  if (!value) return null
-  if (
-    value === 'ready'
-    || value === 'skipped'
-    || value === 'queued'
-    || value === 'processing'
-    || value === 'succeeded'
-    || value === 'failed'
-    || value === 'cancelled'
-    || value === 'awaiting_user_choice'
-  ) {
-    return value
-  }
-
-  if (value === 'already_queued') return 'queued'
-  return null
 }
 
 function bootstrapStepColor(
@@ -5548,18 +5327,21 @@ function developmentThreadOriginPayload(
   }
 }
 
-function isOperationalContextThread(thread: AtlasAiThread | null): boolean {
-  const metadata = thread?.metadata ?? {}
-
-  return metadataString(metadata, 'capability_profile') === 'mobile_operational_read'
-    || metadataString(metadata, 'capability_profile') === 'atlas_full_access'
-    || metadataString(metadata, 'source_type') === 'ai_inbox_item'
-    || thread?.source_type === 'inbox_item'
-}
-
 function metadataString(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key]
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function stringFromRecord(value: unknown, key: string): string | null {
+  if (!value || typeof value !== 'object') return null
+  const next = (value as Record<string, unknown>)[key]
+  return typeof next === 'string' && next.trim().length > 0 ? next.trim() : null
+}
+
+function numberFromRecord(value: unknown, key: string): number | null {
+  if (!value || typeof value !== 'object') return null
+  const next = (value as Record<string, unknown>)[key]
+  return typeof next === 'number' && Number.isFinite(next) ? next : null
 }
 
 function focusLabel(value: string): string {

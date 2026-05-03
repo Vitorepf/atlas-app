@@ -11,6 +11,7 @@ import { useOverlays } from '../../lib/overlays'
 import { domainColor } from '../../lib/domains'
 import {
   type AiProvidersStatusResponse,
+  type AtlasAiActiveJob,
   type AtlasAiJob,
   type AtlasAiStatus,
   type AtlasHealth,
@@ -1464,7 +1465,7 @@ function activeAiJob(status: AiProvidersStatusResponse | null) {
 function activeAiJobValue(status: AiProvidersStatusResponse | null): string {
   const job = activeAiJob(status)
   if (!job) return 'nada'
-  return providerLabel(job.provider)
+  return activeAiJobShortLabel(job)
 }
 
 function activeAiJobDescription(status: AiProvidersStatusResponse | null): string {
@@ -1473,12 +1474,40 @@ function activeAiJobDescription(status: AiProvidersStatusResponse | null): strin
   if (!job) {
     const waiting = status.active_jobs?.find((item) => item.status === 'queued' || item.status === 'awaiting_user_choice')
     if (!waiting) return 'Nada processando agora'
-    return `Nada processando · ${providerLabel(waiting.provider)} ${waiting.status} · atualizado ${formatRelativeSync(waiting.updated_at)}`
+    const waitingStage = activeAiJobStageLabel(waiting)
+    const waitingDependency = activeAiJobDependencyLabel(waiting)
+    return `Nada processando · ${activeAiJobShortLabel(waiting)} ${waiting.status}${waitingStage}${waitingDependency} · atualizado ${formatRelativeSync(waiting.updated_at)}`
   }
   const model = job.model_label || providerModelLabel(status, job.provider ?? '', job.model)
   const tier = job.model_tier ? ` · tier ${job.model_tier}` : ''
   const worker = job.worker_id ? ` · ${job.worker_id}` : ''
-  return `${job.status} · ${model}${tier}${worker} · atualizado ${formatRelativeSync(job.updated_at)}`
+  const stage = activeAiJobStageLabel(job)
+  const dependency = activeAiJobDependencyLabel(job)
+  return `${job.status}${stage}${dependency} · ${model}${tier}${worker} · atualizado ${formatRelativeSync(job.updated_at)}`
+}
+
+function activeAiJobShortLabel(job: AtlasAiActiveJob): string {
+  const provider = providerLabel(job.provider)
+  const stage = job.atlas_decide_stage ?? job.atlas_decide_execution?.atlas_decide_stage ?? null
+
+  if (stage === 'context_scout') return `${provider} scout`
+  if (stage === 'primary_executor') return `${provider} executor`
+
+  return provider
+}
+
+function activeAiJobStageLabel(job: AtlasAiActiveJob): string {
+  const stage = job.atlas_decide_stage ?? job.atlas_decide_execution?.atlas_decide_stage ?? null
+  if (stage === 'context_scout') return ' · Atlas Decide scout'
+  if (stage === 'primary_executor') return ' · Atlas Decide executor'
+  if (stage) return ` · ${stage}`
+  return ''
+}
+
+function activeAiJobDependencyLabel(job: AtlasAiActiveJob): string {
+  const dependency = job.dependency_state ?? job.atlas_decide_execution?.dependency_state ?? null
+  if (!dependency || dependency === 'none' || dependency === 'source') return ''
+  return ` · dependência ${dependency}`
 }
 
 function usageByProvider(status: AiProvidersStatusResponse | null, provider: string) {
