@@ -11,27 +11,36 @@ import { useOverlays } from '../../lib/overlays'
 import { domainColor } from '../../lib/domains'
 import {
   type AiProvidersStatusResponse,
+  type AtlasAiFlowProfile,
+  type AtlasAiFlowProfilePatch,
+  type AtlasAiPolicyPreviewResponse,
+  type AtlasAiPolicyProfilesResponse,
   type AtlasMacStatusResponse,
   type AtlasAiActiveJob,
   type AtlasAiJob,
   type AtlasAiStatus,
   type AtlasHealth,
+  bootstrapMobileMacAgent,
   cancelAiJob,
+  cleanupMobileMacCaffeinate,
   createMobileMacMaintenanceWindow,
   deleteMobileMacMaintenanceWindow,
   getApiConfig,
   getAiProvidersStatus,
+  getAiPolicyProfiles,
   getHealth,
   getMobileMacStatus,
   hydrateApiConfig,
   listAiJobs,
   listCaptures,
+  previewAiPolicy,
   requestMobileMacSleepNow,
   setBackendHost,
   setBackendPort,
   setBackendToken,
   startMobileMacRemoteSession,
   stopMobileMacRemoteSession,
+  updateAiFlowProfile,
   updateAiProviderSettings,
 } from '../../lib/api/client'
 import { formatRelativeSync, localQueueCounts, useAtlasStore } from '../../lib/atlasStore'
@@ -96,8 +105,13 @@ export function SettingsSheet() {
   const [testing, setTesting] = useState(false)
   const [serverHealth, setServerHealth] = useState<AtlasHealth | null>(null)
   const [aiStatus, setAiStatus] = useState<AiProvidersStatusResponse | null>(null)
+  const [aiPolicyProfiles, setAiPolicyProfiles] = useState<AtlasAiPolicyProfilesResponse | null>(null)
+  const [aiPolicyPreview, setAiPolicyPreview] = useState<AtlasAiPolicyPreviewResponse | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
+  const [aiPolicySaving, setAiPolicySaving] = useState(false)
+  const [aiPolicyPreviewLoading, setAiPolicyPreviewLoading] = useState(false)
+  const [selectedAiFlowId, setSelectedAiFlowId] = useState('programming.dev')
   const [aiError, setAiError] = useState<string | null>(null)
   const [activeAiJobs, setActiveAiJobs] = useState<AtlasAiJob[]>([])
   const [activeJobsLoading, setActiveJobsLoading] = useState(false)
@@ -146,6 +160,18 @@ export function SettingsSheet() {
     return () => clearInterval(interval)
   }, [apiConfigLoaded, visible])
 
+  useEffect(() => {
+    const flows = aiPolicyProfiles?.profile_registry.flows ?? []
+    if (flows.length === 0 || flows.some((flow) => flow.id === selectedAiFlowId)) return
+
+    setSelectedAiFlowId(flows.find((flow) => flow.id === 'programming.dev')?.id ?? flows[0].id)
+  }, [aiPolicyProfiles, selectedAiFlowId])
+
+  useEffect(() => {
+    if (!visible || !apiConfigLoaded || !selectedAiFlowId) return
+    void refreshSelectedAiPolicyPreview({ silent: true })
+  }, [visible, apiConfigLoaded, selectedAiFlowId, aiPolicyProfiles?.profile_registry.source])
+
   const queue = queuedCaptures
     + queuedCheckins
     + queuedBehaviors
@@ -166,6 +192,8 @@ export function SettingsSheet() {
     syncing,
     testing,
   })
+  const selectedAiFlow = aiPolicyProfiles?.profile_registry.flows.find((flow) => flow.id === selectedAiFlowId) ?? null
+  const canEditAiProfiles = aiPolicyProfiles?.profile_registry.source === 'database'
 
   const saveApiConfig = async () => {
     const config = normalizeApiDrafts(hostDraft, portDraft, tokenDraft)
@@ -209,7 +237,8 @@ export function SettingsSheet() {
       await saveApiConfig()
       let statusError: unknown = null
       let jobsError: unknown = null
-      const [status, activeJobs] = await Promise.all([
+      let profilesError: unknown = null
+      const [status, activeJobs, policyProfiles] = await Promise.all([
         getAiProvidersStatus().catch((error) => {
           statusError = error
           return null
@@ -218,13 +247,20 @@ export function SettingsSheet() {
           jobsError = error
           return null
         }),
+        getAiPolicyProfiles().catch((error) => {
+          profilesError = error
+          return null
+        }),
       ])
       if (status) {
         setAiStatus(status)
       }
+      if (policyProfiles) {
+        setAiPolicyProfiles(policyProfiles)
+      }
       setActiveAiJobs(activeJobs ?? [])
-      if (statusError || jobsError) {
-        setAiError(humanAiError(jobsError ?? statusError, 'Falha ao ler Atlas'))
+      if (statusError || jobsError || profilesError) {
+        setAiError(humanAiError(jobsError ?? statusError ?? profilesError, 'Falha ao ler Atlas'))
       }
     } catch (error) {
       setActiveAiJobs([])
@@ -251,6 +287,60 @@ export function SettingsSheet() {
       setAiError(humanAiError(error, 'Falha ao salvar Atlas'))
     } finally {
       setAiSaving(false)
+    }
+  }
+
+  const saveSelectedAiFlowPolicy = async (patch: AtlasAiFlowProfilePatch) => {
+    if (!selectedAiFlow) return
+    setAiPolicySaving(true)
+    setAiError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await updateAiFlowProfile(selectedAiFlow.id, patch)
+      setAiPolicyProfiles({
+        generated_at: new Date().toISOString(),
+        profile_registry: response.profile_registry,
+      })
+      setAiPolicyPreview({
+        generated_at: new Date().toISOString(),
+        profile: {
+          profile_id: response.flow_profile.id,
+          domain: response.flow_profile.domain_id,
+          flow: response.flow_profile.id,
+        },
+        effective_policy: response.effective_policy ?? {},
+        policy_merge_receipt: {},
+        legacy_policy: {},
+      })
+      showToast('Política do fluxo salva')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao salvar política AI')
+      setAiError(message)
+      showToast(message)
+    } finally {
+      setAiPolicySaving(false)
+    }
+  }
+
+  const refreshSelectedAiPolicyPreview = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!selectedAiFlowId) return
+    if (!silent) setAiPolicyPreviewLoading(true)
+    setAiError(null)
+
+    try {
+      await saveApiConfig()
+      const preview = await previewAiPolicy({
+        profile_id: selectedAiFlowId,
+        surface: 'app',
+      })
+      setAiPolicyPreview(preview)
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao pré-visualizar política AI')
+      setAiError(message)
+      if (!silent) showToast(message)
+    } finally {
+      if (!silent) setAiPolicyPreviewLoading(false)
     }
   }
 
@@ -348,6 +438,52 @@ export function SettingsSheet() {
     }
   }
 
+  const cleanupCaffeinate = async () => {
+    setMacAction('cleanup-caffeinate')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await cleanupMobileMacCaffeinate()
+      setMacStatus(response.status)
+      showToast(
+        response.cleanup.queued_for_host
+          ? 'Limpeza enviada para o Mac Agent'
+          : response.cleanup.removed > 0
+          ? `${response.cleanup.removed} retenção órfã limpa`
+          : 'Nenhuma retenção órfã encontrada',
+      )
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao limpar caffeinate')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
+  const bootstrapMacAgent = async () => {
+    setMacAction('bootstrap')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await bootstrapMobileMacAgent({
+        wake_time: '02:00',
+        duration_minutes: 120,
+        timezone: 'America/Sao_Paulo',
+      })
+      setMacStatus(response.status)
+      showToast(response.complete ? 'Mac pronto para jobs de madrugada' : 'Mac preparado; helper root ainda pendente')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao preparar Mac')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
   const createDefaultMaintenanceWindow = async () => {
     setMacAction('create-maintenance')
     setMacError(null)
@@ -355,7 +491,7 @@ export function SettingsSheet() {
     try {
       await saveApiConfig()
       await createMobileMacMaintenanceWindow({
-        name: 'Manutenção Atlas',
+        name: 'Janela Atlas',
         wake_time: '02:00',
         duration_minutes: 120,
         enabled: true,
@@ -576,6 +712,15 @@ export function SettingsSheet() {
           <Row first name="Estado do Mac" desc={macStatusDescription(macStatus, macError, macLoading)}>
             <StatusBadge status={macConnectionStatus(macStatus, macError, macLoading)} />
           </Row>
+          <Row name="Prontidão" desc={macReadinessDescription(macStatus)}>
+            <StatusBadge status={macReadinessStatus(macStatus)} />
+          </Row>
+          <Row name="Próxima ação" desc={macNextActionDescription(macStatus)}>
+            <StatusBadge status={macNextActionStatus(macStatus)} />
+          </Row>
+          <Row name="Supervisor" desc={macAgentSupervisorDescription(macStatus)}>
+            <StatusBadge status={macAgentSupervisorStatus(macStatus)} />
+          </Row>
           <Row name="Modo remoto" desc={remoteModeDescription(macStatus)}>
             <Mono size={12} letterSpacing={0.48} color={remoteModeActive(macStatus) ? c.bronze : c.ink2}>
               {remoteModeActive(macStatus) ? 'ativo' : 'idle'}
@@ -593,6 +738,9 @@ export function SettingsSheet() {
           </Row>
           <Row name="Power helper" desc={powerHelperDescription(macStatus)}>
             <StatusBadge status={powerHelperStatus(macStatus)} />
+          </Row>
+          <Row name="Caffeinate" desc={caffeinateRuntimeDescription(macStatus)}>
+            <StatusBadge status={caffeinateRuntimeStatus(macStatus)} />
           </Row>
           <Row name="Wake macOS" desc={wakeScheduleDescription(macStatus)}>
             <StatusBadge status={wakeScheduleStatus(macStatus)} />
@@ -632,11 +780,21 @@ export function SettingsSheet() {
               onPress={confirmSleepNow}
             />
             <MiniButton
+              label={macAction === 'bootstrap' ? 'Preparando…' : 'Preparar Mac'}
+              disabled={Boolean(macAction)}
+              onPress={bootstrapMacAgent}
+            />
+            <MiniButton
               label={macLoading ? 'Atualizando…' : 'Atualizar Mac'}
               disabled={macLoading || Boolean(macAction)}
               onPress={() => {
                 void refreshMacStatus()
               }}
+            />
+            <MiniButton
+              label={macAction === 'cleanup-caffeinate' ? 'Limpando…' : 'Limpar órfãs'}
+              disabled={Boolean(macAction) || !(macStatus?.caffeinate_runtime?.orphan_count)}
+              onPress={cleanupCaffeinate}
             />
           </View>
           <View style={styles.apiActions}>
@@ -656,6 +814,11 @@ export function SettingsSheet() {
         <Section label="Atlas">
           <Row first name="Gateway" desc={aiGatewayDescription(aiStatus, aiError)}>
             <StatusBadge status={aiGatewayStatus(aiStatus, aiError, aiLoading)} />
+          </Row>
+          <Row name="Perfis AI" desc={aiPolicyProfilesDescription(aiPolicyProfiles)}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {aiPolicyProfiles?.profile_registry.source ?? '-'}
+            </Mono>
           </Row>
           <Row name="Provider padrão" desc={defaultProviderDescription(aiStatus)}>
             <Mono
@@ -834,6 +997,172 @@ export function SettingsSheet() {
               disabled={aiLoading || aiSaving}
               onPress={() => {
                 void refreshAiStatus()
+              }}
+            />
+          </View>
+        </Section>
+
+        <Section label="Políticas AI">
+          <Row first name="Fluxo" desc={selectedAiFlowDescription(aiPolicyProfiles, selectedAiFlow)}>
+            <Mono size={12} letterSpacing={0.48} color={canEditAiProfiles ? c.moss : c.bronze}>
+              {selectedAiFlow?.id ?? '-'}
+            </Mono>
+          </Row>
+          <PolicyFlowPicker
+            profiles={aiPolicyProfiles}
+            selectedFlowId={selectedAiFlowId}
+            onSelect={setSelectedAiFlowId}
+          />
+          <Row name="Preview efetivo" desc={effectivePolicyPreviewDescription(aiPolicyPreview, aiPolicyPreviewLoading)}>
+            <Mono size={12} letterSpacing={0.48} color={effectivePolicyPreviewReady(aiPolicyPreview) ? c.moss : c.ink2}>
+              {effectivePolicyPreviewReady(aiPolicyPreview) ? 'pronto' : '-'}
+            </Mono>
+          </Row>
+          <EffectivePolicyPreviewPanel preview={aiPolicyPreview} loading={aiPolicyPreviewLoading} />
+          <Row name="Executor" desc={flowExecutorDescription(selectedAiFlow, canEditAiProfiles)}>
+            <Segmented
+              value={flowExecutorPreference(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'simple_provider_execution', label: 'Direto' },
+                { key: 'dev_repair_executor', label: 'Repair' },
+                { key: 'engineering_harness', label: 'Harness' },
+              ]}
+              onChange={(executor) => {
+                void saveSelectedAiFlowPolicy({ execution_policy: { executor_preference: executor } })
+              }}
+            />
+          </Row>
+          <Row name="Autonomia" desc={flowAutonomyDescription(selectedAiFlow)}>
+            <Segmented
+              value={selectedAiFlow?.autonomy ?? 'medium'}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'low', label: 'Baixa' },
+                { key: 'medium', label: 'Média' },
+                { key: 'high', label: 'Alta' },
+              ]}
+              onChange={(autonomy) => {
+                void saveSelectedAiFlowPolicy({ autonomy })
+              }}
+            />
+          </Row>
+          <Row name="Aprovação" desc={flowApprovalDescription(selectedAiFlow)}>
+            <Segmented
+              value={selectedAiFlow?.requires_human_approval_for_destructive === false ? 'off' : 'on'}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'on', label: 'ON' },
+                { key: 'off', label: 'OFF' },
+              ]}
+              onChange={(value) => {
+                void saveSelectedAiFlowPolicy({ requires_human_approval_for_destructive: value === 'on' })
+              }}
+            />
+          </Row>
+          <Row name="Background" desc={flowBackgroundDescription(selectedAiFlow)}>
+            <Segmented
+              value={selectedAiFlow?.background_allowed ? 'on' : 'off'}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'off', label: 'OFF' },
+                { key: 'on', label: 'ON' },
+              ]}
+              onChange={(value) => {
+                void saveSelectedAiFlowPolicy({ background_allowed: value === 'on' })
+              }}
+            />
+          </Row>
+          <Row name="Gate mínimo" desc={flowGatePolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowGateMinimum(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'standard', label: 'Padrão' },
+                { key: 'strict', label: 'Rigor' },
+                { key: 'release', label: 'Release' },
+              ]}
+              onChange={(minimum) => {
+                void saveSelectedAiFlowPolicy({ gate_policy: { minimum_gate: minimum } })
+              }}
+            />
+          </Row>
+          <Row name="Modelo do fluxo" desc={flowModelPolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowModelPolicyPreset(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'balanced', label: 'Balanço' },
+                { key: 'quality', label: 'Qualidade' },
+                { key: 'cost_guarded', label: 'Custo' },
+              ]}
+              onChange={(preset) => {
+                void saveSelectedAiFlowPolicy({ model_policy: modelPolicyPatchForPreset(preset) })
+              }}
+            />
+          </Row>
+          <Row name="Contexto" desc={flowContextPolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowContextPolicyPreset(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'light', label: 'Leve' },
+                { key: 'focused', label: 'Foco' },
+                { key: 'deep', label: 'Profundo' },
+              ]}
+              onChange={(preset) => {
+                void saveSelectedAiFlowPolicy({ context_policy: contextPolicyPatchForPreset(preset) })
+              }}
+            />
+          </Row>
+          <Row name="Memória" desc={flowMemoryPolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowMemoryPolicyPreset(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'thread', label: 'Thread' },
+                { key: 'project', label: 'Projeto' },
+                { key: 'deep', label: 'Profunda' },
+              ]}
+              onChange={(preset) => {
+                void saveSelectedAiFlowPolicy({ memory_policy: memoryPolicyPatchForPreset(preset) })
+              }}
+            />
+          </Row>
+          <Row name="Skills" desc={flowSkillPolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowSkillPolicyPreset(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'minimal', label: 'Mínima' },
+                { key: 'domain', label: 'Domínio' },
+                { key: 'council', label: 'Conselho' },
+              ]}
+              onChange={(preset) => {
+                void saveSelectedAiFlowPolicy({ skill_policy: skillPolicyPatchForPreset(preset) })
+              }}
+            />
+          </Row>
+          <Row name="Ferramentas" desc={flowToolPolicyDescription(selectedAiFlow)}>
+            <Segmented
+              value={flowToolPolicyPreset(selectedAiFlow)}
+              disabled={!canEditAiProfiles || aiPolicySaving || !selectedAiFlow}
+              options={[
+                { key: 'read_only', label: 'Leitura' },
+                { key: 'workspace_write', label: 'Workspace' },
+                { key: 'harness', label: 'Harness' },
+              ]}
+              onChange={(preset) => {
+                void saveSelectedAiFlowPolicy({ tool_policy: toolPolicyPatchForPreset(preset) })
+              }}
+            />
+          </Row>
+          <View style={styles.apiActions}>
+            <MiniButton
+              label={aiPolicyPreviewLoading ? 'Calculando…' : 'Recalcular preview'}
+              disabled={aiPolicyPreviewLoading || !selectedAiFlow}
+              onPress={() => {
+                void refreshSelectedAiPolicyPreview()
               }}
             />
           </View>
@@ -1173,6 +1502,71 @@ function macStatusDescription(
   return 'Mac Agent online e sem retenção de energia'
 }
 
+function macReadinessStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  const readiness = status?.readiness
+  if (!readiness) return 'offline'
+  if (readiness.ready_for_background_jobs) return 'online'
+  if (readiness.ready_for_remote) return 'pending'
+  return 'offline'
+}
+
+function macReadinessDescription(status: AtlasMacStatusResponse | null): string {
+  const readiness = status?.readiness
+  if (!readiness) return 'Prontidão ainda não verificada'
+  if (readiness.summary?.message) return readiness.summary.message
+  if (readiness.ready_for_background_jobs) return 'Remoto, jobs e wake automático prontos'
+  if (readiness.ready_for_remote) {
+    const batteryBlocker = readiness.blockers.find((item) => item.code === 'battery_too_low_for_background_jobs')
+    if (batteryBlocker) return batteryBlocker.message
+    const blocker = readiness.blockers.find((item) => item.code === 'power_helper_not_ready' || item.code === 'atlas_wake_not_confirmed')
+    return blocker?.message ?? 'Modo remoto pronto; wake automático pendente'
+  }
+  return readiness.blockers[0]?.message ?? 'Mac Agent bloqueado'
+}
+
+function macNextActionStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  const action = status?.readiness?.next_action
+  if (!action) return 'offline'
+  if (action.code === 'none') return 'online'
+  if (action.severity === 'critical') return 'offline'
+  return 'pending'
+}
+
+function macNextActionDescription(status: AtlasMacStatusResponse | null): string {
+  const action = status?.readiness?.next_action
+  if (!action) return 'Nenhuma ação calculada ainda'
+  if (action.code === 'none') return action.message
+  if (action.command) return `${action.message} · ${shortMacCommand(action.command)}`
+  return action.message
+}
+
+function shortMacCommand(command: string): string {
+  if (command.includes('install-power-helper-launch-daemon.sh')) return 'instalar Power Helper no Mac'
+  if (command.includes('install-mac-agent-launch-agent.sh')) return 'instalar LaunchAgent'
+  if (command.includes('cleanup-caffeinate')) return 'limpar retenções órfãs'
+  if (command.includes('atlas:host doctor')) return 'rodar doctor'
+  if (command.includes('atlas:host schedule-wake')) return 'programar wake'
+  return command
+}
+
+function macAgentSupervisorStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  const supervisor = status?.mac_agent
+  if (!supervisor) return 'offline'
+  if (supervisor.ready) return 'online'
+  if (supervisor.installed) return 'pending'
+  return 'offline'
+}
+
+function macAgentSupervisorDescription(status: AtlasMacStatusResponse | null): string {
+  const supervisor = status?.mac_agent
+  if (!supervisor) return 'LaunchAgent ainda não verificado'
+  if (supervisor.next_action?.code && supervisor.next_action.code !== 'ready') return supervisor.next_action.message
+  if (supervisor.running && supervisor.pid) return `${supervisor.label} rodando · pid ${supervisor.pid}`
+  if (supervisor.ready) return `${supervisor.label} carregado`
+  if (supervisor.installed) return `${supervisor.label} instalado, mas não carregado`
+  return 'Instale o LaunchAgent para manter o agente ativo'
+}
+
 function remoteModeActive(status: AtlasMacStatusResponse | null): boolean {
   return Boolean(status?.active_sessions.some((session) => session.kind === 'remote_manual' && session.status === 'active'))
 }
@@ -1213,7 +1607,7 @@ function maintenanceDescription(status: AtlasMacStatusResponse | null): string {
 
 function powerHelperStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
   if (!status?.power_helper) return 'offline'
-  if (status.power_helper.installed && (status.power_helper.running || status.power_helper.last_success_at)) return 'online'
+  if (status.power_helper.ready || (status.power_helper.installed && status.power_helper.last_success_fresh)) return 'online'
   if (status.power_helper.installed) return 'pending'
   return 'offline'
 }
@@ -1221,10 +1615,28 @@ function powerHelperStatus(status: AtlasMacStatusResponse | null): ConnectionSta
 function powerHelperDescription(status: AtlasMacStatusResponse | null): string {
   const helper = status?.power_helper
   if (!helper) return 'Ainda não verificado'
-  if (helper.installed && helper.last_success_at) return `${helper.label} ok · ${formatRelativeSync(helper.last_success_at)}`
+  if (helper.next_action?.code && helper.next_action.code !== 'ready') return helper.next_action.message
+  if (helper.installed && helper.last_success_fresh && helper.last_success_at) return `${helper.label} ok · ${formatRelativeSync(helper.last_success_at)}`
+  if (helper.installed && helper.last_success_at) return `${helper.label} sem check recente · ${formatRelativeSync(helper.last_success_at)}`
   if (helper.installed && helper.running) return `${helper.label} rodando`
   if (helper.installed) return `${helper.label} instalado, sem check root recente`
   return 'Necessário para programar wake do macOS'
+}
+
+function caffeinateRuntimeStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  const runtime = status?.caffeinate_runtime
+  if (!runtime?.available) return 'offline'
+  if (runtime.orphan_count > 0) return 'pending'
+  return 'online'
+}
+
+function caffeinateRuntimeDescription(status: AtlasMacStatusResponse | null): string {
+  const runtime = status?.caffeinate_runtime
+  if (!runtime) return 'Runtime de vigília ainda não verificado'
+  if (!runtime.available) return 'caffeinate indisponível neste Mac'
+  if (runtime.orphan_count > 0) return `${runtime.orphan_count} retenção órfã será limpa pelo agente`
+  const active = runtime.active_labels.length === 1 ? '1 retenção ativa' : `${runtime.active_labels.length} retenções ativas`
+  return `${active} · launchctl monitorado`
 }
 
 function wakeScheduleStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
@@ -1238,6 +1650,7 @@ function wakeScheduleDescription(status: AtlasMacStatusResponse | null): string 
   const schedule = status?.wake_schedule
   if (!schedule?.available) return 'pmset schedule ainda não verificado'
   if (schedule.scheduled) return schedule.next_wake_at ? `Próximo wake ${formatRelativeSync(schedule.next_wake_at)}` : 'Wake programado no macOS'
+  if (schedule.system_has_wakeorpoweron) return 'Existe wake do sistema, mas nenhum wake Atlas confirmado'
   if ((status?.maintenance_windows?.length ?? 0) > 0) return 'Janela cadastrada, mas wake ainda não programado'
   return 'Nenhum wake programado'
 }
@@ -1630,6 +2043,386 @@ function runtimeSettingsDescription(status: AiProvidersStatusResponse | null): s
   return source === 'database'
     ? `Persistido no Atlas DB${when}`
     : `Usando .env/config como fallback${when}`
+}
+
+function aiPolicyProfilesDescription(profiles: AtlasAiPolicyProfilesResponse | null): string {
+  if (!profiles) return 'Perfis ainda não carregados'
+  const domains = profiles.profile_registry.domains.length
+  const flows = profiles.profile_registry.flows.length
+  const source = profiles.profile_registry.source === 'database' ? 'Atlas DB' : 'fallback local'
+  return `${domains} domínios · ${flows} fluxos · ${source}`
+}
+
+function selectedAiFlowDescription(
+  profiles: AtlasAiPolicyProfilesResponse | null,
+  flow: AtlasAiFlowProfile | null,
+): string {
+  if (!profiles) return 'Catálogo de perfis ainda não carregado'
+  if (!flow) return 'Selecione um fluxo para editar'
+  const domain = profiles.profile_registry.domains.find((item) => item.id === flow.domain_id)
+  const source = profiles.profile_registry.source === 'database'
+    ? 'editável no Atlas DB'
+    : 'fallback local; rode migrations para salvar'
+  return `${domain?.label ?? flow.domain_id} · ${flow.label} · ${source}`
+}
+
+function effectivePolicyPreviewReady(preview: AtlasAiPolicyPreviewResponse | null): boolean {
+  return Boolean(preview?.effective_policy && Object.keys(preview.effective_policy).length > 0)
+}
+
+function effectivePolicyPreviewDescription(
+  preview: AtlasAiPolicyPreviewResponse | null,
+  loading: boolean,
+): string {
+  if (loading) return 'Recalculando merge de perfil, runtime e sessão'
+  if (!effectivePolicyPreviewReady(preview)) return 'Preview ainda não calculado'
+  const policy = objectRecord(preview?.effective_policy)
+  const runtime = objectRecord(policy.runtime_policy)
+  const policies = objectRecord(policy.policies)
+  const contracts = objectRecord(policy.operational_contracts)
+  const modelGraph = objectRecord(contracts.model_graph)
+  const authority = firstText(policy.execution_authority) ?? 'sem autoridade'
+  const provider = firstText(runtime.default_provider) ?? '-'
+  const executor = firstText(objectRecord(policy.execution_policy).executor_preference) ?? '-'
+  const modelPreset = firstText(modelGraph.preset, objectRecord(policies.model_policy).preset, objectRecord(policies.model_policy).default) ?? 'default'
+  return `${authority} · ${provider} · ${executor} · ${firstText(modelGraph.graph) ?? 'single'} · modelo ${modelPreset}`
+}
+
+function effectivePolicyMetricRows(preview: AtlasAiPolicyPreviewResponse | null): Array<{ label: string; value: string; desc: string }> {
+  const policy = objectRecord(preview?.effective_policy)
+  if (Object.keys(policy).length === 0) return []
+
+  const runtime = objectRecord(policy.runtime_policy)
+  const execution = objectRecord(policy.execution_policy)
+  const contracts = objectRecord(policy.operational_contracts)
+  const modelGraph = objectRecord(contracts.model_graph)
+  const context = objectRecord(contracts.context)
+  const memory = objectRecord(contracts.memory)
+  const skills = objectRecord(contracts.skills)
+  const tools = objectRecord(contracts.tools)
+  const gates = objectRecord(contracts.gates)
+
+  return [
+    {
+      label: 'authority',
+      value: firstText(policy.execution_authority) ?? '-',
+      desc: firstText(policy.profile_id) ?? firstText(preview?.profile?.profile_id) ?? '-',
+    },
+    {
+      label: 'provider',
+      value: providerLabel(firstText(runtime.default_provider)),
+      desc: arrayText(modelGraph.fallback_order) || arrayText(runtime.fallback_order) || 'fallback pelo runtime',
+    },
+    {
+      label: 'graph',
+      value: firstText(modelGraph.graph) ?? '-',
+      desc: `${firstText(modelGraph.preset) ?? 'preset'} · ${modelGraphNodeText(modelGraph.nodes)}`,
+    },
+    {
+      label: 'executor',
+      value: firstText(execution.executor_preference) ?? '-',
+      desc: `max ${firstText(execution.max_iterations) ?? '1'} · ${truthyText(execution.quality_required, 'quality')}`,
+    },
+    {
+      label: 'context',
+      value: firstText(context.depth) ?? '-',
+      desc: truthyText(context.require_context_pack, 'context pack'),
+    },
+    {
+      label: 'memory',
+      value: firstText(memory.scope) ?? '-',
+      desc: arrayText(memory.recall) || truthyText(memory.record_decisions, 'record decisions'),
+    },
+    {
+      label: 'skills',
+      value: firstText(skills.mode) ?? '-',
+      desc: arrayText(skills.required_bundles) || truthyText(skills.require_skill_trace, 'trace'),
+    },
+    {
+      label: 'tools',
+      value: firstText(tools.mode) ?? '-',
+      desc: truthyText(tools.workspace_write, 'workspace write'),
+    },
+    {
+      label: 'gates',
+      value: firstText(gates.minimum_gate) ?? '-',
+      desc: arrayText(gates.required_gates) || truthyText(gates.evidence_required, 'evidence'),
+    },
+  ]
+}
+
+function modelGraphNodeText(value: unknown): string {
+  if (!Array.isArray(value)) return 'sem nós'
+  const roles = value
+    .map((item) => objectRecord(item))
+    .map((item) => firstText(item.role, item.id))
+    .filter(Boolean)
+    .slice(0, 3)
+  return roles.length > 0 ? roles.join(', ') : 'sem nós'
+}
+
+function arrayText(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 4).join(', ')
+}
+
+function truthyText(value: unknown, label: string): string {
+  return value === true || value === 'true' || value === 1 ? label : 'não'
+}
+
+function flowExecutorPreference(flow: AtlasAiFlowProfile | null): string {
+  const execution = objectRecord(flow?.execution_policy)
+  return firstText(execution.executor_preference) ?? 'simple_provider_execution'
+}
+
+function flowExecutorDescription(flow: AtlasAiFlowProfile | null, editable: boolean): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const executor = flowExecutorPreference(flow)
+  const mode = editable ? 'salva no perfil do fluxo' : 'somente leitura enquanto catálogo estiver em fallback'
+  if (executor === 'engineering_harness') return `Harness completo · ${mode}`
+  if (executor === 'dev_repair_executor') return `Execução com repair loop · ${mode}`
+  return `Execução direta por provider · ${mode}`
+}
+
+function flowAutonomyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  if (flow.autonomy === 'high') return 'Pode planejar fluxo longo, múltiplos passos e gates mais caros'
+  if (flow.autonomy === 'low') return 'Conservador; evita trabalho em background e ações arriscadas'
+  return 'Equilíbrio entre velocidade, qualidade e custo'
+}
+
+function flowApprovalDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  return flow.requires_human_approval_for_destructive === false
+    ? 'Ações destrutivas não exigem aprovação pelo perfil'
+    : 'Ações destrutivas exigem aprovação humana'
+}
+
+function flowBackgroundDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  return flow.background_allowed
+    ? 'Fluxo pode ser usado por automações quando política permitir'
+    : 'Fluxo limitado a sessão/manual'
+}
+
+function flowGateMinimum(flow: AtlasAiFlowProfile | null): string {
+  const gate = objectRecord(flow?.gate_policy)
+  const minimum = firstText(gate.minimum_gate)
+  return ['standard', 'strict', 'release'].includes(minimum ?? '') ? minimum as string : 'standard'
+}
+
+function flowGatePolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const minimum = flowGateMinimum(flow)
+  if (minimum === 'release') return 'Exige padrão de release antes de considerar concluído'
+  if (minimum === 'strict') return 'Exige evidência e verificação mais forte'
+  return 'Gate padrão do domínio e do executor'
+}
+
+function flowModelPolicyPreset(flow: AtlasAiFlowProfile | null): string {
+  const policy = objectRecord(flow?.model_policy)
+  const preset = firstText(policy.preset, policy.default, policy.mode)
+  return ['balanced', 'quality', 'cost_guarded'].includes(preset ?? '') ? preset as string : 'balanced'
+}
+
+function flowModelPolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const preset = flowModelPolicyPreset(flow)
+  if (preset === 'quality') return 'Prefere modelo mais forte, fallback e conselho quando útil'
+  if (preset === 'cost_guarded') return 'Prefere modelo diário e limita escalada automática'
+  return 'Equilibra qualidade, custo e disponibilidade'
+}
+
+function modelPolicyPatchForPreset(preset: string): Record<string, unknown> {
+  if (preset === 'quality') {
+    return {
+      preset,
+      default: 'quality',
+      escalation: 'allow_premium_when_needed',
+      fallback: 'quality_then_available',
+    }
+  }
+  if (preset === 'cost_guarded') {
+    return {
+      preset,
+      default: 'daily',
+      escalation: 'manual_or_gate_triggered',
+      fallback: 'daily_available_first',
+    }
+  }
+
+  return {
+    preset: 'balanced',
+    default: 'balanced',
+    escalation: 'auto_when_confidence_or_complexity_requires',
+    fallback: 'available_first',
+  }
+}
+
+function flowContextPolicyPreset(flow: AtlasAiFlowProfile | null): string {
+  const policy = objectRecord(flow?.context_policy)
+  const preset = firstText(policy.preset, policy.depth)
+  return ['light', 'focused', 'deep'].includes(preset ?? '') ? preset as string : 'focused'
+}
+
+function flowContextPolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const preset = flowContextPolicyPreset(flow)
+  if (preset === 'deep') return 'Contexto longo, memória e evidências antes de executar'
+  if (preset === 'light') return 'Contexto mínimo para respostas rápidas'
+  return 'Contexto focado no fluxo e no workspace atual'
+}
+
+function contextPolicyPatchForPreset(preset: string): Record<string, unknown> {
+  if (preset === 'deep') {
+    return {
+      preset,
+      depth: 'deep',
+      include_memory: true,
+      include_recent_traces: true,
+      require_context_pack: true,
+    }
+  }
+  if (preset === 'light') {
+    return {
+      preset,
+      depth: 'light',
+      include_memory: false,
+      include_recent_traces: false,
+      require_context_pack: false,
+    }
+  }
+
+  return {
+    preset: 'focused',
+    depth: 'focused',
+    include_memory: true,
+    include_recent_traces: true,
+    require_context_pack: false,
+  }
+}
+
+function flowMemoryPolicyPreset(flow: AtlasAiFlowProfile | null): string {
+  const policy = objectRecord(flow?.memory_policy)
+  const preset = firstText(policy.preset, policy.scope)
+  return ['thread', 'project', 'deep'].includes(preset ?? '') ? preset as string : 'project'
+}
+
+function flowMemoryPolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const preset = flowMemoryPolicyPreset(flow)
+  if (preset === 'deep') return 'Usa memória semântica, projeto e decisões canônicas'
+  if (preset === 'thread') return 'Limita memória ao contexto da conversa'
+  return 'Usa memória do projeto e thread atual'
+}
+
+function memoryPolicyPatchForPreset(preset: string): Record<string, unknown> {
+  if (preset === 'deep') {
+    return {
+      preset,
+      scope: 'deep',
+      recall: ['thread', 'project', 'semantic', 'decisions'],
+      record_decisions: true,
+    }
+  }
+  if (preset === 'thread') {
+    return {
+      preset,
+      scope: 'thread',
+      recall: ['thread'],
+      record_decisions: false,
+    }
+  }
+
+  return {
+    preset: 'project',
+    scope: 'project',
+    recall: ['thread', 'project'],
+    record_decisions: true,
+  }
+}
+
+function flowSkillPolicyPreset(flow: AtlasAiFlowProfile | null): string {
+  const policy = objectRecord(flow?.skill_policy)
+  const preset = firstText(policy.preset, policy.mode)
+  return ['minimal', 'domain', 'council'].includes(preset ?? '') ? preset as string : 'domain'
+}
+
+function flowSkillPolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const preset = flowSkillPolicyPreset(flow)
+  if (preset === 'council') return 'Permite múltiplas skills/vozes quando o fluxo exigir'
+  if (preset === 'minimal') return 'Ativa apenas skills essenciais'
+  return 'Ativa skills específicas do domínio'
+}
+
+function skillPolicyPatchForPreset(preset: string): Record<string, unknown> {
+  if (preset === 'council') {
+    return {
+      preset,
+      mode: 'council',
+      allow_multi_skill: true,
+      require_skill_trace: true,
+    }
+  }
+  if (preset === 'minimal') {
+    return {
+      preset,
+      mode: 'minimal',
+      allow_multi_skill: false,
+      require_skill_trace: false,
+    }
+  }
+
+  return {
+    preset: 'domain',
+    mode: 'domain',
+    allow_multi_skill: true,
+    require_skill_trace: true,
+  }
+}
+
+function flowToolPolicyPreset(flow: AtlasAiFlowProfile | null): string {
+  const policy = objectRecord(flow?.tool_policy)
+  const preset = firstText(policy.preset, policy.mode)
+  return ['read_only', 'workspace_write', 'harness'].includes(preset ?? '') ? preset as string : 'workspace_write'
+}
+
+function flowToolPolicyDescription(flow: AtlasAiFlowProfile | null): string {
+  if (!flow) return 'Nenhum fluxo selecionado'
+  const preset = flowToolPolicyPreset(flow)
+  if (preset === 'harness') return 'Permite ferramentas completas com gates e evidência'
+  if (preset === 'read_only') return 'Ferramentas limitadas a leitura/diagnóstico'
+  return 'Permite escrita no workspace com aprovação para destrutivo'
+}
+
+function toolPolicyPatchForPreset(preset: string): Record<string, unknown> {
+  if (preset === 'harness') {
+    return {
+      preset,
+      mode: 'harness',
+      workspace_write: true,
+      destructive_requires_approval: true,
+      require_evidence_packet: true,
+    }
+  }
+  if (preset === 'read_only') {
+    return {
+      preset,
+      mode: 'read_only',
+      workspace_write: false,
+      destructive_requires_approval: true,
+      require_evidence_packet: false,
+    }
+  }
+
+  return {
+    preset: 'workspace_write',
+    mode: 'workspace_write',
+    workspace_write: true,
+    destructive_requires_approval: true,
+    require_evidence_packet: true,
+  }
 }
 
 function providerModelDescription(status: AiProvidersStatusResponse | null, provider: string): string {
@@ -2200,6 +2993,120 @@ function Row({
   )
 }
 
+function PolicyFlowPicker({
+  profiles,
+  selectedFlowId,
+  onSelect,
+}: {
+  profiles: AtlasAiPolicyProfilesResponse | null
+  selectedFlowId: string
+  onSelect: (flowId: string) => void
+}) {
+  const { c } = useTheme()
+  const flows = policyFlowOptions(profiles)
+
+  if (flows.length === 0) {
+    return (
+      <View style={styles.profileFlowEmpty}>
+        <Sans size={12} lineHeight={17} color={c.ink2}>
+          Catálogo de perfis indisponível.
+        </Sans>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.profileFlowGrid}>
+      {flows.map((flow) => {
+        const selected = flow.id === selectedFlowId
+        return (
+          <Pressable
+            key={flow.id}
+            onPress={() => onSelect(flow.id)}
+            style={({ pressed }) => [
+              styles.profileFlowChip,
+              {
+                borderColor: selected ? c.prussian : c.border,
+                backgroundColor: selected ? c.surface : pressed ? c.surface : 'transparent',
+              },
+            ]}
+          >
+            <Mono size={10} letterSpacing={0.34} color={selected ? c.prussian : c.ink2}>
+              {flow.id}
+            </Mono>
+            <Sans size={11} lineHeight={14} color={c.ink2}>
+              {flow.runtime ?? flow.orchestrator ?? flow.autonomy ?? 'policy'}
+            </Sans>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
+function EffectivePolicyPreviewPanel({
+  preview,
+  loading,
+}: {
+  preview: AtlasAiPolicyPreviewResponse | null
+  loading: boolean
+}) {
+  const { c } = useTheme()
+  const rows = effectivePolicyMetricRows(preview)
+
+  if (loading || rows.length === 0) {
+    return (
+      <View style={styles.policyPreviewEmpty}>
+        <Sans size={12} lineHeight={17} color={c.ink2}>
+          {loading ? 'Calculando política efetiva...' : 'Sem preview efetivo para este fluxo.'}
+        </Sans>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.policyPreviewGrid}>
+      {rows.map((row) => (
+        <View key={row.label} style={[styles.policyPreviewMetric, { borderColor: c.border }]}>
+          <Mono size={9.5} letterSpacing={0.28} color={c.ink2}>
+            {row.label}
+          </Mono>
+          <Sans weight="med" size={13} lineHeight={17} color={c.ink}>
+            {row.value}
+          </Sans>
+          <Sans size={11} lineHeight={14} color={c.ink2}>
+            {row.desc}
+          </Sans>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function policyFlowOptions(profiles: AtlasAiPolicyProfilesResponse | null): AtlasAiFlowProfile[] {
+  const flows = profiles?.profile_registry.flows ?? []
+  const priority = [
+    'programming.dev',
+    'programming.forge',
+    'research.quick',
+    'research.super',
+    'finance.research',
+    'personal_development.reflect',
+    'background.safe',
+  ]
+
+  return [...flows]
+    .sort((left, right) => {
+      const leftRank = priority.indexOf(left.id)
+      const rightRank = priority.indexOf(right.id)
+      if (leftRank !== -1 || rightRank !== -1) {
+        return (leftRank === -1 ? 999 : leftRank) - (rightRank === -1 ? 999 : rightRank)
+      }
+      return left.id.localeCompare(right.id)
+    })
+    .slice(0, 8)
+}
+
 function ApiTextInput({
   value,
   onChangeText,
@@ -2281,7 +3188,7 @@ function MiniButton({
         },
       ]}
     >
-      <Sans weight="med" size={13} color={c.prussian} align="center">
+      <Sans weight="med" size={13} lineHeight={17} color={c.prussian} align="center" numberOfLines={2}>
         {label}
       </Sans>
     </Pressable>
@@ -2537,10 +3444,12 @@ interface SegOption {
 function Segmented({
   value,
   options,
+  disabled,
   onChange,
 }: {
   value: string
   options: SegOption[]
+  disabled?: boolean
   onChange: (k: string) => void
 }) {
   const { c } = useTheme()
@@ -2551,9 +3460,11 @@ function Segmented({
         return (
           <Pressable
             key={o.key}
+            disabled={disabled}
             onPress={() => onChange(o.key)}
             style={[
               segStyles.btn,
+              disabled && { opacity: 0.45 },
               on && {
                 backgroundColor: c.bg,
                 shadowColor: '#1C1916',
@@ -2612,6 +3523,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 14,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   domainDot: {
@@ -2648,6 +3560,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 4,
+  },
+  profileFlowGrid: {
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  profileFlowChip: {
+    width: '48%',
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  profileFlowEmpty: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  policyPreviewGrid: {
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  policyPreviewMetric: {
+    width: '48%',
+    minHeight: 74,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 3,
+  },
+  policyPreviewEmpty: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 14,
   },
   queueError: {
     paddingHorizontal: 22,
@@ -2705,6 +3661,8 @@ const styles = StyleSheet.create({
   },
   miniButton: {
     flex: 1,
+    minWidth: 104,
+    minHeight: 42,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: 10,

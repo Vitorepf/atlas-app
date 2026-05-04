@@ -273,23 +273,117 @@ export interface AtlasMacStatusResponse {
     metadata: Record<string, unknown>
   } | null
   active_sessions: AtlasPowerSession[]
+  mac_agent?: {
+    installed: boolean
+    loaded: boolean | null
+    running: boolean | null
+    ready: boolean
+    needs_install: boolean
+    pid: number | null
+    plist: string
+    label: string
+    launchctl_domain: string
+    install_command: string
+    uninstall_command: string
+    log_paths: {
+      stdout: string
+      stderr: string
+    }
+    next_action: {
+      code: string
+      severity: string
+      message: string
+      command: string | null
+    }
+    last_error: string | null
+  }
   power_helper?: {
     installed: boolean
     loaded: boolean | null
     running: boolean | null
+    ready?: boolean
     needs_install: boolean
     plist: string
     label: string
     last_checked_at: string | null
     last_success_at: string | null
+    last_success_fresh?: boolean
+    stale_after_minutes?: number
     install_command: string
+    uninstall_command?: string
+    doctor_command?: string
+    sudo_without_password?: boolean | null
+    admin_password_required?: boolean | null
+    launchctl_domain?: string
+    log_paths?: {
+      stdout: string
+      stderr: string
+    }
+    next_action?: {
+      code: string
+      severity: string
+      message: string
+      command: string | null
+    }
     last_error: string | null
+  }
+  caffeinate_runtime?: {
+    available: boolean
+    method: string
+    label_prefix: string
+    active_labels: string[]
+    launchctl_labels: string[]
+    orphan_labels: string[]
+    orphan_count: number
+    cleanup_command: string
   }
   wake_schedule?: {
     available: boolean
     scheduled: boolean
+    atlas_confirmed: boolean
+    system_has_wakeorpoweron: boolean
     raw: string | null
     next_wake_at: string | null
+  }
+  readiness?: {
+    overall: 'ready' | 'remote_ready_wake_blocked' | 'blocked' | string
+    summary?: {
+      label: string
+      message: string
+      mode: string
+    }
+    ready_for_remote: boolean
+    ready_for_scheduled_wake: boolean
+    ready_for_background_jobs: boolean
+    power_ready_for_background_jobs: boolean
+    agent_online: boolean
+    mac_agent_ready: boolean
+    caffeinate_ready: boolean
+    power_helper_ready: boolean
+    atlas_wake_confirmed: boolean
+    on_ac_power: boolean | null
+    battery_percent: number | null
+    active_power_sessions: number
+    active_ai_jobs: number
+    next_action?: {
+      code: string
+      severity: string
+      message: string
+      command: string | null
+      kind: string
+    }
+    blockers: Array<{
+      code: string
+      severity: string
+      message: string
+      action: string | null
+    }>
+    warnings: Array<{
+      code: string
+      severity: string
+      message: string
+      action: string | null
+    }>
   }
   recent_events?: AtlasPowerEvent[]
   maintenance_windows?: AtlasMaintenanceWindow[]
@@ -3612,6 +3706,125 @@ export interface AtlasAiModelPolicy {
   providers: AtlasAiProviderModelPolicy[]
 }
 
+export interface AtlasAiDomainProfile {
+  id: string
+  label: string
+  status: string
+  default_flow?: string | null
+  orchestrator?: string | null
+  runtime_family?: string | null
+  description?: string | null
+  autonomy_default?: string | null
+  background_allowed?: boolean
+  model_policy?: Record<string, unknown>
+  context_policy?: Record<string, unknown>
+  skill_policy?: Record<string, unknown>
+  tool_policy?: Record<string, unknown>
+  memory_policy?: Record<string, unknown>
+  gate_policy?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+export interface AtlasAiFlowProfile {
+  id: string
+  domain_id: string
+  label: string
+  status: string
+  orchestrator?: string | null
+  runtime?: string | null
+  description?: string | null
+  autonomy?: string | null
+  background_allowed?: boolean
+  requires_human_approval_for_destructive?: boolean
+  model_policy?: Record<string, unknown>
+  context_policy?: Record<string, unknown>
+  skill_policy?: Record<string, unknown>
+  tool_policy?: Record<string, unknown>
+  memory_policy?: Record<string, unknown>
+  gate_policy?: Record<string, unknown>
+  execution_policy?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
+export interface AtlasAiPolicyProfileRegistry {
+  schema_version: number
+  source: string
+  domains: AtlasAiDomainProfile[]
+  flows: AtlasAiFlowProfile[]
+}
+
+export interface AtlasAiPolicyProfilesResponse {
+  generated_at?: string
+  profile_registry: AtlasAiPolicyProfileRegistry
+}
+
+export interface AtlasAiPolicyPreviewResponse {
+  generated_at?: string
+  profile: Record<string, unknown>
+  effective_policy: Record<string, unknown>
+  policy_merge_receipt: Record<string, unknown>
+  legacy_policy: Record<string, unknown>
+}
+
+export interface AtlasAiPolicyPreviewInput {
+  profile_id?: string
+  surface?: string
+  mode?: string
+  task?: string
+  payload?: Record<string, unknown>
+  ai_policy_override?: Record<string, unknown>
+}
+
+export type AtlasAiDomainProfilePatch = Partial<Pick<
+  AtlasAiDomainProfile,
+  | 'label'
+  | 'status'
+  | 'default_flow'
+  | 'orchestrator'
+  | 'runtime_family'
+  | 'description'
+  | 'autonomy_default'
+  | 'background_allowed'
+  | 'model_policy'
+  | 'context_policy'
+  | 'skill_policy'
+  | 'tool_policy'
+  | 'memory_policy'
+  | 'gate_policy'
+  | 'metadata'
+>>
+
+export type AtlasAiFlowProfilePatch = Partial<Pick<
+  AtlasAiFlowProfile,
+  | 'label'
+  | 'status'
+  | 'orchestrator'
+  | 'runtime'
+  | 'description'
+  | 'autonomy'
+  | 'background_allowed'
+  | 'requires_human_approval_for_destructive'
+  | 'model_policy'
+  | 'context_policy'
+  | 'skill_policy'
+  | 'tool_policy'
+  | 'memory_policy'
+  | 'gate_policy'
+  | 'execution_policy'
+  | 'metadata'
+>>
+
+export interface AtlasAiDomainProfileUpdateResponse {
+  domain_profile: AtlasAiDomainProfile
+  profile_registry: AtlasAiPolicyProfileRegistry
+}
+
+export interface AtlasAiFlowProfileUpdateResponse {
+  flow_profile: AtlasAiFlowProfile
+  profile_registry: AtlasAiPolicyProfileRegistry
+  effective_policy?: Record<string, unknown>
+}
+
 export interface AtlasAiRuntimeSettings {
   source?: string
   updated_at?: string | null
@@ -4777,6 +4990,44 @@ export async function stopMobileMacRemoteSession(sessionId: string): Promise<Atl
 export async function requestMobileMacSleepNow(): Promise<{ ok: boolean; status: AtlasMacStatusResponse }> {
   return mobileApiPost<{ ok: boolean; status: AtlasMacStatusResponse }>('/v1/mobile/mac/sleep-now', {}, {
     idempotencyKey: `mac-sleep-now-${Date.now()}`,
+  })
+}
+
+export async function cleanupMobileMacCaffeinate(): Promise<{
+  ok: boolean
+  cleanup: { checked: number; removed: number; labels: string[]; queued_for_host?: boolean }
+  status: AtlasMacStatusResponse
+}> {
+  return mobileApiPost<{
+    ok: boolean
+    cleanup: { checked: number; removed: number; labels: string[]; queued_for_host?: boolean }
+    status: AtlasMacStatusResponse
+  }>('/v1/mobile/mac/caffeinate/cleanup', {}, {
+    idempotencyKey: `mac-caffeinate-cleanup-${Date.now()}`,
+  })
+}
+
+export async function bootstrapMobileMacAgent(input: {
+  wake_time?: string
+  duration_minutes?: number
+  timezone?: string
+} = {}): Promise<{
+  ok: boolean
+  complete: boolean
+  steps: Array<Record<string, unknown>>
+  next_actions: Array<{ code: string; severity: string; message: string; command: string | null }>
+  before_readiness: AtlasMacStatusResponse['readiness'] | null
+  status: AtlasMacStatusResponse
+}> {
+  return mobileApiPost<{
+    ok: boolean
+    complete: boolean
+    steps: Array<Record<string, unknown>>
+    next_actions: Array<{ code: string; severity: string; message: string; command: string | null }>
+    before_readiness: AtlasMacStatusResponse['readiness'] | null
+    status: AtlasMacStatusResponse
+  }>('/v1/mobile/mac/bootstrap', input, {
+    idempotencyKey: `mac-bootstrap-${Date.now()}`,
   })
 }
 
@@ -6712,6 +6963,28 @@ export async function resumeAiJobChoice(
 
 export async function getAiProvidersStatus(): Promise<AiProvidersStatusResponse> {
   return apiGet<AiProvidersStatusResponse>('/ai/providers/status')
+}
+
+export async function getAiPolicyProfiles(): Promise<AtlasAiPolicyProfilesResponse> {
+  return apiGet<AtlasAiPolicyProfilesResponse>('/ai/policies/profiles')
+}
+
+export async function previewAiPolicy(input: AtlasAiPolicyPreviewInput): Promise<AtlasAiPolicyPreviewResponse> {
+  return apiPost<AtlasAiPolicyPreviewResponse>('/ai/policies/preview', input)
+}
+
+export async function updateAiDomainProfile(
+  domainId: string,
+  input: AtlasAiDomainProfilePatch,
+): Promise<AtlasAiDomainProfileUpdateResponse> {
+  return apiPatch<AtlasAiDomainProfileUpdateResponse>(`/ai/policies/domains/${encodeURIComponent(domainId)}`, input)
+}
+
+export async function updateAiFlowProfile(
+  flowId: string,
+  input: AtlasAiFlowProfilePatch,
+): Promise<AtlasAiFlowProfileUpdateResponse> {
+  return apiPatch<AtlasAiFlowProfileUpdateResponse>(`/ai/policies/flows/${encodeURIComponent(flowId)}`, input)
 }
 
 export async function updateAiProviderSettings(input: AtlasAiRuntimeSettingsPatch): Promise<AiProvidersStatusResponse> {
