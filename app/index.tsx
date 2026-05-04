@@ -969,6 +969,31 @@ export default function HomeScreen() {
         </Mono>
       </Pressable>
 
+      <Pressable
+        onPress={() => router.push('/rivals')}
+        style={({ pressed }) => [
+          styles.engineeringEntry,
+          {
+            backgroundColor: pressed ? c.premium : c.surface,
+            borderColor: c.border,
+            borderLeftColor: c.bronze,
+          },
+        ]}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Atlas Rivals</Label>
+          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
+            Relatório Fair Claude
+          </Sans>
+          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
+            scorecard · integridade · histórico · replay
+          </Mono>
+        </View>
+        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
+          abrir
+        </Mono>
+      </Pressable>
+
       <SectionHeader label="Como você está agora" />
       {currentLevelState && !checkinEditing && !(checkinState || energyLevel || moodLevel) ? (
         <Pressable

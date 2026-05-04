@@ -1822,6 +1822,224 @@ export interface AtlasEngineeringBenchmarkTrendsResponse {
   series: AtlasEngineeringBenchmarkTrendSeries[]
 }
 
+export interface AtlasEngineeringFairClaudeScorecard {
+  enabled: boolean
+  case_count: number
+  protocol_validity_rate: number | null
+  pass_without_human_rate: number | null
+  pass_without_human_rate_medium_hard: number | null
+  repair_conversion_rate: number | null
+  final_gate_pass_rate: number | null
+  intervention_reduction: number | null
+  autonomous_success_lift: number | null
+  time_to_green: unknown
+  cost_per_green_case: unknown
+  invalid_case_count: number
+  provider_violation_count: number
+  fallback_violation_count: number
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeCaseComparison {
+  schema_version: number
+  result_id: string
+  benchmark_run_id: string
+  case_id: string
+  case_code: string | null
+  title: string | null
+  domain_slug: string | null
+  risk_profile: string | null
+  corpus_tier: string | null
+  status: string
+  passed: boolean
+  decision: string | null
+  score: number | null
+  comparison_status: string
+  comparable: boolean
+  winner: 'atlas' | 'claude_code_baseline' | 'tie' | string | null
+  winner_reason: string | null
+  blocking_reasons: string[]
+  atlas: {
+    verified: boolean
+    passed: boolean
+    pass_without_human: boolean
+    score: number | null
+    duration_ms: number | null
+    attempt_count: number | null
+    repair_attempt_count: number | null
+    repair_used: boolean
+    converted_to_green: boolean
+    provider_violation_count: number
+    fallback_violation_count: number
+    human_intervention_count: number
+    [key: string]: unknown
+  }
+  claude_code_baseline: {
+    verified: boolean
+    passed: boolean
+    pass_without_human: boolean
+    score: number | null
+    duration_ms: number | null
+    human_intervention_count: number
+    [key: string]: unknown
+  }
+  deltas: {
+    score: number | null
+    duration_ms: number | null
+    human_intervention_count: number | null
+    [key: string]: unknown
+  }
+  failure_summary: string | null
+  created_at: string | null
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeNextAction {
+  id: string
+  severity: 'critical' | 'warning' | 'info' | string
+  title: string
+  detail: string
+  command: string | null
+  owner: string | null
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeExecutiveSummary {
+  claim_status: string
+  headline: string
+  ready_for_claim: boolean
+  winner: 'atlas' | 'claude_code_baseline' | 'tie' | string | null
+  confidence: string
+  sample: Record<string, unknown>
+  quality_bar: Record<string, unknown>
+  auditability: Record<string, unknown>
+  top_risks: string[]
+  baseline_win_cases: string[]
+  blocked_cases: string[]
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeEvidencePacket {
+  schema_version: number
+  kind: 'fair_claude_claim_evidence_packet' | string
+  generated_at: string | null
+  evidence_hash: string
+  suite: Record<string, unknown>
+  protocol: Record<string, unknown>
+  claim: Record<string, unknown>
+  scorecard: Record<string, unknown>
+  audit: Record<string, unknown>
+  case_outcomes: Array<Record<string, unknown>>
+  next_action_ids: string[]
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeExportBundle {
+  schema_version: number
+  kind: 'fair_claude_export_bundle' | string
+  recommended_directory: string
+  verification_command?: string
+  evidence_hash: string | null
+  bundle_hash: string
+  files: Record<string, {
+    kind: string
+    content_type: string
+    bytes: number
+    sha256: string
+    [key: string]: unknown
+  }>
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeRunHistorySummary {
+  schema_version: number
+  health_status: string
+  winner: 'atlas' | 'claude_code_baseline' | 'tie' | string | null
+  blocking_reasons: string[]
+  atlas_win_count: number
+  claude_code_baseline_win_count: number
+  tie_count: number
+  comparable_count: number
+  protocol_validity_rate: number | null
+  pass_without_human_rate: number | null
+  pass_without_human_rate_medium_hard: number | null
+  final_gate_pass_rate: number | null
+  repair_conversion_rate: number | null
+  baseline_executed_count: number
+  replay_packet_count: number
+  replay_integrity_failed_count: number
+  [key: string]: unknown
+}
+
+export interface AtlasEngineeringFairClaudeRunSummary extends AtlasEngineeringBenchmarkRunSummary {
+  fair_report_scope?: 'official_fair_claude' | 'paired_non_fair' | string
+  history_summary?: AtlasEngineeringFairClaudeRunHistorySummary
+  paired_scorecard?: AtlasEngineeringFairClaudeScorecard | Record<string, unknown> | null
+  claude_code_baseline?: Record<string, unknown> | null
+  replay_manifest?: Record<string, unknown> | null
+}
+
+export interface AtlasEngineeringFairClaudeReportResponse {
+  schema_version: number
+  kind: 'fair_claude_benchmark_report' | string
+  generated_at: string | null
+  suite: {
+    id: string
+    slug: string
+    name: string
+  }
+  limit: number
+  scan_limit: number
+  scanned_run_count: number
+  run_count: number
+  result_count: number
+  scope: {
+    paired_run_count: number
+    fair_run_count: number
+    paired_result_count: number
+    fair_result_count: number
+    non_fair_paired_result_count: number
+    [key: string]: unknown
+  }
+  readiness: {
+    status: string
+    ready_for_claim: boolean
+    blocking_reasons: string[]
+    atlas_win_count: number
+    claude_code_baseline_win_count: number
+    tie_count: number
+    comparable_count: number
+    fair_mode_count: number
+    active_corpus_case_count: number
+    release_corpus_case_count: number
+    minimum_release_corpus_case_count: number
+    [key: string]: unknown
+  }
+  executive_summary?: AtlasEngineeringFairClaudeExecutiveSummary
+  corpus_manifest?: Record<string, unknown> | null
+  next_actions?: AtlasEngineeringFairClaudeNextAction[]
+  evidence_packet?: AtlasEngineeringFairClaudeEvidencePacket
+  claim_markdown?: string
+  export_bundle?: AtlasEngineeringFairClaudeExportBundle
+  paired_scorecard: AtlasEngineeringFairClaudeScorecard
+  all_paired_scorecard?: AtlasEngineeringFairClaudeScorecard | null
+  claude_code_baseline: {
+    enabled: boolean
+    case_count: number
+    [key: string]: unknown
+  }
+  replay_manifest: {
+    enabled: boolean
+    run_count: number
+    packet_count: number
+    artifact_integrity_passed_count: number
+    artifact_integrity_failed_count: number
+    [key: string]: unknown
+  }
+  case_comparisons?: AtlasEngineeringFairClaudeCaseComparison[]
+  runs: AtlasEngineeringFairClaudeRunSummary[]
+}
+
 export interface AtlasEngineeringDecision {
   status: string
   auto_complete_allowed: boolean
@@ -6311,6 +6529,15 @@ export async function fetchEngineeringBenchmarkTrends(
   params: { limit?: number; benchmark_key?: string; provider?: string } = {},
 ): Promise<AtlasEngineeringBenchmarkTrendsResponse> {
   return apiGet<AtlasEngineeringBenchmarkTrendsResponse>(`/engineering/benchmarks/suites/${encodeURIComponent(suite)}/trends${queryString(params)}`)
+}
+
+export async function fetchEngineeringFairClaudeReport(
+  suite = 'atlas-fair-claude-v1',
+  params: { limit?: number } = {},
+): Promise<AtlasEngineeringFairClaudeReportResponse> {
+  return apiGet<AtlasEngineeringFairClaudeReportResponse>(
+    `/engineering/benchmarks/suites/${encodeURIComponent(suite)}/fair-claude-report${queryString(params)}`,
+  )
 }
 
 export async function ensureDefaultEngineeringBenchmarkSuite(

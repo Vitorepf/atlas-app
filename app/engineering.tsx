@@ -24,6 +24,7 @@ import {
   fetchEngineeringBenchmarkRun,
   fetchEngineeringBenchmarkSuite,
   fetchEngineeringBenchmarkTrends,
+  fetchEngineeringFairClaudeReport,
   fetchEngineeringHarnessabilityCalibration,
   fetchEngineeringKnowledge,
   fetchEngineeringKnowledgeItem,
@@ -50,6 +51,7 @@ import {
   type AtlasEngineeringBenchmarkSuiteResponse,
   type AtlasEngineeringBenchmarkSuiteSummary,
   type AtlasEngineeringBenchmarkTrendsResponse,
+  type AtlasEngineeringFairClaudeReportResponse,
   type AtlasEngineeringCodeAuditResponse,
   type AtlasEngineeringCodeModuleResponse,
   type AtlasEngineeringCodeModulesResponse,
@@ -98,11 +100,13 @@ import {
 
 export default function EngineeringScreen() {
   const c = usePalette()
+  const router = useRouter()
   const { showToast } = useShell()
   const [suites, setSuites] = useState<AtlasEngineeringBenchmarkSuiteSummary[]>([])
   const [selectedSuite, setSelectedSuite] = useState<string | null>(null)
   const [suiteDetail, setSuiteDetail] = useState<AtlasEngineeringBenchmarkSuiteResponse | null>(null)
   const [trends, setTrends] = useState<AtlasEngineeringBenchmarkTrendsResponse | null>(null)
+  const [rivalsReport, setRivalsReport] = useState<AtlasEngineeringFairClaudeReportResponse | null>(null)
   const [selectedRun, setSelectedRun] = useState<AtlasEngineeringBenchmarkRunResponse | null>(null)
   const [selectedEngineeringRunId, setSelectedEngineeringRunId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState('')
@@ -119,6 +123,7 @@ export default function EngineeringScreen() {
   const [providerDockerService, setProviderDockerService] = useState('backend')
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [rivalsLoading, setRivalsLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [seeding, setSeeding] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
@@ -224,6 +229,19 @@ export default function EngineeringScreen() {
       showToast('Não consegui abrir a suite')
     } finally {
       setDetailLoading(false)
+    }
+  }, [showToast])
+
+  const loadRivalsReport = useCallback(async () => {
+    setRivalsLoading(true)
+    try {
+      const response = await fetchEngineeringFairClaudeReport('atlas-fair-claude-v1', { limit: 20 })
+      setRivalsReport(response)
+    } catch {
+      setRivalsReport(null)
+      showToast('Não consegui carregar Atlas Rivals')
+    } finally {
+      setRivalsLoading(false)
     }
   }, [showToast])
 
@@ -546,10 +564,11 @@ export default function EngineeringScreen() {
 
   useEffect(() => {
     void loadSuites()
+    void loadRivalsReport()
     void loadHarnessCalibration()
     void loadToolRuntime()
     void loadKnowledge()
-  }, [loadSuites, loadHarnessCalibration, loadKnowledge, loadToolRuntime])
+  }, [loadSuites, loadRivalsReport, loadHarnessCalibration, loadKnowledge, loadToolRuntime])
 
   useEffect(() => {
     void loadCodeKnowledge()
@@ -575,6 +594,7 @@ export default function EngineeringScreen() {
     await Promise.all([
       loadSuites(),
       loadSuite(selectedSuite),
+      loadRivalsReport(),
       loadHarnessCalibration(),
       loadToolRuntime(workspace, toolGateMode),
       loadKnowledge(),
@@ -734,6 +754,13 @@ export default function EngineeringScreen() {
         <Metric label="pass rate" value={aggregate.passRate == null ? '-' : `${aggregate.passRate}%`} tone={aggregate.status} />
         <Metric label="score" value={aggregate.averageScore == null ? '-' : String(aggregate.averageScore)} />
       </View>
+
+      <RivalsReportCard
+        report={rivalsReport}
+        loading={rivalsLoading}
+        onOpenReport={() => router.push('/rivals')}
+        onRefresh={() => { void loadRivalsReport() }}
+      />
 
       <HarnessabilityCalibrationCard
         calibration={harnessCalibration}
@@ -1107,6 +1134,134 @@ function SuiteButton({
         {suite.cases_count} cases · {latest?.pass_rate == null ? '-' : `${latest.pass_rate}%`}
       </Mono>
     </Pressable>
+  )
+}
+
+function RivalsReportCard({
+  report,
+  loading,
+  onOpenReport,
+  onRefresh,
+}: {
+  report: AtlasEngineeringFairClaudeReportResponse | null
+  loading: boolean
+  onOpenReport: () => void
+  onRefresh: () => void
+}) {
+  const c = usePalette()
+  const readiness = report?.readiness
+  const scorecard = report?.paired_scorecard
+  const runs = report?.runs ?? []
+  const blockingReasons = readiness?.blocking_reasons ?? []
+  const ready = Boolean(readiness?.ready_for_claim)
+
+  return (
+    <View style={[styles.panel, { borderColor: ready ? c.moss : c.border, backgroundColor: c.surface }]}>
+      <View style={styles.panelTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Atlas Rivals</Label>
+          <Sans weight="sb" size={16} lineHeight={22} color={c.ink}>
+            Atlas vs Claude Code
+          </Sans>
+          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+            {report?.suite.slug ?? 'atlas-fair-claude-v1'} · {report?.generated_at ? dateLabel(report.generated_at) : (loading ? 'carregando' : 'sem report')}
+          </Mono>
+        </View>
+        <View style={styles.statusStack}>
+          <StatusPill status={readiness?.status ?? (loading ? 'running' : 'missing')} />
+          <StatusPill status={ready ? 'release_ready' : 'needs_review'} compact />
+        </View>
+      </View>
+
+      <View style={styles.metricsCompact}>
+        <Metric label="Atlas wins" value={String(readiness?.atlas_win_count ?? 0)} tone={ready ? 'passed' : 'pending'} />
+        <Metric label="Claude wins" value={String(readiness?.claude_code_baseline_win_count ?? 0)} tone={readiness?.claude_code_baseline_win_count ? 'warning' : 'passed'} />
+        <Metric label="ties" value={String(readiness?.tie_count ?? 0)} />
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="cases" value={String(readiness?.comparable_count ?? 0)} tone={readiness?.comparable_count ? 'passed' : 'pending'} />
+        <Metric label="protocol" value={percentValue(scorecard?.protocol_validity_rate)} tone={scorecard?.protocol_validity_rate === 100 ? 'passed' : 'warning'} />
+        <Metric label="pass humano 0" value={percentValue(scorecard?.pass_without_human_rate_medium_hard ?? scorecard?.pass_without_human_rate)} tone={scorecard?.pass_without_human_rate ? 'passed' : 'pending'} />
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="baseline" value={report?.claude_code_baseline.enabled ? String(report.claude_code_baseline.case_count) : 'off'} tone={report?.claude_code_baseline.enabled ? 'passed' : 'missing'} />
+        <Metric label="replay" value={report?.replay_manifest.enabled ? String(report.replay_manifest.packet_count) : 'off'} tone={report?.replay_manifest.enabled ? 'passed' : 'missing'} />
+        <Metric label="runs" value={String(report?.run_count ?? 0)} tone={report?.run_count ? 'passed' : 'pending'} />
+      </View>
+
+      {blockingReasons.length ? (
+        <View style={[styles.gateBox, { borderColor: c.bronze, backgroundColor: c.bg }]}>
+          <Label>Bloqueios</Label>
+          {blockingReasons.slice(0, 5).map((reason) => (
+            <Mono key={reason} size={10.5} lineHeight={15} letterSpacing={0.1} color={c.bronze}>
+              {reason}
+            </Mono>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.rivalsActions}>
+        <Pressable
+          onPress={onOpenReport}
+          style={({ pressed }) => [
+            styles.inlineButton,
+            {
+              borderColor: c.bronze,
+              backgroundColor: pressed ? c.premium : c.surface,
+              opacity: pressed ? 0.82 : 1,
+            },
+          ]}
+        >
+          <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+            Relatório
+          </Sans>
+        </Pressable>
+        <Pressable
+          onPress={onRefresh}
+          disabled={loading}
+          style={({ pressed }) => [
+            styles.inlineButton,
+            {
+              borderColor: c.border,
+              backgroundColor: loading ? c.bg : c.surface,
+              opacity: pressed && !loading ? 0.82 : 1,
+            },
+          ]}
+        >
+          <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+            {loading ? 'Atualizando' : 'Atualizar'}
+          </Sans>
+        </Pressable>
+      </View>
+
+      <View style={styles.rivalsHistory}>
+        <View style={styles.sectionHead}>
+          <Label>Histórico Rivals</Label>
+          <Mono size={10.5} lineHeight={14} color={c.ink2}>
+            {runs.length}
+          </Mono>
+        </View>
+        {runs.length ? runs.slice(0, 6).map((run) => (
+          <View key={run.id} style={[styles.trendRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Sans weight="med" size={12.5} lineHeight={18} color={c.ink} numberOfLines={1}>
+                {run.status} · {run.passed_cases}/{run.total_cases} cases
+              </Sans>
+              <Mono size={10.2} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+                {dateLabel(run.finished_at ?? run.created_at)} · score {run.average_score ?? '-'} · gate {statusLabel(run.release_gate_status ?? 'unknown')} · replay {textValue(objectValue(run.summary).replay_manifest ? textValue(objectValue(objectValue(run.summary).replay_manifest).kind, 'on') : null, 'off')}
+              </Mono>
+            </View>
+            <StatusPill status={run.release_gate_status ?? run.status} compact />
+          </View>
+        )) : (
+          <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <Sans size={11.5} lineHeight={16} color={c.ink2}>
+              Nenhuma bateria Rivals concluída ainda.
+            </Sans>
+          </View>
+        )}
+      </View>
+    </View>
   )
 }
 
@@ -3250,6 +3405,10 @@ function deltaLabel(value: number | null | undefined, suffix = ''): string {
   return `${sign}${value}${suffix}`
 }
 
+function percentValue(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)}%` : '-'
+}
+
 function bytesLabel(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
   if (value >= 1_048_576) return `${Math.round(value / 10_485.76) / 100} MB`
@@ -3526,6 +3685,16 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     maxWidth: 190,
+  },
+  rivalsActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 12,
+  },
+  rivalsHistory: {
+    gap: 8,
+    marginTop: 12,
   },
   filterBlock: {
     marginTop: 14,
