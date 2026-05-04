@@ -1,7 +1,9 @@
 import type {
   AtlasToolDoctorItem,
   AtlasToolAuthorityGroup,
+  AtlasToolAuthorityPolicy,
   AtlasToolPolicySummary,
+  AtlasToolsAuthorityPoliciesResponse,
   AtlasToolsAuthorityResponse,
   AtlasToolRunSummary,
   AtlasToolsGateFilters,
@@ -29,6 +31,12 @@ export interface EngineeringToolAuthoritySummary {
   highRecommendationCount: number
   duplicatePrimaryCount: number
   missingPrimaryCount: number
+}
+
+export interface EngineeringToolAuthorityPolicySummary {
+  policyCount: number
+  blockingPolicyCount: number
+  warningPolicyCount: number
 }
 
 export function buildEngineeringToolRuntimeSummary(
@@ -112,6 +120,29 @@ export function toolAuthorityGroupLine(group: AtlasToolAuthorityGroup): string {
   return [primary, complementary, fallback, executors, tiers].filter(Boolean).join(' · ')
 }
 
+export function buildEngineeringToolAuthorityPolicySummary(
+  policies: AtlasToolsAuthorityPoliciesResponse | null | undefined,
+): EngineeringToolAuthorityPolicySummary {
+  return {
+    policyCount: policies?.summary.policy_count ?? 0,
+    blockingPolicyCount: policies?.summary.blocking_policy_count ?? 0,
+    warningPolicyCount: policies?.summary.warning_policy_count ?? 0,
+  }
+}
+
+export function toolAuthorityPolicyLine(policy: AtlasToolAuthorityPolicy): string {
+  const block = policy.block_severities.length > 0
+    ? `bloqueia ${policy.block_severities.join('/')}`
+    : 'sem bloqueio'
+  const warn = policy.warn_severities.length > 0
+    ? `avisa ${policy.warn_severities.join('/')}`
+    : 'sem aviso'
+
+  const source = policy.source && policy.source !== 'default' ? `override ${policy.source}` : 'default'
+
+  return [source, policy.policy, block, warn, policy.block_reason].filter(Boolean).join(' · ')
+}
+
 export function toolRuntimeEvidenceLine(run: AtlasToolRunSummary): string {
   const duration = Number.isFinite(run.duration_ms) ? `${run.duration_ms}ms` : '-'
   const artifacts = run.artifacts?.length ?? 0
@@ -168,12 +199,16 @@ export function toolRuntimeGateLine(gate: AtlasToolsGateResponse | null | undefi
   const warningCount = gate.summary?.warning_count ?? gate.warnings?.length ?? 0
   const requiredTools = gate.required_tools?.length ?? 0
   const suppressedDuplicates = gate.summary?.suppressed_duplicate_finding_count ?? 0
+  const staleEvidence = gate.summary?.stale_evidence_count ?? 0
+  const inputRunCount = gate.summary?.input_run_count ?? runCount
 
   return [
     gate.allowed ? 'liberado' : 'bloqueado',
     pluralize(runCount, 'evidência', 'evidências'),
+    gate.selection?.latest_per_tool && inputRunCount > runCount ? `${inputRunCount} avaliadas como latest/tool` : null,
     pluralize(blockingCount, 'bloqueio', 'bloqueios'),
     pluralize(warningCount, 'aviso', 'avisos'),
+    staleEvidence > 0 ? pluralize(staleEvidence, 'stale', 'stale') : null,
     suppressedDuplicates > 0 ? `${suppressedDuplicates} duplicatas correlacionadas` : null,
     requiredTools > 0 ? pluralize(requiredTools, 'ferramenta exigida', 'ferramentas exigidas') : null,
   ].filter(Boolean).join(' · ')
@@ -183,10 +218,15 @@ export function toolRuntimeGateIssueLine(issue: Record<string, unknown> | null |
   if (!issue) return 'sem detalhe'
 
   const tool = stringValue(issue.tool_slug ?? issue.tool ?? issue.required_tool)
+  const authority = [
+    stringValue(issue.authority_group),
+    stringValue(issue.authority_policy),
+    stringValue(issue.severity),
+  ].filter(Boolean).join('/')
   const rule = stringValue(issue.rule_id ?? issue.rule ?? issue.type)
   const message = stringValue(issue.title ?? issue.message ?? issue.reason ?? issue.status)
 
-  return [tool, rule, message].filter(Boolean).join(' · ') || 'sem detalhe'
+  return [tool, authority || null, rule, message].filter(Boolean).join(' · ') || 'sem detalhe'
 }
 
 export function buildToolRuntimeGateFilters(input: {
@@ -197,11 +237,18 @@ export function buildToolRuntimeGateFilters(input: {
   const workspace = input.workspace?.trim() || null
   const mode = input.mode ?? 'observe'
 
-  return {
+  const filters: AtlasToolsGateFilters = {
     workspace,
     limit: input.limit ?? 8,
     require_evidence: mode === 'release',
   }
+  if (mode === 'release') {
+    filters.max_age_minutes = 1440
+    filters.stale_blocks = true
+    filters.latest_per_tool = true
+  }
+
+  return filters
 }
 
 export function toolRuntimeGateModeLine(mode: EngineeringToolGateMode): string {

@@ -4,6 +4,9 @@ import {
   openBrainContextPackCopyText,
   openBrainContextPackSummary,
   openBrainMaintenanceLine,
+  openBrainMemoryQualityLine,
+  openBrainQualityHistoryLine,
+  openBrainTrendDriverLine,
   openBrainRecallSummary,
 } from '../lib/openBrain'
 
@@ -75,5 +78,41 @@ assert.equal(openBrainMaintenanceLine({
   },
   generated_at: '2026-05-03T00:00:00.000Z',
 }), 'ready · docs ok · code ok · projection passed')
+
+assert.equal(openBrainMemoryQualityLine({
+  ok: true,
+  status: 'ready',
+  score: 97,
+  counts: {
+    active: 5,
+    provider_safe_active: 5,
+  },
+  trend: {
+    status: 'stable',
+    current_delta_from_latest: 0,
+  },
+}), 'ready · score 97 · trend stable (0) · 5/5 provider-safe')
+
+assert.equal(openBrainQualityHistoryLine({
+  ok: true,
+  status: 'ready',
+  period_days: 30,
+  since_at: '2026-05-01T00:00:00.000Z',
+  summary: {
+    total: 3,
+    latest_score: 97,
+    score_delta: -4,
+    trend_status: 'watch_regressed',
+  },
+  snapshots: [],
+}), '3 snapshots · latest 97 · delta -4 · watch_regressed')
+
+assert.equal(openBrainTrendDriverLine({
+  kind: 'component_drop',
+  key: 'provider_safety',
+  delta: -20,
+  current: 80,
+  previous: 100,
+}), 'provider_safety -20 · 100 → 80')
 
 console.log('open brain tests passed')

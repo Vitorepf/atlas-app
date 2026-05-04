@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import {
   buildEngineeringToolAuthoritySummary,
+  buildEngineeringToolAuthorityPolicySummary,
   buildEngineeringToolRuntimeSummary,
   buildToolRuntimeGateFilters,
   toolAuthorityGroupLine,
+  toolAuthorityPolicyLine,
   toolApprovalPolicyLine,
   toolRuntimeEvidenceLine,
   toolRuntimeGateIssueLine,
@@ -15,11 +17,13 @@ import {
 import type {
   AtlasToolArtifactSummary,
   AtlasToolAuthorityGroup,
+  AtlasToolAuthorityPolicy,
   AtlasToolDoctorItem,
   AtlasToolFindingSummary,
   AtlasToolPolicySummary,
   AtlasToolRunSummary,
   AtlasToolsGateResponse,
+  AtlasToolsAuthorityPoliciesResponse,
   AtlasToolsAuthorityResponse,
 } from '../lib/api/client'
 
@@ -164,10 +168,15 @@ const blockedGate: AtlasToolsGateResponse = {
   fail_statuses: ['failed', 'timeout'],
   summary: {
     run_count: 2,
+    input_run_count: 3,
     tool_count: 1,
     failed_run_count: 1,
     blocking_failure_count: 1,
     warning_count: 1,
+    stale_evidence_count: 1,
+  },
+  selection: {
+    latest_per_tool: true,
   },
   blocking_failures: [{
     tool_slug: 'semgrep',
@@ -183,7 +192,7 @@ const blockedGate: AtlasToolsGateResponse = {
 
 assert.equal(
   toolRuntimeGateLine(blockedGate),
-  'bloqueado · 2 evidências · 1 bloqueio · 1 aviso · 1 ferramenta exigida',
+  'bloqueado · 2 evidências · 3 avaliadas como latest/tool · 1 bloqueio · 1 aviso · 1 stale · 1 ferramenta exigida',
 )
 assert.equal(
   toolRuntimeGateIssueLine(blockedGate.blocking_failures[0]),
@@ -203,6 +212,9 @@ assert.deepEqual(buildToolRuntimeGateFilters({ workspace: '', mode: 'release' })
   workspace: null,
   limit: 8,
   require_evidence: true,
+  max_age_minutes: 1440,
+  stale_blocks: true,
+  latest_per_tool: true,
 })
 assert.equal(toolRuntimeGateModeLine('observe'), 'observação · ausência de evidência vira aviso')
 assert.equal(toolRuntimeGateModeLine('release'), 'release · exige evidência para liberar')
@@ -311,4 +323,36 @@ assert.deepEqual(buildEngineeringToolAuthoritySummary(authorityResponse), {
 assert.equal(
   toolAuthorityGroupLine(authorityGroup),
   'codeql · 1 complementares · T2',
+)
+
+const authorityPolicy: AtlasToolAuthorityPolicy = {
+  authority_group: 'semantic_sast',
+  policy: 'semantic_sast_workspace_medium_blocks',
+  block_severities: ['critical', 'high', 'medium'],
+  warn_severities: ['low'],
+  block_reason: 'workspace_semantic_sast_medium_blocks',
+  warn_reason: 'workspace_semantic_sast_low_warns',
+  description: 'Workspace override',
+  source: 'workspace',
+  policy_id: 'policy-1',
+}
+const authorityPoliciesResponse: AtlasToolsAuthorityPoliciesResponse = {
+  status: 'ok',
+  schema: 'atlas.tool_authority_policies.v1',
+  summary: {
+    policy_count: 1,
+    blocking_policy_count: 1,
+    warning_policy_count: 1,
+  },
+  policies: [authorityPolicy],
+}
+
+assert.deepEqual(buildEngineeringToolAuthorityPolicySummary(authorityPoliciesResponse), {
+  policyCount: 1,
+  blockingPolicyCount: 1,
+  warningPolicyCount: 1,
+})
+assert.equal(
+  toolAuthorityPolicyLine(authorityPolicy),
+  'override workspace · semantic_sast_workspace_medium_blocks · bloqueia critical/high/medium · avisa low · workspace_semantic_sast_medium_blocks',
 )

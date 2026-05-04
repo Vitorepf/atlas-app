@@ -11,20 +11,27 @@ import { useOverlays } from '../../lib/overlays'
 import { domainColor } from '../../lib/domains'
 import {
   type AiProvidersStatusResponse,
+  type AtlasMacStatusResponse,
   type AtlasAiActiveJob,
   type AtlasAiJob,
   type AtlasAiStatus,
   type AtlasHealth,
   cancelAiJob,
+  createMobileMacMaintenanceWindow,
+  deleteMobileMacMaintenanceWindow,
   getApiConfig,
   getAiProvidersStatus,
   getHealth,
+  getMobileMacStatus,
   hydrateApiConfig,
   listAiJobs,
   listCaptures,
+  requestMobileMacSleepNow,
   setBackendHost,
   setBackendPort,
   setBackendToken,
+  startMobileMacRemoteSession,
+  stopMobileMacRemoteSession,
   updateAiProviderSettings,
 } from '../../lib/api/client'
 import { formatRelativeSync, localQueueCounts, useAtlasStore } from '../../lib/atlasStore'
@@ -96,6 +103,10 @@ export function SettingsSheet() {
   const [activeJobsLoading, setActiveJobsLoading] = useState(false)
   const [activeJobAction, setActiveJobAction] = useState<string | null>(null)
   const [aiSessionsPanelOpen, setAiSessionsPanelOpen] = useState(false)
+  const [macStatus, setMacStatus] = useState<AtlasMacStatusResponse | null>(null)
+  const [macLoading, setMacLoading] = useState(false)
+  const [macAction, setMacAction] = useState<string | null>(null)
+  const [macError, setMacError] = useState<string | null>(null)
   const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
 
   useEffect(() => {
@@ -122,12 +133,14 @@ export function SettingsSheet() {
       .then(setServerHealth)
       .catch(() => setServerHealth(null))
     void refreshAiStatus({ silent: true })
+    void refreshMacStatus({ silent: true })
   }, [visible, apiConfigLoaded])
 
   useEffect(() => {
     if (!visible || !apiConfigLoaded) return
     const interval = setInterval(() => {
       void refreshAiStatus({ silent: true })
+      void refreshMacStatus({ silent: true })
     }, 10000)
 
     return () => clearInterval(interval)
@@ -238,6 +251,147 @@ export function SettingsSheet() {
       setAiError(humanAiError(error, 'Falha ao salvar Atlas'))
     } finally {
       setAiSaving(false)
+    }
+  }
+
+  const refreshMacStatus = async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!silent) setMacLoading(true)
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      setMacStatus(await getMobileMacStatus())
+    } catch (error) {
+      setMacError(humanAiError(error, 'Falha ao ler Mac Agent'))
+    } finally {
+      if (!silent) setMacLoading(false)
+    }
+  }
+
+  const startRemoteMode = async (durationMinutes: number) => {
+    setMacAction(`remote-${durationMinutes}`)
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await startMobileMacRemoteSession({
+        duration_minutes: durationMinutes,
+        reason: `Modo remoto mobile ${Math.round(durationMinutes / 60)}h`,
+      })
+      setMacStatus(response.status)
+      showToast('Modo remoto ativo')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao ativar modo remoto')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
+  const stopRemoteMode = async () => {
+    const session = macStatus?.active_sessions.find((item) => item.kind === 'remote_manual' && item.status === 'active')
+    if (!session) {
+      showToast('Nenhuma sessão remota ativa')
+      return
+    }
+
+    setMacAction('stop-remote')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await stopMobileMacRemoteSession(session.id)
+      setMacStatus(response.status)
+      showToast('Modo remoto encerrado')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao encerrar modo remoto')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
+  const confirmSleepNow = () => {
+    Alert.alert(
+      'Permitir repouso agora?',
+      'O Atlas vai liberar sessões de vigília e pedir repouso ao macOS se não houver job ativo.',
+      [
+        { text: 'Voltar', style: 'cancel' },
+        {
+          text: 'Permitir repouso',
+          style: 'destructive',
+          onPress: () => {
+            void sleepNow()
+          },
+        },
+      ],
+    )
+  }
+
+  const sleepNow = async () => {
+    setMacAction('sleep-now')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      const response = await requestMobileMacSleepNow()
+      setMacStatus(response.status)
+      showToast(response.ok ? 'Repouso liberado' : 'Repouso bloqueado por execução ativa')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao liberar repouso')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
+  const createDefaultMaintenanceWindow = async () => {
+    setMacAction('create-maintenance')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      await createMobileMacMaintenanceWindow({
+        name: 'Manutenção Atlas',
+        wake_time: '02:00',
+        duration_minutes: 120,
+        enabled: true,
+      })
+      await refreshMacStatus({ silent: true })
+      showToast('Janela de manutenção criada')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao criar manutenção')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
+    }
+  }
+
+  const deleteFirstMaintenanceWindow = async () => {
+    const windowId = macStatus?.maintenance_windows?.[0]?.id
+    if (!windowId) {
+      showToast('Nenhuma janela cadastrada')
+      return
+    }
+
+    setMacAction('delete-maintenance')
+    setMacError(null)
+
+    try {
+      await saveApiConfig()
+      await deleteMobileMacMaintenanceWindow(windowId)
+      await refreshMacStatus({ silent: true })
+      showToast('Janela de manutenção removida')
+    } catch (error) {
+      const message = humanAiError(error, 'Falha ao remover manutenção')
+      setMacError(message)
+      showToast(message)
+    } finally {
+      setMacAction(null)
     }
   }
 
@@ -416,6 +570,87 @@ export function SettingsSheet() {
           <Row name="Scheduler" desc={serverHealth?.checks?.scheduler?.note ?? 'Não verificado neste aparelho'}>
             <StatusBadge status={serverHealth ? 'pending' : 'offline'} />
           </Row>
+        </Section>
+
+        <Section label="Mac Agent">
+          <Row first name="Estado do Mac" desc={macStatusDescription(macStatus, macError, macLoading)}>
+            <StatusBadge status={macConnectionStatus(macStatus, macError, macLoading)} />
+          </Row>
+          <Row name="Modo remoto" desc={remoteModeDescription(macStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={remoteModeActive(macStatus) ? c.bronze : c.ink2}>
+              {remoteModeActive(macStatus) ? 'ativo' : 'idle'}
+            </Mono>
+          </Row>
+          <Row name="Energia" desc={macPowerDescription(macStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {macBatteryValue(macStatus)}
+            </Mono>
+          </Row>
+          <Row name="Manutenção" desc={maintenanceDescription(macStatus)}>
+            <Mono size={12} letterSpacing={0.48} color={c.ink2}>
+              {String(macStatus?.maintenance_windows?.length ?? 0)}
+            </Mono>
+          </Row>
+          <Row name="Power helper" desc={powerHelperDescription(macStatus)}>
+            <StatusBadge status={powerHelperStatus(macStatus)} />
+          </Row>
+          <Row name="Wake macOS" desc={wakeScheduleDescription(macStatus)}>
+            <StatusBadge status={wakeScheduleStatus(macStatus)} />
+          </Row>
+          <View style={styles.apiActions}>
+            <MiniButton
+              label={macAction === 'remote-60' ? 'Ativando…' : 'Remoto 1h'}
+              disabled={Boolean(macAction)}
+              onPress={() => {
+                void startRemoteMode(60)
+              }}
+            />
+            <MiniButton
+              label={macAction === 'remote-240' ? 'Ativando…' : 'Remoto 4h'}
+              disabled={Boolean(macAction)}
+              onPress={() => {
+                void startRemoteMode(240)
+              }}
+            />
+            <MiniButton
+              label={macAction === 'remote-720' ? 'Ativando…' : 'Remoto 12h'}
+              disabled={Boolean(macAction)}
+              onPress={() => {
+                void startRemoteMode(720)
+              }}
+            />
+          </View>
+          <View style={styles.apiActions}>
+            <MiniButton
+              label={macAction === 'stop-remote' ? 'Encerrando…' : 'Encerrar remoto'}
+              disabled={Boolean(macAction) || !remoteModeActive(macStatus)}
+              onPress={stopRemoteMode}
+            />
+            <MiniButton
+              label={macAction === 'sleep-now' ? 'Liberando…' : 'Permitir repouso'}
+              disabled={Boolean(macAction)}
+              onPress={confirmSleepNow}
+            />
+            <MiniButton
+              label={macLoading ? 'Atualizando…' : 'Atualizar Mac'}
+              disabled={macLoading || Boolean(macAction)}
+              onPress={() => {
+                void refreshMacStatus()
+              }}
+            />
+          </View>
+          <View style={styles.apiActions}>
+            <MiniButton
+              label={macAction === 'create-maintenance' ? 'Criando…' : 'Criar 02:00'}
+              disabled={Boolean(macAction)}
+              onPress={createDefaultMaintenanceWindow}
+            />
+            <MiniButton
+              label={macAction === 'delete-maintenance' ? 'Removendo…' : 'Remover janela'}
+              disabled={Boolean(macAction) || !(macStatus?.maintenance_windows?.length)}
+              onPress={deleteFirstMaintenanceWindow}
+            />
+          </View>
         </Section>
 
         <Section label="Atlas">
@@ -909,6 +1144,102 @@ function connectionStatusDescription(input: {
   }
 
   return 'Conexão pronta'
+}
+
+function macConnectionStatus(
+  status: AtlasMacStatusResponse | null,
+  error: string | null,
+  loading: boolean,
+): ConnectionStatusKind {
+  if (loading) return 'pending'
+  if (error || !status) return 'offline'
+  if (status.status === 'offline_or_sleeping' || status.status === 'not_installed') return 'offline'
+  if (status.status === 'held_awake' || status.status === 'running_jobs') return 'pending'
+  return 'online'
+}
+
+function macStatusDescription(
+  status: AtlasMacStatusResponse | null,
+  error: string | null,
+  loading: boolean,
+): string {
+  if (loading) return 'Atualizando status do Mac Agent'
+  if (error) return error
+  if (!status) return 'Ainda não verificado neste aparelho'
+  if (status.status === 'not_installed') return 'Tabelas do Mac Agent ainda não migradas'
+  if (status.status === 'offline_or_sleeping') return 'Mac Agent offline, dormindo ou sem heartbeat recente'
+  if (status.status === 'held_awake') return `${status.active_sessions.length} sessão ativa mantendo o Mac acordado`
+  if (status.status === 'running_jobs') return 'Worker executando jobs no Mac'
+  return 'Mac Agent online e sem retenção de energia'
+}
+
+function remoteModeActive(status: AtlasMacStatusResponse | null): boolean {
+  return Boolean(status?.active_sessions.some((session) => session.kind === 'remote_manual' && session.status === 'active'))
+}
+
+function remoteModeDescription(status: AtlasMacStatusResponse | null): string {
+  const session = status?.active_sessions.find((item) => item.kind === 'remote_manual' && item.status === 'active')
+  if (!session) return 'Nenhum modo remoto segurando o Mac acordado'
+  const caffeinate =
+    session.caffeinate_alive === true
+      ? 'caffeinate ok'
+      : session.caffeinate_alive === false
+        ? 'caffeinate reiniciando'
+        : 'caffeinate não verificado'
+  const expiry = session.expires_at ? `até ${formatRelativeSync(session.expires_at)}` : 'sem expiração registrada'
+  return `Ativo ${expiry} · ${caffeinate}`
+}
+
+function macPowerDescription(status: AtlasMacStatusResponse | null): string {
+  const host = status?.host
+  if (!host) return 'Bateria e tomada ainda não verificadas'
+  const power = host.on_ac_power === null ? 'fonte desconhecida' : host.on_ac_power ? 'na tomada' : 'na bateria'
+  const sessions = host.active_power_sessions === 1 ? '1 sessão' : `${host.active_power_sessions} sessões`
+  return `${power} · ${sessions} · ${host.active_ai_jobs} jobs ativos`
+}
+
+function macBatteryValue(status: AtlasMacStatusResponse | null): string {
+  const battery = status?.host?.battery_percent
+  if (battery === null || battery === undefined) return '-'
+  return `${battery}%`
+}
+
+function maintenanceDescription(status: AtlasMacStatusResponse | null): string {
+  const next = status?.maintenance_windows?.[0]
+  if (!next) return 'Nenhuma janela cadastrada'
+  if (next.metadata?.pmset_ok === false) return `${next.name} · wake pendente de helper root`
+  return `${next.name} · ${next.wake_time} · ${next.duration_minutes}min`
+}
+
+function powerHelperStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  if (!status?.power_helper) return 'offline'
+  if (status.power_helper.installed && (status.power_helper.running || status.power_helper.last_success_at)) return 'online'
+  if (status.power_helper.installed) return 'pending'
+  return 'offline'
+}
+
+function powerHelperDescription(status: AtlasMacStatusResponse | null): string {
+  const helper = status?.power_helper
+  if (!helper) return 'Ainda não verificado'
+  if (helper.installed && helper.last_success_at) return `${helper.label} ok · ${formatRelativeSync(helper.last_success_at)}`
+  if (helper.installed && helper.running) return `${helper.label} rodando`
+  if (helper.installed) return `${helper.label} instalado, sem check root recente`
+  return 'Necessário para programar wake do macOS'
+}
+
+function wakeScheduleStatus(status: AtlasMacStatusResponse | null): ConnectionStatusKind {
+  if (!status?.wake_schedule?.available) return 'offline'
+  if (status.wake_schedule.scheduled) return 'online'
+  if ((status.maintenance_windows?.length ?? 0) > 0) return 'pending'
+  return 'offline'
+}
+
+function wakeScheduleDescription(status: AtlasMacStatusResponse | null): string {
+  const schedule = status?.wake_schedule
+  if (!schedule?.available) return 'pmset schedule ainda não verificado'
+  if (schedule.scheduled) return schedule.next_wake_at ? `Próximo wake ${formatRelativeSync(schedule.next_wake_at)}` : 'Wake programado no macOS'
+  if ((status?.maintenance_windows?.length ?? 0) > 0) return 'Janela cadastrada, mas wake ainda não programado'
+  return 'Nenhum wake programado'
 }
 
 function databaseHealthStatus(health: AtlasHealth | null): ConnectionStatusKind {

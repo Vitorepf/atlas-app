@@ -10,10 +10,12 @@ import {
   applyEngineeringRunOperatorAction,
   calibrateEngineeringBenchmarkSuite,
   calibrateEngineeringHarnessability,
+  configureAtlasToolAuthorityPolicy,
   ensureDefaultEngineeringBenchmarkSuite,
   evaluateAtlasToolGate,
   approveAtlasTool,
   fetchAtlasToolsAuthority,
+  fetchAtlasToolsAuthorityPolicies,
   fetchAtlasToolsDoctor,
   fetchEngineeringCodeAudit,
   fetchEngineeringCodeModule,
@@ -34,6 +36,7 @@ import {
   indexEngineeringCodeKnowledge,
   replayEngineeringRun,
   replayEngineeringRunAttempt,
+  revokeAtlasToolAuthorityPolicy,
   revokeAtlasToolApproval,
   runAtlasToolRecipe,
   promoteEngineeringRunToBenchmarkCase,
@@ -57,7 +60,9 @@ import {
   type AtlasEngineeringTestArtifactFile,
   type AtlasEngineeringRunSummary,
   type AtlasEngineeringTestRunSummary,
+  type AtlasToolAuthorityPolicy,
   type AtlasToolsAuthorityResponse,
+  type AtlasToolsAuthorityPoliciesResponse,
   type AtlasToolsDoctorResponse,
   type AtlasToolsEvidenceResponse,
   type AtlasToolsGateResponse,
@@ -66,8 +71,10 @@ import {
 import {
   buildToolRuntimeGateFilters,
   buildEngineeringToolAuthoritySummary,
+  buildEngineeringToolAuthorityPolicySummary,
   buildEngineeringToolRuntimeSummary,
   toolAuthorityGroupLine,
+  toolAuthorityPolicyLine,
   toolRuntimeEvidenceLine,
   toolRuntimeGateIssueLine,
   toolRuntimeGateLine,
@@ -130,6 +137,7 @@ export default function EngineeringScreen() {
   const [auditingCodeKnowledge, setAuditingCodeKnowledge] = useState(false)
   const [toolRuntime, setToolRuntime] = useState<AtlasToolsDoctorResponse | null>(null)
   const [toolAuthority, setToolAuthority] = useState<AtlasToolsAuthorityResponse | null>(null)
+  const [toolAuthorityPolicies, setToolAuthorityPolicies] = useState<AtlasToolsAuthorityPoliciesResponse | null>(null)
   const [toolEvidence, setToolEvidence] = useState<AtlasToolsEvidenceResponse | null>(null)
   const [toolGate, setToolGate] = useState<AtlasToolsGateResponse | null>(null)
   const [toolPolicies, setToolPolicies] = useState<AtlasToolsPoliciesResponse | null>(null)
@@ -166,6 +174,10 @@ export default function EngineeringScreen() {
   const toolAuthoritySummary = useMemo(
     () => buildEngineeringToolAuthoritySummary(toolAuthority),
     [toolAuthority],
+  )
+  const toolAuthorityPolicySummary = useMemo(
+    () => buildEngineeringToolAuthorityPolicySummary(toolAuthorityPolicies),
+    [toolAuthorityPolicies],
   )
 
   const loadSuites = useCallback(async () => {
@@ -228,9 +240,17 @@ export default function EngineeringScreen() {
     setToolRuntimeLoading(true)
     try {
       const resolvedWorkspace = workspaceInput.trim()
-      const [doctorResponse, authorityResponse, evidenceResponse, gateResponse, policiesResponse] = await Promise.all([
+      const [
+        doctorResponse,
+        authorityResponse,
+        authorityPoliciesResponse,
+        evidenceResponse,
+        gateResponse,
+        policiesResponse,
+      ] = await Promise.all([
         fetchAtlasToolsDoctor({ workspace: resolvedWorkspace || null }),
         fetchAtlasToolsAuthority(),
+        fetchAtlasToolsAuthorityPolicies({ workspace: resolvedWorkspace || null }),
         listAtlasToolEvidence({ workspace: resolvedWorkspace || null, limit: 8 }),
         evaluateAtlasToolGate(buildToolRuntimeGateFilters({
           workspace: resolvedWorkspace,
@@ -241,12 +261,14 @@ export default function EngineeringScreen() {
       ])
       setToolRuntime(doctorResponse)
       setToolAuthority(authorityResponse)
+      setToolAuthorityPolicies(authorityPoliciesResponse)
       setToolEvidence(evidenceResponse)
       setToolGate(gateResponse)
       setToolPolicies(policiesResponse)
     } catch {
       setToolRuntime(null)
       setToolAuthority(null)
+      setToolAuthorityPolicies(null)
       setToolEvidence(null)
       setToolGate(null)
       setToolPolicies(null)
@@ -344,8 +366,12 @@ export default function EngineeringScreen() {
     executionTier?: string | null
     safeCommands?: Array<{
       name: string
+      category?: string
       command: string[]
       dry_run_default: boolean
+      recommended_surface?: string
+      creates_evidence?: boolean
+      blocking_capable?: boolean
       network_allowed: boolean
       max_execution_tier?: string | null
       sandbox_mode?: string | null
@@ -373,6 +399,58 @@ export default function EngineeringScreen() {
       await loadToolRuntime(resolvedWorkspace, toolGateMode)
     } catch {
       showToast('Não consegui registrar dry-run')
+    } finally {
+      setToolActionRunning(null)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
+
+  const hardenAuthorityPolicyFromApp = useCallback(async (policy: AtlasToolAuthorityPolicy) => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de ajustar policy')
+      return
+    }
+
+    const actionKey = `authority-harden:${policy.authority_group}`
+    setToolActionRunning(actionKey)
+    try {
+      await configureAtlasToolAuthorityPolicy(policy.authority_group, {
+        workspace: resolvedWorkspace,
+        scope_type: 'workspace',
+        policy: `${policy.authority_group}_workspace_medium_blocks`,
+        block_severities: ['critical', 'high', 'medium'],
+        warn_severities: ['low'],
+        block_reason: `workspace_${policy.authority_group}_medium_blocks`,
+        warn_reason: `workspace_${policy.authority_group}_low_warns`,
+        description: 'Workspace override from Engineering app: medium findings block and low findings warn.',
+      })
+      showToast(`${policy.authority_group}: medium agora bloqueia`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('Não consegui ajustar authority policy')
+    } finally {
+      setToolActionRunning(null)
+    }
+  }, [loadToolRuntime, showToast, toolGateMode, workspace])
+
+  const revokeAuthorityPolicyFromApp = useCallback(async (policy: AtlasToolAuthorityPolicy) => {
+    const resolvedWorkspace = workspace.trim()
+    if (!resolvedWorkspace) {
+      showToast('Informe o workspace antes de revogar policy')
+      return
+    }
+
+    const actionKey = `authority-revoke:${policy.authority_group}`
+    setToolActionRunning(actionKey)
+    try {
+      await revokeAtlasToolAuthorityPolicy(policy.authority_group, {
+        workspace: resolvedWorkspace,
+        scope_type: 'workspace',
+      })
+      showToast(`${policy.authority_group}: override revogado`)
+      await loadToolRuntime(resolvedWorkspace, toolGateMode)
+    } catch {
+      showToast('Não consegui revogar authority policy')
     } finally {
       setToolActionRunning(null)
     }
@@ -693,12 +771,14 @@ export default function EngineeringScreen() {
       <ToolRuntimeCard
         runtime={toolRuntime}
         authority={toolAuthority}
+        authorityPolicies={toolAuthorityPolicies}
         evidence={toolEvidence}
         gate={toolGate}
         policies={toolPolicies}
         gateMode={toolGateMode}
         summary={toolRuntimeSummary}
         authoritySummary={toolAuthoritySummary}
+        authorityPolicySummary={toolAuthorityPolicySummary}
         loading={toolRuntimeLoading}
         actionRunning={toolActionRunning}
         apiContractRunning={apiContractRunning}
@@ -710,6 +790,8 @@ export default function EngineeringScreen() {
         onApproveTool={(tool) => { void approveToolFromApp(tool) }}
         onRevokeTool={(toolSlug) => { void revokeToolFromApp(toolSlug) }}
         onDryRunTool={(tool) => { void dryRunToolFromApp(tool) }}
+        onHardenAuthorityPolicy={(policy) => { void hardenAuthorityPolicyFromApp(policy) }}
+        onRevokeAuthorityPolicy={(policy) => { void revokeAuthorityPolicyFromApp(policy) }}
         onRunApiContract={() => { void runApiContract() }}
       />
 
@@ -1523,12 +1605,14 @@ function KnowledgeBaseCard({
 function ToolRuntimeCard({
   runtime,
   authority,
+  authorityPolicies,
   evidence,
   gate,
   policies,
   gateMode,
   summary,
   authoritySummary,
+  authorityPolicySummary,
   loading,
   actionRunning,
   apiContractRunning,
@@ -1537,16 +1621,20 @@ function ToolRuntimeCard({
   onApproveTool,
   onRevokeTool,
   onDryRunTool,
+  onHardenAuthorityPolicy,
+  onRevokeAuthorityPolicy,
   onRunApiContract,
 }: {
   runtime: AtlasToolsDoctorResponse | null
   authority: AtlasToolsAuthorityResponse | null
+  authorityPolicies: AtlasToolsAuthorityPoliciesResponse | null
   evidence: AtlasToolsEvidenceResponse | null
   gate: AtlasToolsGateResponse | null
   policies: AtlasToolsPoliciesResponse | null
   gateMode: EngineeringToolGateMode
   summary: EngineeringToolRuntimeSummary
   authoritySummary: ReturnType<typeof buildEngineeringToolAuthoritySummary>
+  authorityPolicySummary: ReturnType<typeof buildEngineeringToolAuthorityPolicySummary>
   loading: boolean
   actionRunning: string | null
   apiContractRunning: boolean
@@ -1554,14 +1642,20 @@ function ToolRuntimeCard({
   onRefresh: () => void
   onApproveTool: (tool: { slug: string; executionTier?: string | null; risks?: string[] }) => void
   onRevokeTool: (toolSlug: string) => void
+  onHardenAuthorityPolicy: (policy: AtlasToolAuthorityPolicy) => void
+  onRevokeAuthorityPolicy: (policy: AtlasToolAuthorityPolicy) => void
   onDryRunTool: (tool: {
     slug: string
     binary: string
     executionTier?: string | null
     safeCommands?: Array<{
       name: string
+      category?: string
       command: string[]
       dry_run_default: boolean
+      recommended_surface?: string
+      creates_evidence?: boolean
+      blocking_capable?: boolean
       network_allowed: boolean
       max_execution_tier?: string | null
       sandbox_mode?: string | null
@@ -1578,6 +1672,7 @@ function ToolRuntimeCard({
   ))
   const runs = evidence?.data ?? []
   const policyRows = policies?.data ?? []
+  const authorityPolicyRows = authorityPolicies?.policies ?? []
   const policyByTool = new Map(policyRows.map((policy) => [policy.tool_slug, policy]))
   const gateIssue = gate?.blocking_failures?.[0] ?? gate?.warnings?.[0] ?? null
   const authorityGroups = [...(authority?.authority_groups ?? [])].sort((left, right) => (
@@ -1670,6 +1765,73 @@ function ToolRuntimeCard({
           </Mono>
         ))}
       </View>
+      <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+        <View style={styles.panelTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Políticas de autoridade</Label>
+            <Sans weight="sb" size={13.5} lineHeight={19} color={c.ink} numberOfLines={1}>
+              {authorityPolicySummary.policyCount} contratos · {authorityPolicySummary.blockingPolicyCount} bloqueantes
+            </Sans>
+            <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+              {authorityPolicySummary.warningPolicyCount} políticas geram avisos auditáveis
+            </Mono>
+          </View>
+          <StatusPill status={authorityPolicyRows.length > 0 ? 'ready' : 'unknown'} compact />
+        </View>
+        {authorityPolicyRows.slice(0, 4).map((policy) => {
+          const hardening = actionRunning === `authority-harden:${policy.authority_group}`
+          const revoking = actionRunning === `authority-revoke:${policy.authority_group}`
+          const mediumAlreadyBlocks = policy.block_severities.includes('medium')
+          const hasWorkspaceOverride = policy.source === 'workspace'
+
+          return (
+            <View key={policy.authority_group} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+                  {policy.authority_group}
+                </Sans>
+                <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+                  {toolAuthorityPolicyLine(policy)}
+                </Mono>
+              </View>
+              <View style={styles.rowActions}>
+                <Pressable
+                  disabled={Boolean(actionRunning) || mediumAlreadyBlocks}
+                  onPress={() => onHardenAuthorityPolicy(policy)}
+                  style={({ pressed }) => [
+                    styles.inlineButtonTiny,
+                    {
+                      borderColor: c.border,
+                      backgroundColor: hardening ? c.bg : c.surface,
+                      opacity: pressed && !actionRunning ? 0.82 : 1,
+                    },
+                  ]}
+                >
+                  <Sans weight="sb" size={11} lineHeight={14} color={mediumAlreadyBlocks ? c.ink2 : c.ink}>
+                    {hardening ? 'Aplicando' : 'Medium bloqueia'}
+                  </Sans>
+                </Pressable>
+                <Pressable
+                  disabled={Boolean(actionRunning) || !hasWorkspaceOverride}
+                  onPress={() => onRevokeAuthorityPolicy(policy)}
+                  style={({ pressed }) => [
+                    styles.inlineButtonTiny,
+                    {
+                      borderColor: c.recRed,
+                      backgroundColor: revoking ? c.bg : c.surface,
+                      opacity: pressed && !actionRunning ? 0.82 : 1,
+                    },
+                  ]}
+                >
+                  <Sans weight="sb" size={11} lineHeight={14} color={hasWorkspaceOverride ? c.recRed : c.ink2}>
+                    {revoking ? 'Revogando' : 'Revogar'}
+                  </Sans>
+                </Pressable>
+              </View>
+            </View>
+          )
+        })}
+      </View>
       <View style={[styles.gateBox, { borderColor: statusColor(gate?.status ?? 'unknown', c), backgroundColor: c.bg }]}>
         <View style={styles.panelTop}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -1724,6 +1886,7 @@ function ToolRuntimeCard({
           const approving = actionRunning === `approve:${tool.slug}`
           const revoking = actionRunning === `revoke:${tool.slug}`
           const dryRunning = actionRunning === `dry-run:${tool.slug}`
+          const defaultRecipe = tool.safe_commands?.find((command) => command.dry_run_default) ?? tool.safe_commands?.[0]
 
           return (
             <View key={tool.slug} style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
@@ -1732,7 +1895,7 @@ function ToolRuntimeCard({
                   {tool.name}
                 </Sans>
                 <Mono size={9.8} lineHeight={13} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
-                  {tool.binary} · {toolRuntimeRiskLine(tool)} · {(tool.safe_commands?.length ?? 0)} recipes
+                  {tool.binary} · {toolRuntimeRiskLine(tool)} · {(tool.safe_commands?.length ?? 0)} recipes · {defaultRecipe?.category ?? 'diagnostic'}
                 </Mono>
               </View>
               <View style={{ alignItems: 'flex-end', gap: 6 }}>

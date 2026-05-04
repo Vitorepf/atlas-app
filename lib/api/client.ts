@@ -214,6 +214,94 @@ export interface MobileRecommendationResponse {
   item: AtlasPerformanceRecommendation
 }
 
+export interface AtlasPowerSession {
+  id: string
+  kind: string
+  status: string
+  reason: string | null
+  source: string | null
+  ai_job_id: string | null
+  caffeinate_pid: number | null
+  caffeinate_label: string | null
+  caffeinate_alive: boolean | null
+  started_at: string | null
+  expires_at: string | null
+  stopped_at: string | null
+  stop_reason: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface AtlasMaintenanceWindow {
+  id: string
+  name: string
+  enabled: boolean
+  timezone: string
+  wake_time: string
+  duration_minutes: number
+  days_of_week: number[]
+  last_scheduled_at: string | null
+  last_started_at: string | null
+  last_completed_at: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface AtlasPowerEvent {
+  id: string
+  event_type: string
+  severity: string
+  message: string | null
+  metadata: Record<string, unknown>
+  occurred_at: string | null
+}
+
+export interface AtlasMacStatusResponse {
+  host_key: string
+  status: 'online_idle' | 'held_awake' | 'running_jobs' | 'offline_or_sleeping' | 'not_installed' | string
+  host: {
+    host_key: string
+    hostname: string | null
+    status: string
+    agent_available: boolean
+    caffeinate_available: boolean
+    pmset_available: boolean
+    docker_available: boolean
+    on_ac_power: boolean | null
+    battery_percent: number | null
+    active_power_sessions: number
+    active_ai_jobs: number
+    last_seen_at: string | null
+    metadata: Record<string, unknown>
+  } | null
+  active_sessions: AtlasPowerSession[]
+  power_helper?: {
+    installed: boolean
+    loaded: boolean | null
+    running: boolean | null
+    needs_install: boolean
+    plist: string
+    label: string
+    last_checked_at: string | null
+    last_success_at: string | null
+    install_command: string
+    last_error: string | null
+  }
+  wake_schedule?: {
+    available: boolean
+    scheduled: boolean
+    raw: string | null
+    next_wake_at: string | null
+  }
+  recent_events?: AtlasPowerEvent[]
+  maintenance_windows?: AtlasMaintenanceWindow[]
+  generated_at: string
+}
+
+export interface AtlasMacSessionResponse {
+  ok: boolean
+  session: AtlasPowerSession | null
+  status: AtlasMacStatusResponse
+}
+
 export interface AtlasDomain {
   slug: string
   label: string
@@ -1846,9 +1934,13 @@ export interface AtlasToolDoctorItem {
 
 export interface AtlasToolSafeCommand {
   name: string
+  category: string
   description: string
   command: string[]
   dry_run_default: boolean
+  recommended_surface: string
+  creates_evidence: boolean
+  blocking_capable: boolean
   network_allowed: boolean
   max_execution_tier?: 'T0' | 'T1' | 'T2' | 'T3' | string | null
   sandbox_mode?: 'workspace' | 'worktree' | 'docker' | 'host' | 'none' | string | null
@@ -1920,6 +2012,46 @@ export interface AtlasToolsAuthorityResponse {
   tiers: Record<string, { tool_count: number; tools: AtlasToolAuthorityTool[] }>
   authority_groups: AtlasToolAuthorityGroup[]
   recommendations: AtlasToolAuthorityRecommendation[]
+}
+
+export interface AtlasToolAuthorityPolicy {
+  authority_group: string
+  policy: string
+  block_severities: string[]
+  warn_severities: string[]
+  block_reason: string
+  warn_reason: string
+  description: string
+  source?: 'default' | 'workspace' | 'global' | string
+  policy_id?: string | null
+}
+
+export interface AtlasToolsAuthorityPoliciesResponse {
+  status: string
+  schema: string
+  summary: {
+    policy_count: number
+    blocking_policy_count: number
+    warning_policy_count: number
+  }
+  policies: AtlasToolAuthorityPolicy[]
+}
+
+export interface AtlasToolAuthorityPolicyInput {
+  workspace?: string | null
+  scope_type?: 'workspace' | 'global' | string
+  policy?: string | null
+  block_severities?: string[]
+  warn_severities?: string[]
+  block_reason?: string | null
+  warn_reason?: string | null
+  description?: string | null
+}
+
+export interface AtlasToolAuthorityPolicyMutationResponse {
+  status: string
+  data: AtlasToolPolicySummary | null
+  catalog: AtlasToolsAuthorityPoliciesResponse
 }
 
 export interface AtlasToolArtifactSummary {
@@ -2003,6 +2135,10 @@ export interface AtlasToolsEvidenceFilters extends Record<string, unknown> {
   policy_decision?: string
   run_context_type?: string
   run_context_id?: string
+  recipe?: string
+  recipe_category?: string
+  recipe_recommended_surface?: string
+  recipe_blocking_capable?: boolean
   required?: boolean
   limit?: number
 }
@@ -2100,12 +2236,21 @@ export interface AtlasToolsGateResponse {
   fail_statuses: string[]
   summary: {
     run_count: number
+    input_run_count?: number
     tool_count: number
     failed_run_count: number
     blocking_failure_count: number
     warning_count: number
+    stale_evidence_count?: number
     correlated_finding_group_count?: number
     suppressed_duplicate_finding_count?: number
+  }
+  freshness?: {
+    max_age_minutes: number | null
+    stale_blocks: boolean
+  }
+  selection?: {
+    latest_per_tool: boolean
   }
   blocking_failures: Array<Record<string, unknown>>
   warnings: Array<Record<string, unknown>>
@@ -2117,6 +2262,9 @@ export interface AtlasToolsGateFilters extends AtlasToolsEvidenceFilters {
   required_tool?: string[]
   fail_status?: string[]
   require_evidence?: boolean
+  max_age_minutes?: number
+  stale_blocks?: boolean
+  latest_per_tool?: boolean
 }
 
 export interface AtlasEngineeringApiContractInput {
@@ -4120,6 +4268,82 @@ export interface AtlasMemoryMaintenanceStage {
   [key: string]: unknown
 }
 
+export interface AtlasMemoryQualityTrendDriver {
+  kind?: string
+  key?: string
+  severity?: string
+  delta?: number
+  current?: number
+  previous?: number
+  [key: string]: unknown
+}
+
+export interface AtlasMemoryQualityTrend {
+  status?: string
+  current_score?: number
+  latest_snapshot_score?: number
+  previous_snapshot_score?: number | null
+  snapshot_count?: number
+  current_delta_from_latest?: number | null
+  latest_delta_from_previous?: number | null
+  window_delta?: number | null
+  latest_snapshot_id?: string | null
+  latest_snapshot_at?: string | null
+  drivers?: AtlasMemoryQualityTrendDriver[]
+  [key: string]: unknown
+}
+
+export interface AtlasMemoryQualitySnapshot {
+  id: string
+  workspace?: string | null
+  workspace_hash?: string | null
+  source_type?: string | null
+  source_id?: string | null
+  status: string
+  score: number
+  components?: Record<string, unknown>
+  counts?: Record<string, unknown>
+  ratios?: Record<string, unknown>
+  issues?: Record<string, unknown>[]
+  recommendations?: string[]
+  metadata?: Record<string, unknown>
+  snapshot_at?: string | null
+  created_at?: string | null
+}
+
+export interface AtlasMemoryQuality {
+  ok: boolean
+  status: string
+  score: number
+  components?: Record<string, number>
+  counts?: Record<string, unknown>
+  ratios?: Record<string, number>
+  issues?: Record<string, unknown>[]
+  trend?: AtlasMemoryQualityTrend
+  recommendations?: string[]
+  latest_snapshot?: Partial<AtlasMemoryQualitySnapshot> | null
+  generated_at?: string
+  [key: string]: unknown
+}
+
+export interface AtlasMemoryQualityResponse {
+  memory_quality: AtlasMemoryQuality
+}
+
+export interface AtlasMemoryQualityHistory {
+  ok: boolean
+  status: string
+  period_days: number
+  since_at: string
+  summary: Record<string, unknown>
+  snapshots: AtlasMemoryQualitySnapshot[]
+  generated_at?: string
+}
+
+export interface AtlasMemoryQualityHistoryResponse {
+  memory_quality_history: AtlasMemoryQualityHistory
+}
+
 export interface AtlasMemoryMaintenance {
   ok: boolean
   status: string
@@ -4135,6 +4359,8 @@ export interface AtlasMemoryMaintenance {
   stages: {
     knowledge_sync?: AtlasMemoryMaintenanceStage
     code_index?: AtlasMemoryMaintenanceStage
+    memory_quality?: AtlasMemoryMaintenanceStage & AtlasMemoryQuality
+    memory_quality_snapshot?: AtlasMemoryMaintenanceStage
     provider_projection_status?: AtlasMemoryMaintenanceStage
     provider_projection_apply?: AtlasMemoryMaintenanceStage
     mcp_health?: AtlasMemoryMaintenanceStage
@@ -4527,6 +4753,47 @@ export async function recoverMobileDeviceSession(): Promise<MobileDeviceSession 
 
 export async function listMobileDevices(): Promise<MobileDevicesResponse> {
   return mobileApiGet<MobileDevicesResponse>('/v1/mobile/devices')
+}
+
+export async function getMobileMacStatus(): Promise<AtlasMacStatusResponse> {
+  return mobileApiGet<AtlasMacStatusResponse>('/v1/mobile/mac/status')
+}
+
+export async function startMobileMacRemoteSession(input: {
+  duration_minutes?: number
+  reason?: string | null
+}): Promise<AtlasMacSessionResponse> {
+  return mobileApiPost<AtlasMacSessionResponse>('/v1/mobile/mac/remote-session', input, {
+    idempotencyKey: `mac-remote-session-${Date.now()}`,
+  })
+}
+
+export async function stopMobileMacRemoteSession(sessionId: string): Promise<AtlasMacSessionResponse> {
+  return mobileApiPost<AtlasMacSessionResponse>(`/v1/mobile/mac/remote-session/${encodeURIComponent(sessionId)}/stop`, {}, {
+    idempotencyKey: `mac-remote-stop-${sessionId}-${Date.now()}`,
+  })
+}
+
+export async function requestMobileMacSleepNow(): Promise<{ ok: boolean; status: AtlasMacStatusResponse }> {
+  return mobileApiPost<{ ok: boolean; status: AtlasMacStatusResponse }>('/v1/mobile/mac/sleep-now', {}, {
+    idempotencyKey: `mac-sleep-now-${Date.now()}`,
+  })
+}
+
+export async function createMobileMacMaintenanceWindow(input: {
+  name?: string
+  wake_time: string
+  duration_minutes?: number
+  days_of_week?: number[]
+  enabled?: boolean
+}): Promise<{ ok: boolean; window: AtlasMaintenanceWindow }> {
+  return mobileApiPost<{ ok: boolean; window: AtlasMaintenanceWindow }>('/v1/mobile/mac/maintenance-windows', input, {
+    idempotencyKey: `mac-maintenance-${Date.now()}`,
+  })
+}
+
+export async function deleteMobileMacMaintenanceWindow(windowId: string): Promise<{ ok: boolean }> {
+  return mobileApiDelete<{ ok: boolean }>(`/v1/mobile/mac/maintenance-windows/${encodeURIComponent(windowId)}`)
 }
 
 export async function updateMobilePushToken(input: {
@@ -5632,6 +5899,31 @@ export async function fetchAtlasToolsAuthority(): Promise<AtlasToolsAuthorityRes
   return apiGet<AtlasToolsAuthorityResponse>('/tools/authority')
 }
 
+export async function fetchAtlasToolsAuthorityPolicies(
+  params: { workspace?: string | null } = {},
+): Promise<AtlasToolsAuthorityPoliciesResponse> {
+  return apiGet<AtlasToolsAuthorityPoliciesResponse>(`/tools/authority/policies${queryString(params)}`)
+}
+
+export async function configureAtlasToolAuthorityPolicy(
+  authorityGroup: string,
+  input: AtlasToolAuthorityPolicyInput = {},
+): Promise<AtlasToolAuthorityPolicyMutationResponse> {
+  return apiPut<AtlasToolAuthorityPolicyMutationResponse>(
+    `/tools/authority/policies/${encodeURIComponent(authorityGroup)}`,
+    input,
+  )
+}
+
+export async function revokeAtlasToolAuthorityPolicy(
+  authorityGroup: string,
+  input: { workspace?: string | null; scope_type?: 'workspace' | 'global' | string } = {},
+): Promise<AtlasToolAuthorityPolicyMutationResponse> {
+  return apiDelete<AtlasToolAuthorityPolicyMutationResponse>(
+    `/tools/authority/policies/${encodeURIComponent(authorityGroup)}${queryString(input as Record<string, unknown>)}`,
+  )
+}
+
 export async function listAtlasToolEvidence(
   params: AtlasToolsEvidenceFilters = {},
 ): Promise<AtlasToolsEvidenceResponse> {
@@ -6576,6 +6868,30 @@ export async function buildAtlasOpenBrainContextPack(input: {
 
 export async function listAtlasOpenBrainAudits(params: { limit?: number } = {}): Promise<AtlasOpenBrainAuditsResponse> {
   return apiGet<AtlasOpenBrainAuditsResponse>(`/ai/open-brain/audits${queryString(params)}`)
+}
+
+export async function getAtlasMemoryQuality(params: {
+  workspace?: string
+  type?: string[]
+  scope_type?: string
+  scope_id?: string
+  project_id?: string
+  task_id?: string
+  engineering_run_id?: string
+  source_type?: string
+  status?: string
+} = {}): Promise<AtlasMemoryQualityResponse> {
+  return apiGet<AtlasMemoryQualityResponse>(`/ai/memory/quality${queryString(params)}`)
+}
+
+export async function getAtlasMemoryQualityHistory(params: {
+  workspace?: string
+  days?: number
+  limit?: number
+  status?: string
+  source_type?: string
+} = {}): Promise<AtlasMemoryQualityHistoryResponse> {
+  return apiGet<AtlasMemoryQualityHistoryResponse>(`/ai/memory/quality/history${queryString(params)}`)
 }
 
 export async function runAtlasMemoryMaintenance(input: {

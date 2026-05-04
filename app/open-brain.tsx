@@ -11,16 +11,25 @@ import {
   openBrainContextPackCopyText,
   openBrainContextPackSummary,
   openBrainMaintenanceLine,
+  openBrainMemoryQualityLine,
+  openBrainQualityHistoryLine,
   openBrainRecallItemBody,
   openBrainRecallItemTitle,
   openBrainRecallSummary,
+  openBrainTrendDriverLine,
 } from '../lib/openBrain'
 import {
   AtlasApiError,
   buildAtlasOpenBrainContextPack,
+  getAtlasMemoryQuality,
+  getAtlasMemoryQualityHistory,
   listAtlasOpenBrainAudits,
   recallAtlasMemory,
   runAtlasMemoryMaintenance,
+  type AtlasMemoryQuality,
+  type AtlasMemoryQualityHistory,
+  type AtlasMemoryQualitySnapshot,
+  type AtlasMemoryQualityTrendDriver,
   type AtlasMemoryMaintenance,
   type AtlasMemoryMaintenanceResponse,
   type AtlasMemoryMaintenanceStage,
@@ -43,6 +52,8 @@ export default function OpenBrainScreen() {
   const [contextPack, setContextPack] = useState<AtlasOpenBrainContextPack | null>(null)
   const [audits, setAudits] = useState<AtlasOpenBrainAudit[]>([])
   const [maintenance, setMaintenance] = useState<AtlasMemoryMaintenance | null>(null)
+  const [memoryQuality, setMemoryQuality] = useState<AtlasMemoryQuality | null>(null)
+  const [memoryQualityHistory, setMemoryQualityHistory] = useState<AtlasMemoryQualityHistory | null>(null)
   const [busy, setBusy] = useState<BusyAction>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,6 +68,16 @@ export default function OpenBrainScreen() {
     const response = await listAtlasOpenBrainAudits({ limit: 12 })
     setAudits(response.open_brain_audits)
   }, [])
+
+  const loadMemoryQuality = useCallback(async () => {
+    const targetWorkspace = resolvedWorkspace || DEFAULT_WORKSPACE
+    const [qualityResponse, historyResponse] = await Promise.all([
+      getAtlasMemoryQuality({ workspace: targetWorkspace }),
+      getAtlasMemoryQualityHistory({ workspace: targetWorkspace, days: 30, limit: 12 }),
+    ])
+    setMemoryQuality(qualityResponse.memory_quality)
+    setMemoryQualityHistory(historyResponse.memory_quality_history)
+  }, [resolvedWorkspace])
 
   const loadMaintenanceStatus = useCallback(async () => {
     const response = await runMemoryMaintenance({
@@ -73,7 +94,7 @@ export default function OpenBrainScreen() {
     let mounted = true
     setRefreshing(true)
 
-    Promise.allSettled([loadAudits(), loadMaintenanceStatus()])
+    Promise.allSettled([loadAudits(), loadMaintenanceStatus(), loadMemoryQuality()])
       .then((results) => {
         if (!mounted) return
         const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult | undefined
@@ -86,19 +107,19 @@ export default function OpenBrainScreen() {
     return () => {
       mounted = false
     }
-  }, [loadAudits, loadMaintenanceStatus])
+  }, [loadAudits, loadMaintenanceStatus, loadMemoryQuality])
 
   const refresh = useCallback(async () => {
     setError(null)
     setRefreshing(true)
     try {
-      await Promise.all([loadAudits(), loadMaintenanceStatus()])
+      await Promise.all([loadAudits(), loadMaintenanceStatus(), loadMemoryQuality()])
     } catch (refreshError) {
       setError(errorMessage(refreshError, 'Não consegui atualizar Open Brain.'))
     } finally {
       setRefreshing(false)
     }
-  }, [loadAudits, loadMaintenanceStatus])
+  }, [loadAudits, loadMaintenanceStatus, loadMemoryQuality])
 
   async function runRecall(): Promise<void> {
     if (!resolvedObjective) {
@@ -193,11 +214,16 @@ export default function OpenBrainScreen() {
         include_drift_audit: true,
       })
       setMaintenance(response.memory_maintenance)
+      setMemoryQuality(memoryQualityFromMaintenance(response.memory_maintenance) ?? memoryQuality)
+      await loadMemoryQuality().catch(() => null)
       await loadAudits().catch(() => null)
       showToast(memoryToast(response.memory_maintenance), { variant: response.memory_maintenance.ok ? 'checkin' : undefined })
     } catch (maintainError) {
       const recovered = maintenanceFromError(maintainError)
-      if (recovered) setMaintenance(recovered)
+      if (recovered) {
+        setMaintenance(recovered)
+        setMemoryQuality(memoryQualityFromMaintenance(recovered) ?? memoryQuality)
+      }
       setError(errorMessage(maintainError, 'Memory maintain falhou.'))
     } finally {
       setBusy(null)
@@ -225,12 +251,17 @@ export default function OpenBrainScreen() {
         confirm: true,
       })
       setMaintenance(response.memory_maintenance)
+      setMemoryQuality(memoryQualityFromMaintenance(response.memory_maintenance) ?? memoryQuality)
+      await loadMemoryQuality().catch(() => null)
       setProjectionApplyArmed(false)
       await loadAudits().catch(() => null)
       showToast(memoryToast(response.memory_maintenance), { variant: response.memory_maintenance.ok ? 'checkin' : undefined })
     } catch (projectionError) {
       const recovered = maintenanceFromError(projectionError)
-      if (recovered) setMaintenance(recovered)
+      if (recovered) {
+        setMaintenance(recovered)
+        setMemoryQuality(memoryQualityFromMaintenance(recovered) ?? memoryQuality)
+      }
       setError(errorMessage(projectionError, 'Não consegui aplicar projection.'))
     } finally {
       setBusy(null)
@@ -387,6 +418,50 @@ export default function OpenBrainScreen() {
         ) : (
           <EmptyLine text="gere um context pack para ver o payload" />
         )}
+      </View>
+
+      <SectionHeader label="Qualidade" />
+      <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
+        <View style={styles.panelTop}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Sans weight="sb" size={15} lineHeight={21} color={c.ink}>Memory Quality Gate</Sans>
+            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+              {openBrainMemoryQualityLine(memoryQuality)}
+            </Mono>
+            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink3}>
+              {openBrainQualityHistoryLine(memoryQualityHistory)}
+            </Mono>
+          </View>
+          <StatusPill
+            value={String(memoryQuality?.trend?.status ?? memoryQualityHistory?.summary?.trend_status ?? 'loading')}
+            tone={qualityTone(String(memoryQuality?.trend?.status ?? memoryQuality?.status ?? 'unknown'))}
+          />
+        </View>
+
+        <View style={styles.metrics}>
+          <Metric label="score" value={String(memoryQuality?.score ?? '-')} />
+          <Metric label="ativas" value={String(numberAt(memoryQuality?.counts, 'active') ?? '-')} />
+          <Metric label="safe" value={String(numberAt(memoryQuality?.counts, 'provider_safe_active') ?? '-')} />
+        </View>
+
+        {(memoryQuality?.trend?.drivers ?? []).length > 0 ? (
+          <View style={[styles.preview, { borderColor: c.border, backgroundColor: c.bg }]}>
+            <Label>Drivers</Label>
+            {(memoryQuality?.trend?.drivers ?? []).slice(0, 5).map((driver, index) => (
+              <Mono key={`${driver.kind ?? 'driver'}:${driver.key ?? index}`} size={10.5} lineHeight={15} letterSpacing={0.05} color={driver.severity === 'warning' ? c.recRed : c.ink2}>
+                {index + 1}. {openBrainTrendDriverLine(driver)}
+              </Mono>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.list}>
+          {(memoryQualityHistory?.snapshots ?? []).slice(0, 5).map((snapshot) => (
+            <QualitySnapshotRow key={snapshot.id} snapshot={snapshot} />
+          ))}
+          {memoryQualityHistory && memoryQualityHistory.snapshots.length === 0 ? <EmptyLine text="nenhum snapshot registrado" /> : null}
+          {!memoryQualityHistory ? <EmptyLine text="carregando histórico de qualidade" /> : null}
+        </View>
       </View>
 
       <SectionHeader label="Memory Maintain" />
@@ -547,6 +622,24 @@ function StageRow({ label, stage }: { label: string; stage?: AtlasMemoryMaintena
   )
 }
 
+function QualitySnapshotRow({ snapshot }: { snapshot: AtlasMemoryQualitySnapshot }) {
+  const c = usePalette()
+  const tone = qualityTone(snapshot.status)
+
+  return (
+    <View style={[styles.stageRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Sans weight="sb" size={12.5} lineHeight={17} color={tone === 'bad' ? c.recRed : c.ink} numberOfLines={1}>
+          {snapshot.status} · score {snapshot.score}
+        </Sans>
+        <Mono size={10.5} lineHeight={15} letterSpacing={0.05} color={c.ink2} numberOfLines={1}>
+          {dateLabel(snapshot.snapshot_at)} · {snapshot.source_type ?? 'snapshot'}
+        </Mono>
+      </View>
+    </View>
+  )
+}
+
 function EmptyLine({ text }: { text: string }) {
   const c = usePalette()
 
@@ -580,6 +673,18 @@ function isMaintenance(value: unknown): value is AtlasMemoryMaintenance {
   return Boolean(value && typeof value === 'object' && typeof (value as { status?: unknown }).status === 'string')
 }
 
+function memoryQualityFromMaintenance(maintenance: AtlasMemoryMaintenance): AtlasMemoryQuality | null {
+  const quality = maintenance.stages.memory_quality
+
+  return isMemoryQuality(quality) ? quality : null
+}
+
+function isMemoryQuality(value: unknown): value is AtlasMemoryQuality {
+  return Boolean(value && typeof value === 'object'
+    && typeof (value as { status?: unknown }).status === 'string'
+    && typeof (value as { score?: unknown }).score === 'number')
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim() !== '') return error.message
 
@@ -605,6 +710,24 @@ function dateLabel(value: string | null | undefined): string {
 
 function formatNumber(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '-'
+}
+
+function numberAt(source: unknown, path: string): number | null {
+  if (!source || typeof source !== 'object') return null
+  let current: unknown = source
+  for (const part of path.split('.')) {
+    if (!current || typeof current !== 'object' || !(part in current)) return null
+    current = (current as Record<string, unknown>)[part]
+  }
+
+  return typeof current === 'number' && Number.isFinite(current) ? current : null
+}
+
+function qualityTone(status: string): 'good' | 'bad' | 'neutral' {
+  if (['ready', 'stable', 'improved', 'passed'].includes(status)) return 'good'
+  if (['critical', 'empty', 'not_migrated', 'regressed', 'failed'].includes(status)) return 'bad'
+
+  return 'neutral'
 }
 
 const styles = StyleSheet.create({
