@@ -6,6 +6,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   interpolate,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -164,15 +165,64 @@ export default function InboxScreen() {
   const [mobilePaired, setMobilePaired] = useState<boolean | null>(null)
   const operationalRefreshSeq = useRef(0)
   const searchFocus = useSharedValue(0)
+  // v15.2 · FilterChip strip slider · mesmo pattern do tab slide.
+  // Lifted state · cada FilterChip reporta layout via onLayoutChip · slider
+  // único dentro do ScrollView contentContainer scrolla junto com chips.
+  const [filterLayouts, setFilterLayouts] = useState<Record<string, { x: number; width: number }>>({})
+  const filterUnderlineX = useSharedValue(0)
+  const filterUnderlineW = useSharedValue(0)
+  const filterInitializedRef = useRef(false)
+  // Layouts ready quando o filter ativo já foi medido (chips inativos podem
+  // ainda não ter renderizado se ScrollView for além do viewport).
+  const filterLayoutReady = filterLayouts[filter] != null
 
   useEffect(() => {
-    searchFocus.value = withTiming(searchFocused ? 1 : 0, { duration: 220 })
+    const target = filterLayouts[filter]
+    if (!target) return
+    if (!filterInitializedRef.current) {
+      filterUnderlineX.value = target.x
+      filterUnderlineW.value = target.width
+      filterInitializedRef.current = true
+    } else {
+      filterUnderlineX.value = withTiming(target.x, {
+        duration: 320,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
+      filterUnderlineW.value = withTiming(target.width, {
+        duration: 320,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
+    }
+  }, [filter, filterLayouts, filterUnderlineX, filterUnderlineW])
+
+  const filterSliderStyle = useAnimatedStyle(() => ({
+    left: filterUnderlineX.value,
+    width: filterUnderlineW.value,
+  }))
+
+  useEffect(() => {
+    searchFocus.value = withTiming(searchFocused ? 1 : 0, {
+      duration: searchFocused ? 320 : 220,
+      easing: Easing.bezier(0.32, 0.72, 0, 1),
+    })
   }, [searchFocused, searchFocus])
 
+  // v15.2 · search pill focus EXPANSION amplificada.
+  // Sutil scale 1.0→1.012 + shadow grow + lift -2px + bronze border fade-in.
+  // Easing iOS sheet · 320ms in / 220ms out (assimétrico premium).
   const searchPillStyle = useAnimatedStyle(() => ({
-    shadowOpacity: interpolate(searchFocus.value, [0, 1], [0.07, 0.13]),
-    shadowRadius: interpolate(searchFocus.value, [0, 1], [12, 18]),
-    transform: [{ translateY: interpolate(searchFocus.value, [0, 1], [0, -1]) }],
+    shadowOpacity: interpolate(searchFocus.value, [0, 1], [0.07, 0.18]),
+    shadowRadius: interpolate(searchFocus.value, [0, 1], [12, 22]),
+    transform: [
+      { translateY: interpolate(searchFocus.value, [0, 1], [0, -2]) },
+      { scale: interpolate(searchFocus.value, [0, 1], [1, 1.012]) },
+    ],
+  }))
+
+  // Bronze border style separado · só aparece quando focused.
+  // Animated borderColor não funciona bem em RN · animamos opacity de border overlay.
+  const searchPillBorderStyle = useAnimatedStyle(() => ({
+    opacity: searchFocus.value,
   }))
 
   const visibleItems = useMemo(
@@ -663,6 +713,13 @@ export default function InboxScreen() {
             ]}
           >
             <View style={[styles.searchTopGloss, { backgroundColor: 'rgba(255,255,255,0.22)' }]} pointerEvents="none" />
+            {/* v15.2 · bronze border overlay · fade-in quando focused.
+                Border via overlay porque animar borderColor diretamente em RN é instável.
+                rgba(155,122,63,0.45) = bronze 45% · sutil mas perceptível. */}
+            <Animated.View
+              style={[styles.searchPillBorder, searchPillBorderStyle]}
+              pointerEvents="none"
+            />
             <TextInput
               value={query}
               onChangeText={setQuery}
@@ -703,6 +760,9 @@ export default function InboxScreen() {
                     count={countItemsForFilter(items, visibleItems, option.key)}
                     active={filter === option.key}
                     onPress={() => setFilter(option.key)}
+                    onLayoutChip={(layout) =>
+                      setFilterLayouts((prev) => ({ ...prev, [option.key]: layout }))
+                    }
                   />
                 ))}
                 <Pressable
@@ -714,6 +774,15 @@ export default function InboxScreen() {
                     · por {sortLabel(sort)}
                   </Frau>
                 </Pressable>
+                {/* v15.2 · slider underline único entre chips · scrolla junto.
+                    Posição absolute dentro do contentContainer do ScrollView
+                    horizontal · alimentado por filterLayouts. */}
+                {filterLayoutReady ? (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.filterChipSliderUnderline, filterSliderStyle]}
+                  />
+                ) : null}
               </ScrollView>
               {/* Frente 7 v6 · fade-edge à direita + glifo "→" indicando overflow */}
               <View pointerEvents="none" style={[styles.filterFadeEdge, { backgroundColor: c.bg }]} />
@@ -912,6 +981,10 @@ export default function InboxScreen() {
                         entering={FadeIn
                           .duration(320)
                           .delay(Math.min(cardIdx, 8) * 35)}
+                        exiting={FadeOut.duration(220)}
+                        layout={LinearTransition.duration(380).easing(
+                          Easing.bezier(0.32, 0.72, 0, 1).factory(),
+                        )}
                       >
                         <SwipeableCard
                           enabled={!selectionMode && !item.isLocal && !item.isArchived}
@@ -1587,33 +1660,27 @@ function FilterChip({
   active,
   count,
   onPress,
+  onLayoutChip,
 }: {
   label: string
   active: boolean
   count?: number
   onPress: () => void
+  onLayoutChip?: (layout: { x: number; width: number }) => void
 }) {
   const c = usePalette()
-  // v15 · animated underline · matching ModeTab pattern · bronze fade in/out.
-  // Mais rápido que ModeTab (chips são frequentes · 240ms in / 160ms out).
-  const underlineProgress = useSharedValue(active ? 1 : 0)
-  useEffect(() => {
-    underlineProgress.value = withTiming(active ? 1 : 0, {
-      duration: active ? 240 : 160,
-      easing: Easing.bezier(0.32, 0.72, 0, 1),
-    })
-  }, [active, underlineProgress])
-
-  // borderBottomColor não anima bem em RN · animamos via opacity de View
-  // sobreposta. Isso evita o "snap" entre transparent e bronze.
-  const animatedBorderStyle = useAnimatedStyle(() => ({
-    opacity: underlineProgress.value,
-    transform: [{ scaleX: underlineProgress.value }],
-  }))
+  // v15.2 · per-chip underline removido · substituído pelo slider único no parent.
+  // Cada chip apenas reporta layout via onLayoutChip pra alimentar slider position.
 
   return (
     <Pressable
       onPress={onPress}
+      onLayout={(e) =>
+        onLayoutChip?.({
+          x: e.nativeEvent.layout.x,
+          width: e.nativeEvent.layout.width,
+        })
+      }
       style={({ pressed }) => [
         styles.filterChip,
         {
@@ -1621,11 +1688,6 @@ function FilterChip({
         },
       ]}
     >
-      {/* Underline animado · sobreposto via absolute · scaleX origin left */}
-      <Animated.View
-        pointerEvents="none"
-        style={[styles.filterChipUnderline, animatedBorderStyle]}
-      />
       <Frau
         italic
         size={14.5}
@@ -2222,6 +2284,19 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1,
   },
+  // v15.2 · bronze border overlay · fade-in quando search focused.
+  // Posição absolute preenche pill inteira · border 1px bronze 45% sussurro.
+  // Animação via opacity (animar borderColor direto em RN é instável).
+  searchPillBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(155,122,63,0.45)',
+  },
   searchInput: {
     flex: 1,
     minWidth: 0,
@@ -2368,6 +2443,8 @@ const styles = StyleSheet.create({
   },
   // v15 · underline animado · 1px bronze 60% · scaleX origin left.
   // Posição absoluta preenche full-width do chip · escala anima entrada/saída.
+  // v15.2 · DEPRECATED · substituído pelo slider único no parent. Mantenho
+  // o style aqui caso outros lugares ainda referenciem.
   filterChipUnderline: {
     position: 'absolute',
     left: 0,
@@ -2376,6 +2453,15 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(155,122,63,0.60)',
     transformOrigin: 'left center',
+  },
+  // v15.2 · slider underline único entre filter chips · scrolla junto com
+  // contentContainer do ScrollView horizontal (renderizado dentro dele).
+  // Posição absolute · animado via left + width direto.
+  filterChipSliderUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    height: 1,
+    backgroundColor: 'rgba(155,122,63,0.60)',
   },
   filterChipCount: {
     opacity: 0.6,

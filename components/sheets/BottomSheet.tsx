@@ -69,9 +69,13 @@ export function BottomSheet({
     if (visible) {
       Keyboard.dismiss()
       closingFromGestureRef.current = false
-      ty.value = withTiming(0, {
-        duration: 380,
-        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      // v15.2 · OPEN com spring · "papel pesado caindo" em vez de timing linear.
+      // damping 22 / stiffness 220 / mass 0.9 → settle natural sem bounce jelly.
+      // Trade-off: fechar mantém withTiming (mais previsível pra dismissal).
+      ty.value = withSpring(0, {
+        damping: 22,
+        stiffness: 220,
+        mass: 0.9,
       })
     } else {
       // Só dispara animação de fechamento se NÃO foi gesture-closed
