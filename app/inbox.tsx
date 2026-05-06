@@ -1979,13 +1979,17 @@ function dateLabel(date: Date): string {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   // Floating capture · v8 thumb-zone · ancorado ao bottom-right do dispositivo.
-  // Right alinhado com padrão do dock (margem 24px) · zIndex 28 fica acima do
-  // conteúdo do ScrollView mas abaixo do dock (zIndex 30) e modais (z >= 40).
+  // v13 · centralizado horizontalmente · era right: 24 (thumb-zone right-handed).
+  // Usuário pediu centro: stretch full-width + alignItems center → CaptureButton
+  // fica no eixo X central, alinhado com Atlas AI button do dock (que também é
+  // centro). Fica composição em coluna central: T (capture) acima, ✦ (Atlas AI)
+  // abaixo · 16pt de gap entre eles. zIndex 28 mantém abaixo do dock (z 30).
   floatingCapture: {
     position: 'absolute',
-    right: 24,
+    left: 0,
+    right: 0,
     zIndex: 28,
-    alignItems: 'flex-end',
+    alignItems: 'center',
   },
   // v12 · header zone CENTRALIZADO · masthead editorial premium.
   // Antes: zigzag de alinhamento (LiveStatus centro / Inbox esq / tabs centro /

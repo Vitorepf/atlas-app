@@ -16,7 +16,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { SyncBar } from './SyncBar'
 import { Dock } from './Dock'
 import { Frau, Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
@@ -145,10 +144,11 @@ export function AtlasShell({ children }: Props) {
         <Animated.View style={[styles.fill, showQueue && { opacity: 0.85 }, childrenWrapStyle]}>
           {children}
         </Animated.View>
-        <SyncBar
-          active={syncActive || syncing || queue > 0}
-          state={showOffline ? 'offline' : showPending ? 'error' : 'synced'}
-        />
+        {/* v13 · SyncBar removido · era a "listra bronze sweep animada" no topo,
+            visível em toda tela durante sync activity. Junto com LiveStatus e
+            NewCapturesPill removidos · header zone agora completamente silencioso.
+            OfflineBanner abaixo já dá sinal visual de sync ("Sem conexão · fila local")
+            mais informativo que hairline animada. */}
         <OfflineBanner visible={showQueue} queue={queue} label={showOffline ? 'Sem conexão' : 'Sync pendente'} />
         <Dock />
         <OverlayHost />
