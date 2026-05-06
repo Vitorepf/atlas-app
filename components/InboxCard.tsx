@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { Frau, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { type DomainKey, domainColor, domainLabel } from '../lib/domains'
@@ -314,7 +315,14 @@ export function InboxCard({
           ) : null}
         </View>
       ) : showActions && actionsRevealed ? (
-        <View style={[styles.actionRow, { borderTopColor: c.border }]}>
+        // v15 · animated reveal · slide down + fade in com easing iOS sheet curve.
+        // entering FadeIn 240ms = aparece com presença · exiting FadeOut 160ms =
+        // some discreto. Combina com long-press toggle (2ª pressão colapsa).
+        <Animated.View
+          entering={FadeIn.duration(240)}
+          exiting={FadeOut.duration(160)}
+          style={[styles.actionRow, { borderTopColor: c.border }]}
+        >
           <QuickActionButton
             label="promover"
             onPress={onPromote}
@@ -345,7 +353,7 @@ export function InboxCard({
             disabled={actionBusy || !onArchive}
             danger
           />
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   )

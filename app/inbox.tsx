@@ -2,9 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated'
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -630,8 +635,15 @@ export default function InboxScreen() {
         />
       ) : null}
 
-      {mode === 'captures' ? (
-        <>
+      {/* v15 · cross-fade entre Capturas e Operacional · cinematic mode switch.
+          Cada branch tem entering/exiting layout animation Reanimated · 280ms in
+          / 180ms out · easing iOS sheet curve. Feel: revista virando seção, não
+          tab clicando. */}
+      {mode === 'captures' && (
+        <Animated.View
+          entering={FadeIn.duration(280)}
+          exiting={FadeOut.duration(180)}
+        >
           {!focusMode ? (
             <InboxDomainStatus
               domain={domainFilter}
@@ -718,7 +730,11 @@ export default function InboxScreen() {
           ) : null}
 
           {selectionMode && selectedIds.length > 0 ? (
-            <View style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
+            <Animated.View
+              entering={FadeIn.duration(280)}
+              exiting={FadeOut.duration(180)}
+              style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}
+            >
               <Frau italic size={14} lineHeight={18} color={c.ink}>
                 {selectedIds.length} selecionada{selectedIds.length !== 1 ? 's' : ''}
               </Frau>
@@ -728,11 +744,15 @@ export default function InboxScreen() {
               <ActionText label="adiar" onPress={() => setSnoozeTarget('bulk')} />
               <Frau italic size={12} color={c.ink3} style={{ opacity: 0.45 }}>·</Frau>
               <ActionText label="arquivar" danger onPress={() => void runBulkAction('archive')} />
-            </View>
+            </Animated.View>
           ) : null}
 
           {taskPriorityItem ? (
-            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
+            <Animated.View
+              entering={FadeIn.duration(280)}
+              exiting={FadeOut.duration(180)}
+              style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}
+            >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Sans
                   weight="med"
@@ -759,11 +779,15 @@ export default function InboxScreen() {
                 ))}
                 <ActionText label="cancelar" onPress={() => setTaskPriorityItem(null)} />
               </View>
-            </View>
+            </Animated.View>
           ) : null}
 
           {snoozeTarget ? (
-            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
+            <Animated.View
+              entering={FadeIn.duration(280)}
+              exiting={FadeOut.duration(180)}
+              style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}
+            >
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Sans
                   weight="med"
@@ -790,7 +814,7 @@ export default function InboxScreen() {
                 ))}
                 <ActionText label="cancelar" onPress={() => setSnoozeTarget(null)} />
               </View>
-            </View>
+            </Animated.View>
           ) : null}
 
           {projectProposal ? (
@@ -877,37 +901,52 @@ export default function InboxScreen() {
                     style={idx === 0 ? styles.firstSection : undefined}
                   />
                   <View style={styles.list}>
-                    {group.items.map((item) => (
-                      <SwipeableCard
+                    {/* v15 · cards mount stagger · cada card aparece 35ms depois
+                        do anterior, com fade + leve translateY pra baixo (de -8).
+                        Cap em 8 cards (delay máx 280ms) pra não criar wait perceptível
+                        em listas grandes. Filosofia: revista virando página com cards
+                        revelando-se em sequência editorial, não pop SaaS. */}
+                    {group.items.map((item, cardIdx) => (
+                      <Animated.View
                         key={item.id}
-                        enabled={!selectionMode && !item.isLocal && !item.isArchived}
-                        onSnooze={item.isLocal ? undefined : () => askSnooze(item)}
-                        onArchive={item.isLocal ? undefined : () => void runQuickAction(item, 'archive')}
+                        entering={FadeIn
+                          .duration(320)
+                          .delay(Math.min(cardIdx, 8) * 35)}
                       >
-                        <InboxCard
-                          item={item}
-                          selected={selectedIds.includes(item.id)}
-                          selectionMode={selectionMode}
-                          isFresh={freshIds.has(item.id)}
-                          onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
-                          onPromote={() => void runQuickAction(item, 'promote')}
-                          onCreateTask={() => askTaskPriority(item)}
-                          onCreateProject={() => void askProjectPlan(item)}
-                          onSnooze={() => askSnooze(item)}
-                          onArchive={() => void runQuickAction(item, 'archive')}
-                          onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
-                          actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
-                        />
-                      </SwipeableCard>
+                        <SwipeableCard
+                          enabled={!selectionMode && !item.isLocal && !item.isArchived}
+                          onSnooze={item.isLocal ? undefined : () => askSnooze(item)}
+                          onArchive={item.isLocal ? undefined : () => void runQuickAction(item, 'archive')}
+                        >
+                          <InboxCard
+                            item={item}
+                            selected={selectedIds.includes(item.id)}
+                            selectionMode={selectionMode}
+                            isFresh={freshIds.has(item.id)}
+                            onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
+                            onPromote={() => void runQuickAction(item, 'promote')}
+                            onCreateTask={() => askTaskPriority(item)}
+                            onCreateProject={() => void askProjectPlan(item)}
+                            onSnooze={() => askSnooze(item)}
+                            onArchive={() => void runQuickAction(item, 'archive')}
+                            onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
+                            actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
+                          />
+                        </SwipeableCard>
+                      </Animated.View>
                     ))}
                   </View>
                 </View>
               ))}
             </View>
           )}
-        </>
-      ) : (
-        <>
+        </Animated.View>
+      )}
+      {mode === 'operational' && (
+        <Animated.View
+          entering={FadeIn.duration(280)}
+          exiting={FadeOut.duration(180)}
+        >
           <OperationalStatusPanel
             total={operationalCounts.all}
             critical={operationalCriticalCount}
@@ -969,7 +1008,7 @@ export default function InboxScreen() {
               </View>
             </>
           ) : null}
-        </>
+        </Animated.View>
       )}
     </Screen>
 
@@ -1012,23 +1051,79 @@ function InboxModeTabs({
   onChange: (mode: InboxMode) => void
 }) {
   const c = usePalette()
+  // v15.1 · Tab underline SLIDE · NYT/Bear signature editorial.
+  // FIX BUGS v15.0: slider renderizava com width=0 antes do primeiro layout (flicker)
+  // + transform translateX + width combo instável em Reanimated.
+  // Solução: anima `left` + `width` direto (JS thread, mais confiável pra layout
+  // properties) E só renderiza slider quando layouts[active] já foi medido.
+  const [layouts, setLayouts] = useState<{
+    captures?: { x: number; width: number }
+    operational?: { x: number; width: number }
+  }>({})
+
+  // Detecta se layouts pra ambas tabs foram medidos (evita render parcial).
+  const layoutsReady = layouts.captures != null && layouts.operational != null
+
+  const underlineX = useSharedValue(0)
+  const underlineW = useSharedValue(0)
+  // Ref-based · evita ler .value do JS thread (instável em Reanimated).
+  // Primeira medição → set direto · subsequent → animação.
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    const target = layouts[active]
+    if (!target) return
+    if (!initializedRef.current) {
+      // Primeira aparição · set direto sem animação · evita "slide from origin (0,0)".
+      underlineX.value = target.x
+      underlineW.value = target.width
+      initializedRef.current = true
+    } else {
+      // Mudança de tab · slide com timing iOS sheet curve 380ms.
+      underlineX.value = withTiming(target.x, {
+        duration: 380,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
+      underlineW.value = withTiming(target.width, {
+        duration: 380,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
+    }
+  }, [active, layouts, underlineX, underlineW])
+
+  const sliderStyle = useAnimatedStyle(() => ({
+    left: underlineX.value,
+    width: underlineW.value,
+  }))
 
   return (
     <View style={[styles.modeTabs, { borderBottomColor: c.border }]}>
-      {/* v13 · subtitles "5 abertas"/"0 ativos" removidos · count vive no
-          filter chip "abertas 5" da linha de baixo · evita mostrar mesmo número
-          duas vezes em 60pt verticais. Tabs ficam puros: label + underline. */}
       <InboxModeTab
         label="Capturas"
         active={active === 'captures'}
         onPress={() => onChange('captures')}
+        onLayoutLabel={(layout) =>
+          setLayouts((prev) => ({ ...prev, captures: layout }))
+        }
       />
       <InboxModeTab
         label="Operacional"
         critical={operationalCritical > 0}
         active={active === 'operational'}
         onPress={() => onChange('operational')}
+        onLayoutLabel={(layout) =>
+          setLayouts((prev) => ({ ...prev, operational: layout }))
+        }
       />
+      {/* Underline SLIDER · único pra ambas tabs · só renderiza quando AMBOS
+          layouts foram medidos (evita flicker width=0 inicial). Animação `left`
+          + `width` direto · timing 380ms easing iOS sheet. */}
+      {layoutsReady ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.modeTabSliderUnderline, sliderStyle]}
+        />
+      ) : null}
     </View>
   )
 }
@@ -1038,11 +1133,13 @@ function InboxModeTab({
   critical,
   active,
   onPress,
+  onLayoutLabel,
 }: {
   label: string
   critical?: boolean
   active: boolean
   onPress: () => void
+  onLayoutLabel?: (layout: { x: number; width: number }) => void
 }) {
   const c = usePalette()
 
@@ -1052,6 +1149,14 @@ function InboxModeTab({
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
+      onLayout={(e) => {
+        // Reporta posição da Pressable (label + critical dot) pro container
+        // pra alimentar a posição do underline slider único.
+        onLayoutLabel?.({
+          x: e.nativeEvent.layout.x,
+          width: e.nativeEvent.layout.width,
+        })
+      }}
       style={({ pressed }) => [
         styles.modeTab,
         {
@@ -1059,25 +1164,22 @@ function InboxModeTab({
         },
       ]}
     >
-      {/* v13 · label + underline puros · sem subtitle · count vive nos chips.
-          Ativo: 22pt ink full · Inativo: 19pt ink2 muted · diferença de scale
-          faz a hierarquia editorial sem cor saturada. */}
-      <View style={styles.modeTabLabelGroup}>
-        <View style={styles.modeTabLabelRow}>
-          <Frau
-            size={active ? 22 : 19}
-            lineHeight={active ? 28 : 24}
-            letterSpacing={active ? -0.3 : -0.1}
-            color={active ? c.ink : c.ink2}
-            numberOfLines={1}
-          >
-            {label}
-          </Frau>
-          {critical ? (
-            <View style={[styles.modeTabCriticalDot, { backgroundColor: c.recRed }]} />
-          ) : null}
-        </View>
-        {active ? <View style={styles.modeTabUnderline} /> : null}
+      {/* v15 · underline NÃO mais por tab · agora há um SLIDER único no container
+          parent. Cada tab só renderiza label + critical dot. Diferença de scale
+          (22 vs 19) faz a hierarquia editorial sem cor saturada. */}
+      <View style={styles.modeTabLabelRow}>
+        <Frau
+          size={active ? 22 : 19}
+          lineHeight={active ? 28 : 24}
+          letterSpacing={active ? -0.3 : -0.1}
+          color={active ? c.ink : c.ink2}
+          numberOfLines={1}
+        >
+          {label}
+        </Frau>
+        {critical ? (
+          <View style={[styles.modeTabCriticalDot, { backgroundColor: c.recRed }]} />
+        ) : null}
       </View>
     </Pressable>
   )
@@ -1492,19 +1594,38 @@ function FilterChip({
   onPress: () => void
 }) {
   const c = usePalette()
+  // v15 · animated underline · matching ModeTab pattern · bronze fade in/out.
+  // Mais rápido que ModeTab (chips são frequentes · 240ms in / 160ms out).
+  const underlineProgress = useSharedValue(active ? 1 : 0)
+  useEffect(() => {
+    underlineProgress.value = withTiming(active ? 1 : 0, {
+      duration: active ? 240 : 160,
+      easing: Easing.bezier(0.32, 0.72, 0, 1),
+    })
+  }, [active, underlineProgress])
+
+  // borderBottomColor não anima bem em RN · animamos via opacity de View
+  // sobreposta. Isso evita o "snap" entre transparent e bronze.
+  const animatedBorderStyle = useAnimatedStyle(() => ({
+    opacity: underlineProgress.value,
+    transform: [{ scaleX: underlineProgress.value }],
+  }))
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.filterChip,
         {
-          // v12 · bronze 60% sussurro · matching ModeTabs underline.
-          // Era c.ink full = SaaS shouting. Agora bronze editorial signature.
-          borderBottomColor: active ? 'rgba(155,122,63,0.60)' : 'transparent',
           opacity: pressed ? 0.6 : 1,
         },
       ]}
     >
+      {/* Underline animado · sobreposto via absolute · scaleX origin left */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.filterChipUnderline, animatedBorderStyle]}
+      />
       <Frau
         italic
         size={14.5}
@@ -2035,8 +2156,9 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 0,
   },
-  // v11 · ModeTabs centralizados · gap 40 entre tabs · sem border row inteira.
-  // justifyContent center → ambos tabs viram um grupo no centro da tela.
+  // v15.1 · ModeTabs container · borderBottomWidth removido (era hairline transparent
+  // mas em alguns rendering paths causava ghost line subtle abaixo dos tabs).
+  // position relative pra ancorar slider underline absoluto.
   modeTabs: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -2046,8 +2168,16 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     marginTop: 14,
     marginBottom: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'transparent',
+    position: 'relative',
+  },
+  // v15 · slider underline · único pra ambas tabs · slide entre posições.
+  // bottom alinha com posição original do per-tab underline (paddingBottom container 14 + 1px breath).
+  // x e width são animados via translateX e width direto · timing 380ms easing iOS sheet.
+  modeTabSliderUnderline: {
+    position: 'absolute',
+    bottom: 13,
+    height: 1,
+    backgroundColor: 'rgba(155,122,63,0.60)',
   },
   // Tab individual · alignItems center → label e subtitle alinhados no eixo X.
   // gap 6 → respiro entre label e subtitle (com underline no meio quando active).
@@ -2055,11 +2185,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 4,
     gap: 6,
-  },
-  // Label group · column · alignItems stretch → underline acompanha largura
-  // exata da label-row (não mais do tab inteiro como no v10).
-  modeTabLabelGroup: {
-    alignItems: 'stretch',
   },
   // Row da label · centro horizontal pra critical dot ficar adjacente sem
   // empurrar a label fora do center.
@@ -2069,19 +2194,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
   },
-  modeTabSubtitleInactive: {
-    opacity: 0.78,
-  },
-  // v12 · underline editorial premium · 1.5→1px bronze 60% (não mais ink full).
-  // Antes: traço grosso 1.5px ink full = SaaS UI shouting. Agora: hairline
-  // bronze sussurrando = Aesop/Parfums de Marly editorial signature (P12 + bronze
-  // count P8: 1 aqui + 1 no FilterChip = 2 always-visible permanente).
-  // marginTop 5→7 dá mais respiro entre label baseline e underline (peso magazine).
-  modeTabUnderline: {
-    height: 1,
-    marginTop: 7,
-    backgroundColor: 'rgba(155,122,63,0.60)', // bronze 60% sussurro
-  },
+  // v15.1 · removidos modeTabLabelGroup e modeTabUnderline (per-tab) ·
+  // substituídos pelo slider único modeTabSliderUnderline. Eram dead code.
   modeTabCriticalDot: {
     width: 5,
     height: 5,
@@ -2242,16 +2356,26 @@ const styles = StyleSheet.create({
     paddingRight: 36,
   },
   // v12 · underline editorial premium matching ModeTabs.
-  // borderBottomWidth 1.5→1 · paddingBottom 4→6 (mais respiro pré-underline).
-  // borderBottomColor agora bronze 60% (vem inline na render porque depende
-  // do active state). Quieto, sussurra, jamais grita.
+  // v15 · borderBottomWidth removido · agora underline é Animated.View absoluto
+  // sobreposto · permite scaleX + opacity transitions cinéticas.
   filterChip: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 5,
     paddingHorizontal: 0,
     paddingBottom: 6,
-    borderBottomWidth: 1,
+    position: 'relative',
+  },
+  // v15 · underline animado · 1px bronze 60% · scaleX origin left.
+  // Posição absoluta preenche full-width do chip · escala anima entrada/saída.
+  filterChipUnderline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 1,
+    backgroundColor: 'rgba(155,122,63,0.60)',
+    transformOrigin: 'left center',
   },
   filterChipCount: {
     opacity: 0.6,

@@ -1,4 +1,5 @@
 import { StyleSheet, View, type ViewStyle, type StyleProp } from 'react-native'
+import Animated, { FadeIn } from 'react-native-reanimated'
 import { Frau } from '../design/Type'
 import { usePalette } from '../design/theme'
 
@@ -11,11 +12,14 @@ interface Props {
 // v13 · editorial premium · era Sans uppercase Label + cinza c.border hairline.
 // Agora: lowercase Frau italic + bronze 10% hairline · mesma família do resto
 // do inbox (filter chips italic, voiceLine italic, body italic). Coerência tipográfica.
-// "ONTEM" → "ontem" · letras maiúsculas eram letreiro de seção, italic é murmúrio.
+//
+// v15 · entrance animation · FadeIn 380ms quando section monta na lista.
+// Stagger natural com cards (cards têm delay próprio · header aparece junto
+// com primeiro card da seção). Easing default suave · entrada editorial calma.
 export function SectionHeader({ label, style, withRule = true }: Props) {
   const c = usePalette()
   return (
-    <View style={[styles.row, style]}>
+    <Animated.View entering={FadeIn.duration(380)} style={[styles.row, style]}>
       <Frau
         italic
         size={13}
@@ -26,7 +30,7 @@ export function SectionHeader({ label, style, withRule = true }: Props) {
         {label.toLowerCase()}
       </Frau>
       {withRule && <View style={styles.rule} />}
-    </View>
+    </Animated.View>
   )
 }
 
