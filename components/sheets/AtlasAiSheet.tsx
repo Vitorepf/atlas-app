@@ -45,6 +45,7 @@ import {
   type AiInteractionFileAttachmentInput,
   type AiInteractionImageAttachmentInput,
   type AiProvidersStatusResponse,
+  type AtlasAiDomainCatalogResponse,
   type AtlasAiAttachment,
   type AtlasAiCompaction,
   type AtlasAiContextSnapshot,
@@ -64,6 +65,7 @@ import {
   getApiBase,
   getAiObservability,
   getAiInteraction,
+  getAiDomainCatalog,
   getAiProvidersStatus,
   getAiThread,
   getAiThreadState,
@@ -143,6 +145,10 @@ import {
   type OperationalBootstrapData,
   type OperationalBootstrapStep,
 } from '../../lib/atlasOperationalBootstrap'
+import {
+  selectAtlasAiDomainFlow,
+  type AtlasAiDomainFlowSelection,
+} from '../../lib/atlasAiDomainCatalog'
 
 const OPEN_ACTION_STATUSES = new Set(['queued', 'running', 'blocked', 'failed'])
 const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
@@ -287,6 +293,7 @@ export function AtlasAiSheet() {
   const [threadList, setThreadList] = useState<AtlasAiThread[]>([])
   const [threadHistoryOpen, setThreadHistoryOpen] = useState(false)
   const [providerStatus, setProviderStatus] = useState<AiProvidersStatusResponse | null>(null)
+  const [domainCatalog, setDomainCatalog] = useState<AtlasAiDomainCatalogResponse | null>(null)
   const [observability, setObservability] = useState<AiObservabilityResponse | null>(null)
   const [qualityActions, setQualityActions] = useState<AtlasAiQualityAction[]>([])
   const [operationBusy, setOperationBusy] = useState<string | null>(null)
@@ -394,6 +401,23 @@ export function AtlasAiSheet() {
     if (!routingHydrated) return
     void atlasStorage.setItem(ROUTING_KEY, JSON.stringify(routing))
   }, [routing, routingHydrated])
+
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+
+    getAiDomainCatalog()
+      .then((catalog) => {
+        if (!cancelled) setDomainCatalog(catalog)
+      })
+      .catch(() => {
+        if (!cancelled) setDomainCatalog(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [visible])
 
   useEffect(() => {
     let cancelled = false
@@ -1088,6 +1112,14 @@ export function AtlasAiSheet() {
         const atlasFocus = currentThread && isOperationalContextThread(currentThread) && routeFocus === 'general'
           ? 'operational'
           : routeFocus
+        const domainSelection = domainCatalog
+          ? selectAtlasAiDomainFlow(domainCatalog, {
+              surface_id: 'atlas_app',
+              mode: routingSnapshot.mode,
+              task: routingSnapshot.task,
+              routing_domain: routingSnapshot.domain,
+            })
+          : null
         const modePolicy = atlasModePayloadForRouting(routingSnapshot, atlasFocus, currentThread?.workspace ?? null)
         const threadRuntimePolicy =
           threadId && currentThread?.id === threadId
@@ -1181,6 +1213,8 @@ export function AtlasAiSheet() {
             constraints: responsePolicy.constraints,
             execution_policy: executionPolicy,
             conversation_context: conversationContext,
+            ...(domainSelection?.status === 'ok' ? compactDomainSelectionPayloadPatch(domainSelection.payload_patch) : {}),
+            domain_catalog_selection: domainSelection ? compactDomainSelectionForPayload(domainSelection) : undefined,
             council_providers: councilMode ? ['claude_cli', 'codex_cli'] : undefined,
             council_rule: councilMode
               ? 'both_propose_or_review; execution_requires_single_provider'
@@ -1295,6 +1329,7 @@ export function AtlasAiSheet() {
       pinnedTraceIds,
       loadThreadData,
       providerStatus,
+      domainCatalog,
     ],
   )
 
@@ -5379,6 +5414,54 @@ function metadataRecord(metadata: Record<string, unknown>, key: string): Record<
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+function compactDomainSelectionPayloadPatch(
+  patch: AtlasAiDomainFlowSelection['payload_patch'],
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== null && value !== undefined),
+  )
+}
+
+function compactDomainSelectionForPayload(selection: AtlasAiDomainFlowSelection): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries({
+      schema_version: selection.schema_version,
+      status: selection.status,
+      surface_id: selection.surface_id,
+      selection_source: selection.selection_source,
+      operator_override: selection.operator_override,
+      ux: selection.ux,
+      requested: selection.requested,
+      domain: selection.domain
+        ? {
+            id: selection.domain.id,
+            label: selection.domain.label,
+            default_flow: selection.domain.default_flow,
+            orchestrator_maturity: selection.domain.orchestrator_maturity,
+            runtime_family: selection.domain.runtime_family,
+            autonomy_default: selection.domain.autonomy_default,
+            background_allowed: selection.domain.background_allowed,
+            onboarding: selection.domain.onboarding,
+          }
+        : undefined,
+      flow: selection.flow
+        ? {
+            id: selection.flow.id,
+            domain_id: selection.flow.domain_id,
+            label: selection.flow.label,
+            runtime: selection.flow.runtime,
+            orchestrator_maturity: selection.flow.orchestrator_maturity,
+            autonomy: selection.flow.autonomy,
+            background_allowed: selection.flow.background_allowed,
+            destructive_requires_approval: selection.flow.destructive_requires_approval,
+            executor_preference: selection.flow.executor_preference,
+          }
+        : undefined,
+      safety: selection.safety,
+    }).filter(([, value]) => value !== undefined),
+  )
 }
 
 function stringFromRecord(value: unknown, key: string): string | null {

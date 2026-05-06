@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Keyboard, StyleSheet, View, useWindowDimensions } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -56,17 +56,34 @@ export function BottomSheet({
 
   const ty = useSharedValue(sheetH)
   const dragY = useSharedValue(0)
+  // Flag · gesture já está fechando o sheet · suprime a withTiming duplicada que
+  // o useEffect dispararia quando visible=false propaga via runOnJS(onClose).
+  // Sem isso: drag-close inicia withTiming(200ms), state volta, useEffect inicia
+  // OUTRO withTiming(380ms) por cima → animações conflitam, sheet trava/pula.
+  const closingFromGestureRef = useRef(false)
 
   useEffect(() => {
     // Dismiss keyboard whenever a sheet rises — it'd otherwise overlap the
     // sheet's content and hide footer actions. Sheets that legitimately
     // need text entry mount their TextInputs after open and refocus then.
-    if (visible) Keyboard.dismiss()
-    ty.value = withTiming(visible ? 0 : sheetH, {
-      duration: 380,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-    })
-    if (!visible) dragY.value = 0
+    if (visible) {
+      Keyboard.dismiss()
+      closingFromGestureRef.current = false
+      ty.value = withTiming(0, {
+        duration: 380,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
+      })
+    } else {
+      // Só dispara animação de fechamento se NÃO foi gesture-closed
+      // (gesture já está animando ty → sheetH com timing próprio).
+      if (!closingFromGestureRef.current) {
+        ty.value = withTiming(sheetH, {
+          duration: 380,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })
+      }
+      dragY.value = 0
+    }
   }, [visible, ty, dragY, sheetH])
 
   // 1 when sheet is fully open, 0 when fully dragged away. Drives scrim fade.
@@ -79,6 +96,11 @@ export function BottomSheet({
   }
   const triggerHapticDismiss = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+  // Marca a flag JS antes do onClose · runOnJS executa em ordem síncrona,
+  // então useEffect lê closingFromGestureRef.current = true antes de animar.
+  const markClosingFromGesture = () => {
+    closingFromGestureRef.current = true
   }
 
   const dragGesture = Gesture.Pan()
@@ -106,9 +128,17 @@ export function BottomSheet({
         traveled > sheetH * DISMISS_FRACTION || velocity > DISMISS_VELOCITY
 
       if (shouldDismiss) {
-        // Continue with the gesture's momentum into a closing slide. Calculate
-        // the remaining distance and use the velocity to set a natural duration.
-        const remaining = sheetH - traveled
+        // BAKE drag delta em ty antes de resetar dragY · evita snap-back visual.
+        // Sem este passo: ty=0 + dragY=200 (sheet em y=200) → reset dragY=0 →
+        // sheet pula pra y=0 → withTiming desce → user vê bounce/bug.
+        // Com bake: ty=200 + dragY=0 (mesmo y=200) → withTiming desce smooth.
+        const startY = ty.value + dragY.value
+        ty.value = startY
+        dragY.value = 0
+
+        // Calcula duration em função da distância remanescente e velocidade
+        // do gesto · momentum natural sem freadas bruscas.
+        const remaining = sheetH - startY
         const minDuration = 180
         const maxDuration = 320
         const computed = velocity > 0 ? (remaining / velocity) * 1000 : maxDuration
@@ -118,7 +148,10 @@ export function BottomSheet({
           duration,
           easing: Easing.bezier(0.32, 0.72, 0, 1),
         })
-        dragY.value = 0
+
+        // Marca closingFromGesture ANTES de onClose · garante que o useEffect
+        // que vai disparar não inicie outra animação concorrente.
+        runOnJS(markClosingFromGesture)()
         runOnJS(triggerHapticDismiss)()
         runOnJS(onClose)()
       } else {
@@ -140,7 +173,10 @@ export function BottomSheet({
           {
             backgroundColor: c.bg,
             height: sheetH,
-            paddingBottom: insets.bottom,
+            // 2026-05 v10 · removido paddingBottom: insets.bottom · double safe-area.
+            // Children (QuickActionBar, BottomSheet conteúdo) gerenciam própria safe-area.
+            // Antes: bar absoluta bottom:0 ficava acima do inset, deixava marfim entre
+            // bar e home indicator → "torto e quebrado".
             shadowColor: '#1C1916',
           },
           animStyle,
@@ -174,9 +210,10 @@ const styles = StyleSheet.create({
   },
   // Generous drag/tap target around the visible handle bar — about 56-64px
   // tall so the user can grab anywhere "perto da gaveta", not just the 4px line.
+  // v10 · paddingBottom 28→24 (v7 spec, ritmo handle→meta mais crisp).
   handleArea: {
     paddingTop: 14,
-    paddingBottom: 28,
+    paddingBottom: 24,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },

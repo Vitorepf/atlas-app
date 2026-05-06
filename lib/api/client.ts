@@ -9,6 +9,7 @@ const extraAtlas = (Constants.expoConfig?.extra?.atlas ?? {}) as Partial<ApiConf
 const DEFAULT_HOST = extraAtlas.apiHost ?? 'vitors-macbook-pro-1'
 const DEFAULT_PORT = Number(extraAtlas.apiPort ?? 3737)
 const DEFAULT_TOKEN = extraAtlas.apiToken ?? 'local-development-atlas-token-change-me'
+const LEGACY_PLACEHOLDER_TOKEN = 'local-development-atlas-token-change-me'
 
 const HOST_KEY = 'atlas-api.host'
 const PORT_KEY = 'atlas-api.port'
@@ -3976,6 +3977,85 @@ export interface AtlasAiPolicyProfilesResponse {
   profile_registry: AtlasAiPolicyProfileRegistry
 }
 
+export interface AtlasAiDomainCatalogOnboarding {
+  status: string
+  completed_count: number
+  total_count: number
+  completed_phases: string[]
+  missing_phases: string[]
+}
+
+export interface AtlasAiDomainCatalogDomain {
+  id: string
+  label: string
+  default_flow: string
+  orchestrator: string
+  orchestrator_maturity: string
+  runtime_family: string
+  autonomy_default: string
+  background_allowed: boolean
+  flow_count: number
+  onboarding: AtlasAiDomainCatalogOnboarding
+}
+
+export interface AtlasAiDomainCatalogFlow {
+  id: string
+  domain_id: string
+  label: string
+  runtime: string
+  orchestrator: string
+  orchestrator_maturity: string
+  autonomy: string
+  background_allowed: boolean
+  destructive_requires_approval: boolean
+  executor_preference: string
+}
+
+export interface AtlasAiDomainCatalogOrchestrator {
+  id: string
+  class: string
+  maturity: string
+  implemented_contract: boolean
+  domains: string[]
+  flows: string[]
+}
+
+export interface AtlasAiDomainCatalogResponse {
+  schema_version: number
+  status: string
+  source: string
+  filters: {
+    domain: string | null
+    flow: string | null
+    maturity: string | null
+  }
+  summary: {
+    domains: number
+    flows: number
+    orchestrators: number
+    implemented_orchestrators: number
+    scaffold_orchestrators: number
+    planned_orchestrators: number
+    ready_domains: number
+    executable_incomplete_domains: number
+  }
+  domains: AtlasAiDomainCatalogDomain[]
+  flows: AtlasAiDomainCatalogFlow[]
+  orchestrators: AtlasAiDomainCatalogOrchestrator[]
+  validation: {
+    valid: boolean
+    errors: string[]
+    warnings: string[]
+  }
+  generated_at: string
+}
+
+export interface AtlasAiDomainCatalogParams {
+  domain?: string | null
+  flow?: string | null
+  maturity?: 'implemented' | 'scaffold' | 'planned' | string | null
+}
+
 export interface AtlasAiPolicyPreviewResponse {
   generated_at?: string
   profile: Record<string, unknown>
@@ -5002,7 +5082,7 @@ export async function hydrateApiConfig(): Promise<void> {
         const n = Number(port)
         if (Number.isFinite(n) && n > 0) cachedPort = n
       }
-      if (token) cachedToken = token
+      if (token && token !== LEGACY_PLACEHOLDER_TOKEN) cachedToken = token
       if (mobileToken) cachedMobileDeviceToken = mobileToken
       if (mobileDeviceId) cachedMobileDeviceId = mobileDeviceId
     })()
@@ -7194,6 +7274,10 @@ export async function getAiProvidersStatus(): Promise<AiProvidersStatusResponse>
 
 export async function getAiPolicyProfiles(): Promise<AtlasAiPolicyProfilesResponse> {
   return apiGet<AtlasAiPolicyProfilesResponse>('/ai/policies/profiles')
+}
+
+export async function getAiDomainCatalog(params: AtlasAiDomainCatalogParams = {}): Promise<AtlasAiDomainCatalogResponse> {
+  return apiGet<AtlasAiDomainCatalogResponse>(`/ai/domains${queryString(params as Record<string, unknown>)}`)
 }
 
 export async function previewAiPolicy(input: AtlasAiPolicyPreviewInput): Promise<AtlasAiPolicyPreviewResponse> {

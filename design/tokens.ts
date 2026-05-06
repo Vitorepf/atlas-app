@@ -3,8 +3,12 @@
 export type ThemeName = 'light' | 'dark'
 
 export interface AtlasPalette {
-  // Surfaces
+  // Surfaces (color depth · 4 variações de bege para z-axis implícito)
   bg: string
+  bgRecessed: string  // áreas afundadas (search, dock backdrop)
+  bgRaised: string    // áreas elevadas (card on hover/press)
+  bgDeep: string      // afundadas profundamente (selection state)
+  bgFresh: string     // capturas <30s (com edge bronze topo)
   surface: string
   premium: string
   // Ink
@@ -12,11 +16,17 @@ export interface AtlasPalette {
   ink2: string
   ink3: string
   border: string
+  borderSoft: string
   // Accents
   prussian: string
   bronze: string
+  bronzeDeep: string
+  bronzeLight: string
   recRed: string
+  recRedOxide: string  // tinta-sangue oxidado · só em recording
+  recRedMuted: string  // arquivar · destrutivo discreto
   moss: string
+  amber: string  // adiar · swipe reveal
   // Domains
   domBlackink: string
   domAtlas: string
@@ -30,19 +40,29 @@ export interface AtlasPalette {
 }
 
 export const lightPalette: AtlasPalette = {
-  bg:        '#F4EFE6',
-  surface:   '#EAE3D6',
-  premium:   '#E0D8C9',
-  ink:       '#1A1612',
-  ink2:      '#6B6358',
-  ink3:      '#A89F90',
-  border:    '#D4CCBC',
-  prussian:  '#1B3A57',
-  bronze:    '#9B7A3F',
-  recRed:    '#8B2635',
-  moss:      '#4A5D3A',
+  bg:          '#F4EFE6',
+  bgRecessed:  '#EFE8DA',
+  bgRaised:    '#F8F2E9',
+  bgDeep:      '#E8E0CC',
+  bgFresh:     '#F8F1E1',
+  surface:     '#EAE3D6',
+  premium:     '#E0D8C9',
+  ink:         '#1A1612',
+  ink2:        '#6B6358',
+  ink3:        '#A89F90',
+  border:      '#D4CCBC',
+  borderSoft:  '#DCD3C0',
+  prussian:    '#1B3A57',
+  bronze:      '#9B7A3F',
+  bronzeDeep:  '#7A5E2F',
+  bronzeLight: '#C9A663',
+  recRed:      '#8B2635',
+  recRedOxide: '#A8312A',
+  recRedMuted: '#9C4651',
+  moss:        '#4A5D3A',
+  amber:       '#B8814A',
   domBlackink: '#1B3A57',
-  domAtlas:   '#5D4A8A',
+  domAtlas:    '#5D4A8A',
   domSaude:    '#4A5D3A',
   domFinancas: '#9B7A3F',
   domOutro:    '#6B6358',
@@ -51,19 +71,29 @@ export const lightPalette: AtlasPalette = {
 }
 
 export const darkPalette: AtlasPalette = {
-  bg:        '#1C1916',
-  surface:   '#252119',
-  premium:   '#2D2820',
-  ink:       '#F4EFE6',
-  ink2:      '#A89F90',
-  ink3:      '#6B6358',
-  border:    '#3A3328',
-  prussian:  '#6892B5',
-  bronze:    '#C9A663',
-  recRed:    '#C9505F',
-  moss:      '#7A9A65',
+  bg:          '#1C1916',
+  bgRecessed:  '#16130F',
+  bgRaised:    '#252119',
+  bgDeep:      '#100D0A',
+  bgFresh:     '#26211A',
+  surface:     '#252119',
+  premium:     '#2D2820',
+  ink:         '#F4EFE6',
+  ink2:        '#A89F90',
+  ink3:        '#6B6358',
+  border:      '#3A3328',
+  borderSoft:  '#2F2A21',
+  prussian:    '#6892B5',
+  bronze:      '#C9A663',
+  bronzeDeep:  '#9B7A3F',
+  bronzeLight: '#D4B57A',
+  recRed:      '#C9505F',
+  recRedOxide: '#C9505F',
+  recRedMuted: '#A85261',
+  moss:        '#7A9A65',
+  amber:       '#C9A07A',
   domBlackink: '#6892B5',
-  domAtlas:   '#B6A6E8',
+  domAtlas:    '#B6A6E8',
   domSaude:    '#7A9A65',
   domFinancas: '#C9A663',
   domOutro:    '#A89F90',
@@ -109,6 +139,32 @@ export const fonts = {
   sansBd: 'Inter_700Bold',
   mono:   'JetBrainsMono_400Regular',
   monoMd: 'JetBrainsMono_500Medium',
+} as const
+
+// Motion tokens · consolidados v5+ (Apple SwiftUI springs + Aesop assentamento + Hermès breathing)
+// Easings como tuples Bezier — para usar com Reanimated `Easing.bezier(...spread)`.
+export const ease = {
+  editorial:  [0.22, 1, 0.36, 1] as const,    // default tween (quart-out)
+  ceremonial: [0.16, 1, 0.3, 1] as const,     // page load, sheets (expo-out)
+  iOSSmooth:  [0.32, 0.72, 0, 1] as const,    // layout shifts
+  exit:       [0.4, 0, 1, 1] as const,        // dismiss (in-quart)
+  hermes:     [0.45, 0, 0.55, 1] as const,    // breathing sin-like
+} as const
+
+export const dur = {
+  instinct:   180,
+  considered: 320,
+  ceremonial: 480,
+  sacred:     620,  // captura saved
+} as const
+
+// Spring configs · Reanimated `withSpring(value, config)`.
+// Bounce máximo do sistema = 0.25. Acima é Material/Duolingo.
+export const spring = {
+  gestural: { damping: 22, stiffness: 280, mass: 1 },   // swipe, drag
+  sheet:    { damping: 24, stiffness: 250, mass: 1 },   // bottom sheets
+  toast:    { damping: 22, stiffness: 270, mass: 1 },   // notifications
+  overdamped: { damping: 32, stiffness: 280, mass: 1 }, // pill morph (recording)
 } as const
 
 export const type = {

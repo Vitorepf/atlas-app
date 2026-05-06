@@ -1452,8 +1452,14 @@ function connectionStatusKind(input: {
 
 function statusKindFromMessage(status: string): ConnectionStatusKind {
   const lower = status.toLowerCase()
+  if (
+    lower.includes('invalid or missing x-atlas-token')
+    || lower.includes('unauthorized')
+    || lower.includes('falha')
+    || lower.includes('erro')
+  ) return 'offline'
   if (lower.includes('pendente') || lower.includes('fila') || lower.includes('postgres indisponível')) return 'pending'
-  if (lower.includes('ok') || lower.includes('completa')) return 'online'
+  if (/\bok\b/.test(lower) || lower.includes('completa')) return 'online'
   return 'offline'
 }
 

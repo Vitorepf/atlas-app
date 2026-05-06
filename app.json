@@ -109,15 +109,15 @@
     },
     "extra": {
       "atlas": {
-        "apiHost": "vitors-macbook-pro-1",
+        "apiHost": "macbook-pro-de-vitor",
         "apiPort": 3737,
         "apiToken": "local-development-atlas-token-change-me"
       },
       "router": {},
       "eas": {
-        "projectId": "bad806c2-ae08-4b1c-8e3e-14597f5bbce7"
+        "projectId": "9fd23e13-65fd-4775-a72d-7b6ab9108769"
       }
     },
-    "owner": "vitoref"
+    "owner": "vitorepf"
   }
 }

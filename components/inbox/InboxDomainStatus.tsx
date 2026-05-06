@@ -19,8 +19,6 @@ interface Props {
 export function InboxDomainStatus({ domain, onPress }: Props) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
-  const overridden = domain !== 'all'
-  const opacity = overridden ? 0.55 : 0.4
 
   return (
     <Pressable
@@ -31,15 +29,16 @@ export function InboxDomainStatus({ domain, onPress }: Props) {
       style={({ pressed }) => [styles.row, { opacity: pressed ? 0.65 : 1 }]}
     >
       <View style={styles.line}>
-        <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity }}>
+        <Frau italic size={14} lineHeight={20} letterSpacing={-0.07} color={c.ink2}>
           {domainPhrase(domain, domains)}
         </Frau>
         <Frau
           italic
-          size={13}
-          lineHeight={18}
-          color={c.ink}
-          style={{ opacity: opacity * 0.7, marginLeft: 8 }}
+          size={14}
+          lineHeight={20}
+          letterSpacing={-0.07}
+          color={c.ink3}
+          style={{ marginLeft: 6 }}
         >
           · trocar
         </Frau>
@@ -53,11 +52,14 @@ export function domainPhrase(domain: InboxDomainFilter, domains = useAtlasStore.
   return `em ${domainLabel(domain, domains).toLowerCase()}`
 }
 
+// v11 · alignItems center → linha "em todos os domínios · trocar" centralizada
+// horizontalmente · matching ModeTabs centralizados que vieram logo abaixo.
 const styles = StyleSheet.create({
   row: {
     paddingVertical: 10,
     minHeight: 38,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   line: {
     flexDirection: 'row',

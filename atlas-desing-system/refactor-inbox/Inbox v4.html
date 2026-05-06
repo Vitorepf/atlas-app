@@ -1,0 +1,1343 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas — Inbox v4 · live</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..700,0..100,0..1;1,9..144,300..700,0..100,0..1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<style>
+:root {
+  --bg:        #F4EFE6;
+  --bg-warm:   #EFE8DA;
+  --surface:   #EAE3D6;
+  --premium:   #E0D8C9;
+  --ink:       #1A1612;
+  --ink2:      #6B6358;
+  --ink3:      #A89F90;
+  --border:    #D4CCBC;
+  --bronze:    #9B7A3F;
+  --bronze-deep: #7A5E2F;
+  --prussian:  #1B3A57;
+  --rec-red:   #8B2635;
+  --moss:      #4A5D3A;
+  --dom-blackink: #1B3A57;
+  --dom-atlas:    #5D4A8A;
+  --dom-saude:    #4A5D3A;
+  --dom-financas: #9B7A3F;
+  --dom-outro:    #6B6358;
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans:  'Inter', -apple-system, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+  --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  background: #15110d;
+  font-family: var(--sans);
+  font-feature-settings: 'kern' 1, 'liga' 1;
+  color: rgba(244,239,230,0.85);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes sync-sweep {
+  0%, 100% { opacity: 0; transform: translateX(-100%); }
+  50%      { opacity: 1; transform: translateX(0%); }
+}
+@keyframes sync-sweep-slow {
+  0%, 100% { opacity: 0; transform: translateX(-100%); }
+  50%      { opacity: 0.8; transform: translateX(0%); }
+}
+@keyframes capture-rest {
+  0%, 100% { box-shadow: 0 8px 28px rgba(26,22,18,0.20); }
+  50%      { box-shadow: 0 8px 28px rgba(26,22,18,0.20), 0 0 0 4px rgba(155,122,63,0.06); }
+}
+@keyframes record-pulse {
+  0%, 100% { box-shadow: 0 8px 28px rgba(26,22,18,0.28), 0 0 0 0 rgba(139,38,53,0.4); }
+  50%      { box-shadow: 0 8px 28px rgba(26,22,18,0.28), 0 0 0 8px rgba(139,38,53,0.0); }
+}
+@keyframes wave-1 { 0%,100% { transform: scaleY(0.4); } 50% { transform: scaleY(1); } }
+@keyframes wave-2 { 0%,100% { transform: scaleY(0.7); } 50% { transform: scaleY(0.3); } }
+@keyframes wave-3 { 0%,100% { transform: scaleY(0.5); } 50% { transform: scaleY(0.9); } }
+@keyframes wave-4 { 0%,100% { transform: scaleY(0.9); } 50% { transform: scaleY(0.45); } }
+@keyframes wave-5 { 0%,100% { transform: scaleY(0.3); } 50% { transform: scaleY(0.85); } }
+@keyframes wave-6 { 0%,100% { transform: scaleY(0.6); } 50% { transform: scaleY(0.25); } }
+@keyframes wave-7 { 0%,100% { transform: scaleY(0.45); } 50% { transform: scaleY(0.95); } }
+@keyframes bullet-pulse {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.5); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes status-fade {
+  0%, 100% { opacity: 0.42; }
+  50%      { opacity: 0.62; }
+}
+
+/* ═══ NEW v4 · Microinterações via CSS classes ═══ */
+.atlas-card {
+  transition: transform 320ms var(--ease-apple), background 320ms var(--ease-apple);
+  cursor: pointer;
+}
+.atlas-card:hover {
+  transform: translateY(-1px);
+  background: rgba(224, 216, 201, 0.18);
+}
+.atlas-card:active {
+  transform: translateY(0);
+  background: rgba(224, 216, 201, 0.32);
+}
+.atlas-action {
+  transition: color 220ms var(--ease-apple), transform 220ms var(--ease-apple);
+  cursor: pointer;
+}
+.atlas-action:hover {
+  color: var(--ink) !important;
+}
+.atlas-action.danger:hover {
+  color: var(--rec-red) !important;
+  opacity: 1 !important;
+}
+.atlas-action:active { transform: scale(0.96); }
+.atlas-chip {
+  transition: color 280ms var(--ease-apple), border-color 280ms var(--ease-apple);
+  cursor: pointer;
+}
+.atlas-chip:not(.active):hover {
+  color: var(--ink2) !important;
+  border-color: rgba(212, 204, 188, 0.5) !important;
+}
+.atlas-pill {
+  transition: transform 200ms var(--ease-apple);
+}
+.atlas-pill:active {
+  transform: scale(0.97);
+}
+.atlas-bullet {
+  animation: bullet-pulse 720ms var(--ease-apple);
+  display: inline-block;
+}
+.atlas-mode-tab {
+  transition: color 280ms var(--ease-apple);
+  cursor: pointer;
+}
+.atlas-mode-tab:not(.active):hover .label { color: var(--ink2) !important; }
+.atlas-mode-tab:not(.active):hover .subtitle { color: var(--ink2) !important; }
+.atlas-link {
+  transition: color 220ms var(--ease-apple);
+  cursor: pointer;
+}
+.atlas-link:hover { color: var(--ink2) !important; }
+.atlas-search-pill {
+  transition: border-color 320ms var(--ease-apple), box-shadow 320ms var(--ease-apple);
+}
+.atlas-search-pill:focus-within {
+  border-color: rgba(155,122,63,0.4) !important;
+  box-shadow: 0 0 0 3px rgba(155,122,63,0.06);
+}
+
+/* ═══ stage layout ═══ */
+.stage {
+  min-height: 100vh;
+  padding: 56px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  align-items: center;
+}
+.phone-row {
+  display: flex; flex-wrap: wrap;
+  gap: 32px; justify-content: center; align-items: flex-start;
+}
+.frame-col { display: flex; flex-direction: column; align-items: center; }
+.frame-cap {
+  font-family: var(--serif);
+  font-style: italic;
+  font-variation-settings: 'opsz' 18;
+  color: rgba(244,239,230,0.5);
+  font-size: 12.5px;
+  margin: 0 0 14px;
+  text-align: center;
+  max-width: 320px;
+}
+
+.notes {
+  max-width: 760px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(244,239,230,0.72);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px 48px;
+}
+.notes h2 {
+  font-family: var(--serif);
+  font-variation-settings: 'opsz' 144;
+  font-size: 30px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  color: #F4EFE6;
+  margin: 0 0 4px;
+  grid-column: 1 / -1;
+}
+.notes .lede {
+  font-family: var(--serif);
+  font-style: italic;
+  font-variation-settings: 'opsz' 24;
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(244,239,230,0.92);
+  margin: 8px 0 18px;
+  border-left: 1px solid rgba(155,122,63,0.5);
+  padding-left: 14px;
+  grid-column: 1 / -1;
+}
+.notes section { display: block; }
+.notes h3 {
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: rgba(244,239,230,0.5);
+  margin: 0 0 10px;
+  font-weight: 500;
+}
+.notes p { margin: 0 0 10px; }
+.notes em {
+  font-family: var(--serif);
+  font-style: italic;
+  font-variation-settings: 'opsz' 18;
+  color: rgba(244,239,230,0.95);
+}
+.notes ul { margin: 0; padding: 0; list-style: none; }
+.notes li {
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(244,239,230,0.06);
+  display: flex; gap: 12px;
+}
+.notes li:last-child { border-bottom: none; }
+.notes li .num {
+  font-family: var(--mono);
+  color: rgba(244,239,230,0.4);
+  font-size: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  min-width: 18px;
+}
+.notes .br { color: #C9A663; font-family: var(--serif); font-style: italic; }
+.notes .new { color: #C9A663; font-weight: 600; font-size: 9.5px; letter-spacing: 0.1em; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ════════════════════════════════════════════════════════
+//  IosFrame canonical
+// ════════════════════════════════════════════════════════
+const iosFrameStyles = {
+  wrapper: {
+    display: 'inline-block', padding: 12, background: '#000',
+    borderRadius: 60,
+    boxShadow: '0 0 0 2px #1f2937, 0 24px 70px rgba(0,0,0,0.45)',
+    position: 'relative',
+  },
+  screen: { position: 'relative', borderRadius: 48, overflow: 'hidden', background: '#F4EFE6' },
+  statusBar: {
+    position: 'absolute', top: 0, left: 0, right: 0, height: 54,
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '0 32px', fontSize: 16, fontWeight: 600,
+    fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+    zIndex: 20, pointerEvents: 'none',
+  },
+  dynamicIsland: {
+    position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+    width: 124, height: 36, background: '#000', borderRadius: 999, zIndex: 30,
+  },
+  statusIcons: { display: 'flex', alignItems: 'center', gap: 6 },
+  signalIcon: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 12 },
+  signalBar: { width: 3, background: 'currentColor', borderRadius: 1 },
+  batteryIcon: {
+    width: 26, height: 12, border: '1.5px solid currentColor',
+    borderRadius: 3, padding: 1, position: 'relative', opacity: 0.85,
+  },
+  batteryCap: {
+    position: 'absolute', top: 3, right: -3, width: 2, height: 6,
+    background: 'currentColor', borderRadius: '0 1px 1px 0',
+  },
+  content: { position: 'absolute', top: 54, left: 0, right: 0, bottom: 34, overflow: 'hidden' },
+  homeIndicator: {
+    position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
+    width: 140, height: 5, background: 'rgba(0,0,0,0.3)', borderRadius: 999, zIndex: 10,
+  },
+};
+
+function IosFrame({ children, time = '13:13', battery = 78 }) {
+  return (
+    <div style={iosFrameStyles.wrapper}>
+      <div style={{ ...iosFrameStyles.screen, width: 393, height: 852 }}>
+        <div style={{ ...iosFrameStyles.statusBar, color: '#1A1612' }}>
+          <span>{time}</span>
+          <div style={iosFrameStyles.statusIcons}>
+            <div style={iosFrameStyles.signalIcon}>
+              <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+            </div>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: '#1A1612' }}>
+              <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+              <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+              <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+            </svg>
+            <div style={iosFrameStyles.batteryIcon}>
+              <div style={{ width: `${battery}%`, height: '100%', background: 'currentColor', borderRadius: 1, opacity: 0.9 }} />
+              <div style={iosFrameStyles.batteryCap} />
+            </div>
+          </div>
+        </div>
+        <div style={iosFrameStyles.dynamicIsland} />
+        <div style={iosFrameStyles.content}>{children}</div>
+        <div style={iosFrameStyles.homeIndicator} />
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  PaperTexture + Vignette + Cartog
+// ════════════════════════════════════════════════════════
+function PaperTexture({ id }) {
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.07, mixBlendMode: 'multiply', zIndex: 0 }}
+      width="100%" height="100%"
+    >
+      <filter id={id}>
+        <feTurbulence type="fractalNoise" baseFrequency="0.92" numOctaves="2" stitchTiles="stitch" seed="3" />
+        <feColorMatrix values="0 0 0 0 0.10  0 0 0 0 0.08  0 0 0 0 0.06  0 0 0 0.85 0" />
+      </filter>
+      <rect width="100%" height="100%" filter={`url(#${id})`} />
+    </svg>
+  );
+}
+function PaperVignette() {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+      background: 'radial-gradient(ellipse 100% 80% at 50% 30%, transparent 60%, rgba(122,94,47,0.05) 100%)',
+    }} />
+  );
+}
+function Cartog() {
+  return (
+    <svg
+      width="100%" height="100%" viewBox="0 0 393 800"
+      preserveAspectRatio="xMidYMid slice"
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.055, color: '#1A1612', zIndex: 0 }}
+    >
+      <path d="M 60 -20 Q 90 200 60 420 Q 30 640 60 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 333 -20 Q 303 200 333 420 Q 363 640 333 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 196 -20 Q 196 400 196 860" stroke="currentColor" strokeWidth="0.4" fill="none" opacity="0.6" />
+      <path d="M -20 180 Q 196 200 410 180" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 460 Q 196 480 410 460" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 700 Q 196 720 410 700" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <g transform="translate(345 30)" opacity="0.5">
+        <circle r="11" fill="none" stroke="currentColor" strokeWidth="0.5" />
+        <circle r="7"  fill="none" stroke="currentColor" strokeWidth="0.4" opacity="0.7" />
+        <path d="M 0 -11 L 0 11 M -11 0 L 11 0" stroke="currentColor" strokeWidth="0.5" />
+      </g>
+      <circle cx="120" cy="320" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="270" cy="240" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="80"  cy="540" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="290" cy="600" r="0.8" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  LiveStatus · NEW v4 · sub-status sussurrado
+// ════════════════════════════════════════════════════════
+const liveStatusStyles = {
+  wrap: {
+    position: 'absolute',
+    top: -4, left: 0, right: 0,
+    display: 'flex', justifyContent: 'center',
+    pointerEvents: 'none',
+    zIndex: 4,
+  },
+  pill: {
+    display: 'inline-flex', alignItems: 'center', gap: 8,
+    padding: '4px 14px',
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 10.5,
+    color: 'var(--ink2)',
+    letterSpacing: '0.01em',
+    transition: 'opacity 320ms ease-in-out',
+  },
+  bulletDot: {
+    width: 4, height: 4, borderRadius: 999,
+    background: 'var(--moss)',
+    animation: 'status-fade 3s ease-in-out infinite',
+  },
+};
+
+const STATUSES = [
+  { dot: 'var(--moss)',     text: 'atlas escutando · tarde · operador focado' },
+  { dot: 'var(--bronze)',   text: 'atlas curando · próxima review 02:00' },
+  { dot: 'var(--ink3)',     text: 'atlas em silêncio · sem padrões a confrontar' },
+];
+
+function LiveStatus({ initialIdx = 0, paused = false }) {
+  const [idx, setIdx] = useState(initialIdx);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    if (paused) return;
+    const interval = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx(i => (i + 1) % STATUSES.length);
+        setVisible(true);
+      }, 320);
+    }, 5200);
+    return () => clearInterval(interval);
+  }, [paused]);
+  const s = STATUSES[idx];
+  return (
+    <div style={liveStatusStyles.wrap}>
+      <div style={{ ...liveStatusStyles.pill, opacity: visible ? 0.55 : 0 }}>
+        <span style={{ ...liveStatusStyles.bulletDot, background: s.dot }} />
+        <span>{s.text}</span>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Header
+// ════════════════════════════════════════════════════════
+const headerStyles = {
+  wrap: { padding: '20px 24px 0', position: 'relative', zIndex: 1 },
+  title: {
+    fontFamily: 'var(--serif)',
+    fontVariationSettings: '"opsz" 144',
+    fontFeatureSettings: '"kern" 1, "liga" 1',
+    fontWeight: 400, fontSize: 44,
+    lineHeight: '46px', letterSpacing: '-0.028em',
+    color: 'var(--ink)', margin: 0,
+    textWrap: 'pretty',
+  },
+  meta: {
+    display: 'flex', alignItems: 'baseline', gap: 8,
+    marginTop: 9,
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 11, fontWeight: 500,
+    color: 'var(--ink2)',
+  },
+  metaSep: { color: 'var(--ink3)', opacity: 0.5 },
+  voice: {
+    marginTop: 10,
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 24',
+    fontFeatureSettings: '"kern" 1, "liga" 1, "calt" 1',
+    fontSize: 14.5, lineHeight: '21px',
+    color: 'var(--ink2)',
+    letterSpacing: '-0.005em',
+    textWrap: 'pretty',
+    opacity: 0.92,
+  },
+};
+
+function Header({ openCount = 1, ageLabel = '10h', failedCount = 0, voiceLine }) {
+  return (
+    <div style={headerStyles.wrap}>
+      <h1 style={headerStyles.title}>Inbox</h1>
+      <div style={headerStyles.meta}>
+        <span>{openCount} aberta{openCount !== 1 ? 's' : ''}</span>
+        {ageLabel && <>
+          <span style={headerStyles.metaSep}>·</span>
+          <span>{ageLabel} idade média</span>
+        </>}
+        {failedCount > 0 && <>
+          <span style={headerStyles.metaSep}>·</span>
+          <span style={{ color: 'var(--rec-red)' }}>{failedCount} falha</span>
+        </>}
+      </div>
+      {voiceLine && <div style={headerStyles.voice}>{voiceLine}</div>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Mode Tabs
+// ════════════════════════════════════════════════════════
+const modeStyles = {
+  wrap: {
+    display: 'flex', padding: '20px 24px 0', gap: 0,
+    borderBottom: '0.5px solid var(--border)',
+    position: 'relative', zIndex: 1,
+  },
+  tab: {
+    paddingBottom: 14, paddingRight: 28,
+    display: 'flex', flexDirection: 'column', gap: 2,
+    position: 'relative',
+  },
+  tabHeader: { display: 'flex', alignItems: 'baseline', gap: 7 },
+  tabLabel: {
+    fontFamily: 'var(--serif)',
+    fontVariationSettings: '"opsz" 36',
+    fontWeight: 400, fontSize: 19,
+    letterSpacing: '-0.012em',
+    color: 'var(--ink2)',
+  },
+  tabLabelActive: { color: 'var(--ink)' },
+  tabCount: {
+    fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12,
+    color: 'var(--ink3)', letterSpacing: '0.02em',
+  },
+  tabCountActive: { color: 'var(--ink)' },
+  tabSubtitle: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontSize: 13, color: 'var(--ink3)',
+  },
+  tabSubtitleActive: { color: 'var(--ink2)' },
+  underline: {
+    position: 'absolute', bottom: -0.5, left: 0, right: 28,
+    height: 1.5, background: 'var(--ink)',
+  },
+  tabCriticalDot: {
+    width: 5, height: 5, borderRadius: 999,
+    background: 'var(--rec-red)', marginLeft: 4,
+  },
+};
+
+function ModeTab({ label, count, subtitle, active, critical }) {
+  return (
+    <div style={modeStyles.tab} className={`atlas-mode-tab ${active ? 'active' : ''}`}>
+      <div style={modeStyles.tabHeader}>
+        <span className="label" style={{ ...modeStyles.tabLabel, ...(active ? modeStyles.tabLabelActive : {}) }}>{label}</span>
+        <span className="count" style={{ ...modeStyles.tabCount, ...(active ? modeStyles.tabCountActive : {}) }}>{count}</span>
+        {critical > 0 && <span style={modeStyles.tabCriticalDot} />}
+      </div>
+      <span className="subtitle" style={{ ...modeStyles.tabSubtitle, ...(active ? modeStyles.tabSubtitleActive : {}) }}>
+        {subtitle}
+      </span>
+      {active && <div style={modeStyles.underline} />}
+    </div>
+  );
+}
+
+function ModeTabs({ active = 'captures', capturesCount = 1, capturesSub = '1 aberta', operationalCount = 0, operationalSub = '0 ativos', operationalCritical = 0 }) {
+  return (
+    <div style={modeStyles.wrap}>
+      <ModeTab label="Capturas" count={capturesCount} subtitle={capturesSub} active={active === 'captures'} />
+      <ModeTab label="Operacional" count={operationalCount} subtitle={operationalSub} critical={operationalCritical} active={active === 'operational'} />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  DomainChip + SearchPill + FilterStrip
+// ════════════════════════════════════════════════════════
+const filterStyles = {
+  domainRow: {
+    padding: '14px 24px 10px',
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontSize: 14, color: 'var(--ink2)',
+    position: 'relative', zIndex: 1,
+  },
+  domainTrocar: { color: 'var(--ink3)', marginLeft: 6 },
+  searchWrap: { margin: '0 24px 14px', position: 'relative', zIndex: 1 },
+  searchPill: {
+    background: 'var(--surface)',
+    border: '0.5px solid var(--border)',
+    borderRadius: 999, padding: '11px 18px',
+    display: 'flex', alignItems: 'center', gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontSize: 15, color: 'var(--ink2)',
+    background: 'transparent', border: 0, outline: 'none',
+  },
+  searchSelect: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 13, color: 'var(--ink3)',
+  },
+  filterStrip: {
+    padding: '0 24px 6px',
+    display: 'flex', alignItems: 'baseline', gap: 22,
+    overflowX: 'auto', overflowY: 'hidden',
+    whiteSpace: 'nowrap', scrollbarWidth: 'none',
+    position: 'relative', zIndex: 1,
+  },
+  chip: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontSize: 14.5, color: 'var(--ink3)',
+    paddingBottom: 4,
+    borderBottom: '1.5px solid transparent',
+    flexShrink: 0,
+  },
+  chipActive: { color: 'var(--ink)', borderBottomColor: 'var(--ink)' },
+  sortLink: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 13, color: 'var(--ink3)',
+    marginLeft: 'auto', flexShrink: 0,
+    paddingBottom: 4, opacity: 0.85,
+  },
+};
+
+function DomainChip() {
+  return (
+    <div style={filterStyles.domainRow}>
+      em todos os domínios
+      <span className="atlas-link" style={filterStyles.domainTrocar}>· trocar</span>
+    </div>
+  );
+}
+
+function SearchPill() {
+  return (
+    <div style={filterStyles.searchWrap}>
+      <div className="atlas-search-pill" style={filterStyles.searchPill}>
+        <input style={filterStyles.searchInput} placeholder="buscar" readOnly />
+        <span className="atlas-link" style={filterStyles.searchSelect}>· selecionar</span>
+      </div>
+    </div>
+  );
+}
+
+const FILTERS = [
+  { key: 'open', label: 'abertas' },
+  { key: 'no_destination', label: 'sem destino' },
+  { key: 'candidate', label: 'candidatas' },
+  { key: 'proposal', label: 'propostas' },
+  { key: 'snoozed', label: 'adiadas' },
+  { key: 'failed', label: 'falhas' },
+  { key: 'pending', label: 'pendentes' },
+  { key: 'routed', label: 'com destino' },
+];
+
+function FilterStrip({ active = 'open' }) {
+  return (
+    <div style={filterStyles.filterStrip}>
+      {FILTERS.map(f => (
+        <span key={f.key}
+          className={`atlas-chip ${active === f.key ? 'active' : ''}`}
+          style={{ ...filterStyles.chip, ...(active === f.key ? filterStyles.chipActive : {}) }}>
+          {f.label}
+        </span>
+      ))}
+      <span className="atlas-link" style={filterStyles.sortLink}>· por recente</span>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Date divider
+// ════════════════════════════════════════════════════════
+const dividerStyles = {
+  wrap: {
+    display: 'flex', alignItems: 'center', gap: 14,
+    padding: '24px 24px 8px',
+    position: 'relative', zIndex: 1,
+  },
+  label: {
+    fontFamily: 'var(--sans)', textTransform: 'uppercase',
+    letterSpacing: '0.16em', fontSize: 10,
+    fontWeight: 500, color: 'var(--ink3)',
+  },
+  line: { flex: 1, height: 1, background: 'var(--border)', opacity: 0.55 },
+};
+
+function DateDivider({ label }) {
+  return (
+    <div style={dividerStyles.wrap}>
+      <span style={dividerStyles.label}>{label}</span>
+      <span style={dividerStyles.line} />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Inbox Card (com hover lift + bullet pulse + action hover)
+// ════════════════════════════════════════════════════════
+const cardStyles = {
+  card: {
+    padding: '14px 24px 18px',
+    borderBottom: '0.5px solid var(--border)',
+    position: 'relative',
+    borderRadius: 4,
+  },
+  cardLast: { borderBottom: 'none' },
+  meta: {
+    display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
+  },
+  time: {
+    fontFamily: 'var(--mono)', fontWeight: 500, fontSize: 12,
+    letterSpacing: '0.02em', color: 'var(--ink2)',
+  },
+  sep: { color: 'var(--ink3)', opacity: 0.45, fontSize: 11 },
+  kind: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 13, color: 'var(--ink2)',
+  },
+  domainBullet: {
+    width: 6, height: 6, borderRadius: 999,
+    display: 'inline-block', marginRight: 7,
+  },
+  domainName: {
+    fontFamily: 'var(--sans)', fontWeight: 500,
+    textTransform: 'uppercase', letterSpacing: '0.13em', fontSize: 10,
+  },
+  privateTag: {
+    marginLeft: 'auto',
+    fontFamily: 'var(--sans)', fontWeight: 500,
+    textTransform: 'uppercase', letterSpacing: '0.16em',
+    fontSize: 9.5, color: 'var(--ink3)', opacity: 0.85,
+  },
+  body: {
+    fontFamily: 'var(--serif)',
+    fontVariationSettings: '"opsz" 24',
+    fontFeatureSettings: '"kern" 1, "liga" 1, "calt" 1',
+    fontStyle: 'italic',
+    fontWeight: 400, fontSize: 17.5,
+    lineHeight: '27px', color: 'var(--ink)',
+    margin: 0, letterSpacing: '-0.005em',
+    textWrap: 'pretty',
+  },
+  nextStep: {
+    marginTop: 12,
+    display: 'flex', alignItems: 'baseline', gap: 7,
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 13, color: 'var(--prussian)', opacity: 0.92,
+  },
+  bronzeStar: { color: 'var(--bronze)', fontSize: 13, lineHeight: 1 },
+  actionRow: {
+    marginTop: 16,
+    display: 'flex', alignItems: 'stretch', gap: 0,
+    paddingTop: 14,
+    borderTop: '0.5px solid var(--border)',
+  },
+  action: {
+    flex: 1,
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 14, color: 'var(--ink2)',
+    textAlign: 'center', padding: '2px 0',
+    borderRight: '0.5px solid var(--border)',
+  },
+  actionLast: { borderRight: 'none' },
+  actionDanger: { color: 'var(--rec-red)', opacity: 0.72 },
+};
+
+function InboxCard({
+  time, kind, domainKey, domainLabel,
+  text, isPrivate, isCandidate,
+  nextStepLabel, isLast,
+}) {
+  const domainColors = {
+    blackink: 'var(--dom-blackink)',
+    atlas: 'var(--dom-atlas)',
+    saude: 'var(--dom-saude)',
+    financas: 'var(--dom-financas)',
+    outro: 'var(--dom-outro)',
+  };
+  const dColor = domainColors[domainKey] || 'var(--ink3)';
+  return (
+    <div className="atlas-card" style={{ ...cardStyles.card, ...(isLast ? cardStyles.cardLast : {}) }}>
+      <div style={cardStyles.meta}>
+        <span style={cardStyles.time}>{time}</span>
+        <span style={cardStyles.sep}>·</span>
+        <span style={cardStyles.kind}>{kind}</span>
+        <span style={cardStyles.sep}>·</span>
+        <span className="atlas-bullet" style={{ ...cardStyles.domainBullet, background: dColor }} />
+        <span style={{ ...cardStyles.domainName, color: dColor }}>{domainLabel}</span>
+        {isPrivate && <span style={cardStyles.privateTag}>privado</span>}
+      </div>
+      <p style={cardStyles.body}>{'«'}{text}{'»'}</p>
+      {nextStepLabel && (
+        <div style={cardStyles.nextStep}>
+          {isCandidate && <span style={cardStyles.bronzeStar}>✦</span>}
+          <span>{nextStepLabel}</span>
+        </div>
+      )}
+      <div style={cardStyles.actionRow}>
+        <span className="atlas-action" style={cardStyles.action}>promover</span>
+        <span className="atlas-action" style={cardStyles.action}>tarefa</span>
+        <span className="atlas-action" style={cardStyles.action}>projeto</span>
+        <span className="atlas-action" style={cardStyles.action}>adiar</span>
+        <span className="atlas-action danger" style={{ ...cardStyles.action, ...cardStyles.actionLast, ...cardStyles.actionDanger }}>arquivar</span>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Empty states · NEW v4
+// ════════════════════════════════════════════════════════
+const emptyStyles = {
+  wrap: {
+    margin: '40px 28px 0',
+    padding: '36px 0',
+    position: 'relative', zIndex: 1,
+    textAlign: 'left',
+  },
+  ornament: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    color: 'var(--ink3)', fontSize: 22,
+    marginBottom: 14, opacity: 0.4,
+  },
+  line: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 36',
+    fontWeight: 400, fontSize: 22,
+    lineHeight: '32px', color: 'var(--ink)',
+    margin: 0, letterSpacing: '-0.012em',
+    textWrap: 'pretty',
+  },
+  subline: {
+    marginTop: 10,
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontSize: 14, color: 'var(--ink2)',
+    opacity: 0.85, lineHeight: '21px',
+    textWrap: 'pretty',
+  },
+  badge: {
+    display: 'inline-block',
+    padding: '3px 10px',
+    border: '0.5px solid var(--border)',
+    borderRadius: 999,
+    fontFamily: 'var(--mono)',
+    fontSize: 9.5, letterSpacing: '0.13em',
+    textTransform: 'uppercase',
+    color: 'var(--ink3)', marginBottom: 14,
+  },
+};
+
+function EmptyInbox() {
+  return (
+    <div style={emptyStyles.wrap}>
+      <div style={emptyStyles.ornament}>—</div>
+      <p style={emptyStyles.line}>o dia ainda está por dizer.</p>
+      <p style={emptyStyles.subline}>capture o primeiro fragmento abaixo. áudio, texto ou foto.</p>
+    </div>
+  );
+}
+
+function EmptyFilter({ filterName = 'candidatas' }) {
+  return (
+    <div style={emptyStyles.wrap}>
+      <div style={emptyStyles.ornament}>—</div>
+      <p style={emptyStyles.line}>nenhuma {filterName} por enquanto.</p>
+      <p style={emptyStyles.subline}>aclare uma captura aberta para que ela apareça aqui.</p>
+    </div>
+  );
+}
+
+function OfflineState({ count = 3 }) {
+  return (
+    <div style={emptyStyles.wrap}>
+      <span style={emptyStyles.badge}>offline</span>
+      <p style={emptyStyles.line}>{count} capturas aguardam.</p>
+      <p style={emptyStyles.subline}>sync ao reconectar — fila local preservada.</p>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  CapturePill (idle + recording)
+// ════════════════════════════════════════════════════════
+const captureStyles = {
+  wrap: {
+    position: 'absolute',
+    bottom: 102, left: 0, right: 0,
+    display: 'flex', justifyContent: 'center',
+    pointerEvents: 'none', zIndex: 6,
+  },
+  pillIdle: {
+    pointerEvents: 'auto',
+    display: 'inline-flex', alignItems: 'center',
+    background: 'var(--ink)', color: 'var(--bg)',
+    borderRadius: 999, padding: '11px 6px',
+    userSelect: 'none',
+    animation: 'capture-rest 6s ease-in-out infinite',
+    border: '0.5px solid rgba(155,122,63,0.18)',
+  },
+  pillRecording: {
+    pointerEvents: 'auto',
+    display: 'inline-flex', alignItems: 'center',
+    background: 'var(--ink)', color: 'var(--bg)',
+    borderRadius: 999, padding: '12px 18px',
+    userSelect: 'none',
+    animation: 'record-pulse 1.6s ease-in-out infinite',
+    border: '0.5px solid rgba(139,38,53,0.4)',
+  },
+  half: { display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px' },
+  glyphT: {
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 18',
+    fontWeight: 500, fontSize: 18, lineHeight: 1,
+  },
+  glyphMic: { fontSize: 14, lineHeight: 1, transform: 'translateY(-0.5px)' },
+  micro: {
+    fontFamily: 'var(--mono)', fontWeight: 400,
+    fontSize: 10, letterSpacing: '0.06em',
+    color: 'rgba(244,239,230,0.65)',
+    textTransform: 'lowercase',
+  },
+  divider: { width: 0.5, alignSelf: 'stretch', background: 'rgba(244,239,230,0.18)' },
+  recDot: {
+    width: 8, height: 8, borderRadius: 999,
+    background: 'var(--rec-red)',
+    boxShadow: '0 0 8px rgba(139,38,53,0.6)',
+  },
+  waveform: { display: 'flex', alignItems: 'center', gap: 2, height: 20 },
+  waveBar: {
+    width: 2, background: 'rgba(244,239,230,0.92)',
+    borderRadius: 1, transformOrigin: 'center',
+  },
+  counter: {
+    fontFamily: 'var(--mono)', fontWeight: 500,
+    fontSize: 12, letterSpacing: '0.04em',
+    color: 'rgba(244,239,230,0.95)',
+    minWidth: 32, textAlign: 'right',
+  },
+  hintWrap: {
+    position: 'absolute', bottom: 56, left: 0, right: 0,
+    display: 'flex', justifyContent: 'center', gap: 28,
+    fontFamily: 'var(--serif)', fontStyle: 'italic',
+    fontVariationSettings: '"opsz" 14',
+    fontSize: 12, color: 'var(--ink3)',
+    pointerEvents: 'none',
+  },
+  hintItem: { display: 'flex', alignItems: 'center', gap: 5 },
+};
+
+function CapturePillIdle() {
+  return (
+    <div style={captureStyles.wrap}>
+      <div className="atlas-pill" style={captureStyles.pillIdle}>
+        <div style={captureStyles.half}>
+          <span style={captureStyles.glyphT}>T</span>
+          <span style={captureStyles.micro}>toque</span>
+        </div>
+        <div style={captureStyles.divider} />
+        <div style={captureStyles.half}>
+          <span style={captureStyles.glyphMic}>◉</span>
+          <span style={captureStyles.micro}>segure</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Waveform() {
+  const bars = [
+    { h: 14, anim: 'wave-1 0.7s ease-in-out infinite' },
+    { h: 8,  anim: 'wave-2 0.6s ease-in-out infinite' },
+    { h: 16, anim: 'wave-3 0.8s ease-in-out infinite' },
+    { h: 11, anim: 'wave-4 0.5s ease-in-out infinite' },
+    { h: 18, anim: 'wave-5 0.9s ease-in-out infinite' },
+    { h: 9,  anim: 'wave-6 0.7s ease-in-out infinite' },
+    { h: 13, anim: 'wave-7 0.65s ease-in-out infinite' },
+    { h: 7,  anim: 'wave-1 0.55s ease-in-out infinite' },
+    { h: 15, anim: 'wave-3 0.85s ease-in-out infinite' },
+    { h: 10, anim: 'wave-5 0.7s ease-in-out infinite' },
+    { h: 17, anim: 'wave-2 0.6s ease-in-out infinite' },
+    { h: 8,  anim: 'wave-4 0.75s ease-in-out infinite' },
+    { h: 12, anim: 'wave-7 0.5s ease-in-out infinite' },
+    { h: 6,  anim: 'wave-6 0.8s ease-in-out infinite' },
+  ];
+  return (
+    <div style={captureStyles.waveform}>
+      {bars.map((b, i) => (
+        <div key={i} style={{ ...captureStyles.waveBar, height: b.h, animation: b.anim }} />
+      ))}
+    </div>
+  );
+}
+
+function CapturePillRecording() {
+  return (
+    <>
+      <div style={captureStyles.wrap}>
+        <div style={captureStyles.pillRecording}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={captureStyles.recDot} />
+            <Waveform />
+            <span style={captureStyles.counter}>0:04</span>
+          </div>
+        </div>
+      </div>
+      <div style={captureStyles.hintWrap}>
+        <span style={captureStyles.hintItem}>← cancele</span>
+        <span style={captureStyles.hintItem}>↑ trave</span>
+      </div>
+    </>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Sync bar inteligente (NEW · velocidade ajustada)
+// ════════════════════════════════════════════════════════
+function SyncBar({ pendingCount = 1 }) {
+  let style = {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    height: 1,
+    background: 'linear-gradient(90deg, transparent, var(--bronze) 50%, transparent)',
+    zIndex: 2,
+  };
+  if (pendingCount === 0) {
+    style = { ...style, opacity: 0 };
+  } else if (pendingCount <= 3) {
+    style = { ...style, animation: 'sync-sweep-slow 8s ease-in-out infinite' };
+  } else {
+    style = { ...style, animation: 'sync-sweep 4s ease-in-out infinite' };
+  }
+  return <div style={style} />;
+}
+
+// ════════════════════════════════════════════════════════
+//  Dock
+// ════════════════════════════════════════════════════════
+const dockStyles = {
+  wrap: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    paddingTop: 14, paddingBottom: 14,
+    background: 'linear-gradient(to top, var(--bg) 65%, rgba(244,239,230,0.92) 88%, transparent)',
+    zIndex: 5,
+  },
+  dock: {
+    display: 'flex', alignItems: 'flex-start',
+    width: '100%', padding: '0 20px',
+  },
+  btn: {
+    flex: 1, display: 'flex', flexDirection: 'column',
+    alignItems: 'center', gap: 4, padding: '4px 0',
+    color: 'var(--ink3)',
+  },
+  btnActive: { color: 'var(--bronze)' },
+  label: {
+    fontFamily: 'var(--sans)', fontSize: 10,
+    fontWeight: 500, letterSpacing: '0.04em',
+  },
+  centerWrap: {
+    flex: 1, display: 'flex',
+    justifyContent: 'center', alignItems: 'flex-start',
+  },
+  centerBtn: {
+    width: 50, height: 50, borderRadius: 999,
+    background: 'var(--prussian)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: 'var(--bg)',
+    boxShadow: '0 4px 14px rgba(27,58,87,0.32)',
+    border: '0.5px solid rgba(155,122,63,0.35)',
+  },
+};
+
+const HomeIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 11l9-8 9 8" />
+    <path d="M5 10v10h14V10" />
+  </svg>
+);
+const InboxIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="6" width="18" height="13" rx="1" />
+    <path d="M3 13h6l1 2h4l1-2h6" />
+  </svg>
+);
+const CalendarIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="18" height="16" rx="1.5" />
+    <path d="M3 9.5h18M8 3.5v3.5M16 3.5v3.5" />
+  </svg>
+);
+const ClockIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5l3 1.8" />
+  </svg>
+);
+const AtlasMark = () => (
+  <svg width="28" height="28" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="50" cy="50" r="32" opacity="0.45" />
+    <circle cx="50" cy="50" r="24" opacity="0.7" />
+    <path d="M50 16 L50 32 M50 68 L50 84 M16 50 L32 50 M68 50 L84 50" />
+    <circle cx="50" cy="50" r="2" fill="currentColor" />
+  </svg>
+);
+
+function Dock({ active = 'inbox' }) {
+  return (
+    <div style={dockStyles.wrap}>
+      <div style={dockStyles.dock}>
+        <div className="atlas-link" style={{ ...dockStyles.btn, ...(active === 'home' ? dockStyles.btnActive : {}) }}>
+          <HomeIcon />
+          <span style={dockStyles.label}>Home</span>
+        </div>
+        <div className="atlas-link" style={{ ...dockStyles.btn, ...(active === 'inbox' ? dockStyles.btnActive : {}) }}>
+          <InboxIcon />
+          <span style={dockStyles.label}>Inbox</span>
+        </div>
+        <div style={dockStyles.centerWrap}>
+          <div className="atlas-pill" style={dockStyles.centerBtn}>
+            <AtlasMark />
+          </div>
+        </div>
+        <div className="atlas-link" style={{ ...dockStyles.btn, ...(active === 'review' ? dockStyles.btnActive : {}) }}>
+          <CalendarIcon />
+          <span style={dockStyles.label}>Review</span>
+        </div>
+        <div className="atlas-link" style={{ ...dockStyles.btn, ...(active === 'ritual' ? dockStyles.btnActive : {}) }}>
+          <ClockIcon />
+          <span style={dockStyles.label}>Ritual</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  InboxScreen scenarios
+// ════════════════════════════════════════════════════════
+function InboxScreenIdle({ textureId }) {
+  return (
+    <div style={{ minHeight: '100%', background: 'var(--bg)', position: 'relative', paddingBottom: 200 }}>
+      <Cartog />
+      <PaperTexture id={textureId} />
+      <PaperVignette />
+      <SyncBar pendingCount={1} />
+      <LiveStatus initialIdx={0} />
+
+      <Header
+        openCount={1} ageLabel="10h" failedCount={0}
+        voiceLine={'um fragmento, capturado às 03:09 — ainda por destinar.'}
+      />
+      <ModeTabs active="captures" />
+      <DomainChip />
+      <SearchPill />
+      <FilterStrip active="open" />
+      <DateDivider label="hoje" />
+
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <InboxCard
+          time="03:09" kind="áudio"
+          domainKey="atlas" domainLabel="Atlas"
+          text={'Testando nova versão do Insper. Parece que ele melhorou bastante. Vamos ver se ele melhorou mesmo.'}
+          isPrivate isCandidate
+          nextStepLabel="Próximo: promover"
+          isLast
+        />
+      </div>
+
+      <CapturePillIdle />
+      <Dock active="inbox" />
+    </div>
+  );
+}
+
+function InboxScreenRecording({ textureId }) {
+  return (
+    <div style={{ minHeight: '100%', background: 'var(--bg)', position: 'relative', paddingBottom: 200 }}>
+      <Cartog />
+      <PaperTexture id={textureId} />
+      <PaperVignette />
+      <SyncBar pendingCount={1} />
+      <LiveStatus initialIdx={0} />
+
+      <Header
+        openCount={1} ageLabel="10h" failedCount={0}
+        voiceLine={'um fragmento, capturado às 03:09 — ainda por destinar.'}
+      />
+      <ModeTabs active="captures" />
+      <DomainChip />
+      <SearchPill />
+      <FilterStrip active="open" />
+      <DateDivider label="hoje" />
+
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <InboxCard
+          time="03:09" kind="áudio"
+          domainKey="atlas" domainLabel="Atlas"
+          text={'Testando nova versão do Insper. Parece que ele melhorou bastante. Vamos ver se ele melhorou mesmo.'}
+          isPrivate isCandidate
+          nextStepLabel="Próximo: promover"
+          isLast
+        />
+      </div>
+
+      <CapturePillRecording />
+      <Dock active="inbox" />
+    </div>
+  );
+}
+
+function InboxScreenEmpty({ textureId }) {
+  return (
+    <div style={{ minHeight: '100%', background: 'var(--bg)', position: 'relative', paddingBottom: 200 }}>
+      <Cartog />
+      <PaperTexture id={textureId} />
+      <PaperVignette />
+      <SyncBar pendingCount={0} />
+      <LiveStatus initialIdx={2} />
+
+      <Header
+        openCount={0} ageLabel={null} failedCount={0}
+        voiceLine={'o dia ainda está por dizer.'}
+      />
+      <ModeTabs active="captures" capturesCount={0} capturesSub="nada aberto" operationalCount={0} operationalSub="0 ativos" />
+      <DomainChip />
+      <SearchPill />
+      <FilterStrip active="open" />
+
+      <EmptyInbox />
+
+      <CapturePillIdle />
+      <Dock active="inbox" />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  App · 3 phones overview + notes
+// ════════════════════════════════════════════════════════
+function App() {
+  return (
+    <div className="stage">
+      <div className="phone-row">
+        <div className="frame-col">
+          <p className="frame-cap">v4 · idle vivo · live status + microinterações</p>
+          <IosFrame time="13:13" battery={78}>
+            <InboxScreenIdle textureId="paper-idle" />
+          </IosFrame>
+        </div>
+        <div className="frame-col">
+          <p className="frame-cap">v4 · recording · hold sub-10s</p>
+          <IosFrame time="13:13" battery={78}>
+            <InboxScreenRecording textureId="paper-rec" />
+          </IosFrame>
+        </div>
+        <div className="frame-col">
+          <p className="frame-cap">v4 · empty · o dia ainda está por dizer</p>
+          <IosFrame time="07:14" battery={92}>
+            <InboxScreenEmpty textureId="paper-empty" />
+          </IosFrame>
+        </div>
+      </div>
+
+      <div className="notes">
+        <h2>Inbox v4</h2>
+        <p className="lede">
+          Três frentes de alta alavanca: microinterações vivas, live status do sistema sussurrando, e empty states com voz editorial consistente. Atlas vivo, não apresentação estática.
+        </p>
+
+        <section>
+          <h3>Frente A · Microinterações vivas <span className="new">novo</span></h3>
+          <ul>
+            <li><span className="num">·</span><span>Card hover → <em>translateY(-1px)</em> + bg surface 18% (320ms cubic-bezier Apple)</span></li>
+            <li><span className="num">·</span><span>Card press → bg 32% + reset translate</span></li>
+            <li><span className="num">·</span><span>5 actions hover → cor vai pra ink saturado. Arquivar → recRed cheio. 220ms ease</span></li>
+            <li><span className="num">·</span><span>Filter chips hover (não-ativo) → cor ink2 + border surface (280ms)</span></li>
+            <li><span className="num">·</span><span>CapturePill press → scale 0.97</span></li>
+            <li><span className="num">·</span><span>Mode tabs hover (não-ativo) → label e subtitle vão pra ink2</span></li>
+            <li><span className="num">·</span><span>Domain bullet → animação <em>bullet-pulse 720ms</em> ao surgir (life signal)</span></li>
+            <li><span className="num">·</span><span>Search pill focus-within → border bronze 0.4 + halo bronze 0.06 (3px)</span></li>
+            <li><span className="num">·</span><span>Links (· trocar, · selecionar, · por recente) hover → ink2</span></li>
+          </ul>
+        </section>
+
+        <section>
+          <h3>Frente B · Live status sussurrado <span className="new">novo</span></h3>
+          <ul>
+            <li><span className="num">·</span><span>Sub-status bar logo após Dynamic Island, centralizado</span></li>
+            <li><span className="num">·</span><span>Frau italic 10.5pt opsz 14, opacity 0.55, ink2</span></li>
+            <li><span className="num">·</span><span>Bullet dot 4×4px na cor do estado, animação fade 3s</span></li>
+            <li><span className="num">·</span><span>3 estados rotativos a cada 5.2s com fade 320ms:</span></li>
+            <li><span className="num">·</span><span><em>"atlas escutando · tarde · operador focado"</em> · dot moss</span></li>
+            <li><span className="num">·</span><span><em>"atlas curando · próxima review 02:00"</em> · dot bronze</span></li>
+            <li><span className="num">·</span><span><em>"atlas em silêncio · sem padrões a confrontar"</em> · dot ink3</span></li>
+            <li><span className="num">·</span><span>Atlas vivo: JITAI / Curator / Open Brain comunicam presença sem invadir</span></li>
+          </ul>
+        </section>
+
+        <section>
+          <h3>Frente C · Empty states editoriais <span className="new">novo</span></h3>
+          <ul>
+            <li><span className="num">·</span><span><strong>Inbox vazio</strong>: voz line <em>"o dia ainda está por dizer."</em> em Frau italic 22pt opsz 36</span></li>
+            <li><span className="num">·</span><span>Sub-line: <em>"capture o primeiro fragmento abaixo. áudio, texto ou foto."</em></span></li>
+            <li><span className="num">·</span><span>Ornamento <em>—</em> em italic ink3 acima da line</span></li>
+            <li><span className="num">·</span><span><strong>Filtro vazio</strong> (ex: "candidatas"): <em>"nenhuma candidata por enquanto. aclare uma captura aberta para que ela apareça aqui."</em></span></li>
+            <li><span className="num">·</span><span><strong>Offline</strong>: badge mono uppercase "OFFLINE" + line <em>"3 capturas aguardam."</em> + sub <em>"sync ao reconectar — fila local preservada."</em></span></li>
+            <li><span className="num">·</span><span>Tom: específico, sem dramatic. Voz consistente com Frente 1 v3</span></li>
+          </ul>
+        </section>
+
+        <section>
+          <h3>Bonus · Sync sweep inteligente <span className="new">bonus</span></h3>
+          <ul>
+            <li><span className="num">·</span><span>0 pendentes → opacity 0 (sem sweep). Tela em paz.</span></li>
+            <li><span className="num">·</span><span>1-3 pendentes → 8s ease (calmo, sussurrado)</span></li>
+            <li><span className="num">·</span><span>4+ pendentes → 4s ease (urgência sutil)</span></li>
+          </ul>
+        </section>
+
+        <section style={{ gridColumn: '1 / -1' }}>
+          <h3>Bronze count <span style={{opacity: 0.5}}>(P8 ≤ 2 permanentes)</span></h3>
+          <ul>
+            <li><span className="num">·</span><span><span className="br">✦</span> antes do nextStepLabel candidato (1)</span></li>
+            <li><span className="num">·</span><span>Aba "Inbox" ativa no Dock (2)</span></li>
+            <li><span className="num">·</span><span style={{opacity: 0.55}}>Vignette + paper texture + sync bar + live status bullets + bullet pulse — atmosfera/temporal, não conta</span></li>
+          </ul>
+        </section>
+
+        <section style={{ gridColumn: '1 / -1' }}>
+          <h3>Pra v5 (próximas frentes)</h3>
+          <ul>
+            <li><span className="num">·</span><span>Card body italic vs regular — A/B test mental para escala (50 capturas/dia)</span></li>
+            <li><span className="num">·</span><span>Privacy treatment escultural (hairline bronze topo + glifo sutil)</span></li>
+            <li><span className="num">·</span><span>Domain bullets cartográficos (● ✦ ▲ ◆ ○ por domínio)</span></li>
+            <li><span className="num">·</span><span>Date divider rico: <em>"HOJE · XII.V.MMXXVI"</em> Roman numeral</span></li>
+            <li><span className="num">·</span><span>Action destrutiva com undo toast TDAH-safe</span></li>
+            <li><span className="num">·</span><span>Skeleton states editorial (placeholder Frau italic, não retângulos)</span></li>
+            <li><span className="num">·</span><span>Mini distribuição por domínio sob meta line (5 dots proporcionais)</span></li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>

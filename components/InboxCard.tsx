@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
-import { Mono, Sans } from '../design/Type'
+import { Frau, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { type DomainKey, domainColor, domainLabel } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
 import { copyToClipboard, COPY_LONG_PRESS_DELAY } from '../lib/clipboard'
 import { useShell } from './AtlasShell'
+import { FoilStar } from './inbox/FoilStar'
 
 export interface InboxItem {
   id: string
@@ -108,6 +110,7 @@ interface Props {
   actionBusy?: boolean
   selected?: boolean
   selectionMode?: boolean
+  isFresh?: boolean
 }
 
 // Card with body + inline triage toolbar at the bottom (Promover · Tarefa
@@ -125,6 +128,7 @@ export function InboxCard({
   actionBusy,
   selected,
   selectionMode,
+  isFresh,
 }: Props) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
@@ -141,28 +145,58 @@ export function InboxCard({
   const showActions = !selectionMode && !item.isLocal && !item.isArchived && !hasResolvedDestination
   const destinationTone = resolvedDestinationColor(item, c)
   const promoteReady = canPromote(item)
+  // Long-press v9 · ações ficam escondidas por padrão · respiro editorial · só body + meta + hint.
+  // Long-press 1 = copia (haptic existente) + revela ações inline.
+  // Long-press 2 = colapsa. Tap segue abrindo detail (nada muda).
+  // Decisão: cards ficavam barulhentos com 5 verbos sempre visíveis · era dashboard, não leitura.
+  const [actionsRevealed, setActionsRevealed] = useState(false)
+
+  const dColor = domainColor(item.domain, c, domains)
+  // Fresh state · técnica v6 · ≤30s pós-save · bg-fresh + edge bronze 1px topo + foil shimmer ✦
+  const cardBg = selected ? c.bgDeep : isFresh ? c.bgFresh : c.bg
+  const topEdge = selected
+    ? { borderTopWidth: 0.5, borderTopColor: c.bronze }
+    : isFresh
+    ? { borderTopWidth: 1, borderTopColor: c.bronze }
+    : isSensitive
+    ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(155,122,63,0.22)' }
+    : null
 
   return (
     <View
       style={[
         styles.card,
         {
-          backgroundColor: c.surface,
-          borderColor: selected ? c.prussian : c.border,
-          borderWidth: selected ? 1.5 : StyleSheet.hairlineWidth,
+          backgroundColor: cardBg,
+          borderColor: c.border,
+          borderBottomWidth: StyleSheet.hairlineWidth,
         },
+        topEdge,
       ]}
     >
       <Pressable
         onPress={onPress}
-        onLongPress={() => void copyToClipboard(item.text, () => showToast('Copiado'))}
+        onLongPress={() => {
+          if (!actionsRevealed) {
+            // Primeira pressão: copia + revela. Mantém comportamento existente +
+            // expõe ações sem o usuário precisar abrir o detail.
+            void copyToClipboard(item.text, () => showToast('Copiado'))
+            setActionsRevealed(true)
+          } else {
+            // Segunda pressão: colapsa sem copiar de novo. Toggle previsível.
+            setActionsRevealed(false)
+          }
+        }}
         delayLongPress={COPY_LONG_PRESS_DELAY}
-        accessibilityHint="pressionar e segurar copia o texto"
+        accessibilityHint={
+          actionsRevealed
+            ? 'pressionar e segurar esconde as ações'
+            : 'pressionar e segurar copia o texto e mostra ações'
+        }
         style={({ pressed }) => [
           styles.body,
           {
-            opacity: pressed ? 0.7 : 1,
-            transform: [{ translateX: pressed && !selectionMode ? 2 : 0 }],
+            opacity: pressed ? 0.85 : 1,
           },
         ]}
       >
@@ -171,93 +205,68 @@ export function InboxCard({
             {item.time}
           </Mono>
           {item.kind ? (
-            <Sans
-              weight="sb"
-              size={10.5}
-              lineHeight={14}
-              letterSpacing={1.05}
-              color={c.ink3}
-              style={styles.uppercase}
-            >
-              {kindLabel(item.kind)}
-            </Sans>
+            <>
+              <Sans size={11} lineHeight={14} color={c.ink3} style={styles.metaSep}>·</Sans>
+              <Frau italic size={13} lineHeight={16} color={c.ink2}>
+                {kindLabel(item.kind)}
+              </Frau>
+            </>
           ) : null}
+          <Sans size={11} lineHeight={14} color={c.ink3} style={styles.metaSep}>·</Sans>
+          <View style={[styles.domainBullet, { backgroundColor: dColor }]} />
           <Sans
-            weight="sb"
-            size={10.5}
+            weight="med"
+            size={10}
             lineHeight={14}
-            letterSpacing={1.05}
-            color={domainColor(item.domain, c, domains)}
+            letterSpacing={1.3}
+            color={dColor}
             style={styles.uppercase}
           >
             {item.domainLabel ?? domainLabel(item.domain, domains)}
           </Sans>
           {isFailed ? (
-            <Sans
-              weight="sb"
-              size={10.5}
-              lineHeight={14}
-              letterSpacing={1.05}
-              color={c.recRed}
-              style={styles.uppercase}
-            >
+            <Frau italic size={12} lineHeight={15} color={c.recRed} style={styles.metaTrailing}>
               falha
-            </Sans>
+            </Frau>
           ) : isPending ? (
-            <Sans
-              weight="sb"
-              size={10.5}
-              lineHeight={14}
-              letterSpacing={1.05}
-              color={c.ink3}
-              style={styles.uppercase}
-            >
+            <Frau italic size={12} lineHeight={15} color={c.ink3} style={styles.metaTrailing}>
               transcrevendo
-            </Sans>
+            </Frau>
           ) : null}
           {hasResolvedDestination && item.triageLabel ? (
-            <Sans
-              weight="sb"
-              size={10.5}
-              lineHeight={14}
-              letterSpacing={1.05}
-              color={destinationTone}
-              style={styles.uppercase}
-            >
+            <Frau italic size={12} lineHeight={15} color={destinationTone} style={styles.metaTrailing}>
               {item.triageLabel}
-            </Sans>
-          ) : null}
-          {isSensitive && item.privacyLabel ? (
-            <Mono
-              size={10.5}
-              lineHeight={14}
-              letterSpacing={0.42}
-              color={c.ink3}
-              style={styles.privacyAlignRight}
-            >
-              {item.privacyLabel}
-            </Mono>
+            </Frau>
           ) : null}
         </View>
 
-        <Sans
-          size={15}
-          lineHeight={22}
+        {/* v12 · removidos « » Unicode quotes · design mais limpo na lista.
+            Frau italic já comunica "captura/citação" tipograficamente. */}
+        <Frau
+          italic
+          size={17}
+          lineHeight={26}
+          letterSpacing={-0.085}
           color={isFailed ? c.ink2 : c.ink}
           numberOfLines={3}
         >
           {item.text}
-        </Sans>
+        </Frau>
 
         {item.nextStepLabel ? (
-          <Sans
-            size={11.5}
-            lineHeight={15}
-            color={item.isCurationCandidate ? c.prussian : c.ink2}
-            style={styles.nextStep}
-          >
-            {item.nextStepLabel}
-          </Sans>
+          <View style={styles.nextStepRow}>
+            {item.isCurationCandidate ? (
+              <FoilStar shimmer={isFresh} size={13} style={styles.nextStepStar} />
+            ) : null}
+            <Frau
+              italic
+              size={13}
+              lineHeight={17}
+              color={item.isCurationCandidate ? c.prussian : c.ink2}
+            >
+              {item.nextStepLabel}
+            </Frau>
+          </View>
         ) : null}
       </Pressable>
 
@@ -297,30 +306,34 @@ export function InboxCard({
             </Sans>
           ) : null}
         </View>
-      ) : showActions ? (
+      ) : showActions && actionsRevealed ? (
         <View style={[styles.actionRow, { borderTopColor: c.border }]}>
           <QuickActionButton
-            label="Promover"
+            label="promover"
             onPress={onPromote}
             disabled={actionBusy || !onPromote || !promoteReady}
+            divider
           />
           <QuickActionButton
-            label="Tarefa"
+            label="tarefa"
             onPress={onCreateTask}
             disabled={actionBusy || !onCreateTask}
+            divider
           />
           <QuickActionButton
-            label="Projeto"
+            label="projeto"
             onPress={onCreateProject}
             disabled={actionBusy || !onCreateProject}
+            divider
           />
           <QuickActionButton
-            label="Adiar"
+            label="adiar"
             onPress={onSnooze}
             disabled={actionBusy || !onSnooze}
+            divider
           />
           <QuickActionButton
-            label="Arquivar"
+            label="arquivar"
             onPress={onArchive}
             disabled={actionBusy || !onArchive}
             danger
@@ -336,11 +349,13 @@ function QuickActionButton({
   onPress,
   disabled,
   danger,
+  divider,
 }: {
   label: string
   onPress?: () => void
   disabled?: boolean
   danger?: boolean
+  divider?: boolean
 }) {
   const c = usePalette()
   return (
@@ -349,49 +364,66 @@ function QuickActionButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.quickAction,
+        divider ? { borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: c.border } : null,
         {
-          backgroundColor: pressed ? c.premium : 'transparent',
+          backgroundColor: pressed ? c.bgRaised : 'transparent',
           opacity: disabled ? 0.35 : 1,
         },
       ]}
     >
-      <Sans
-        weight="sb"
-        size={11.5}
-        lineHeight={15}
-        color={danger ? c.recRed : c.prussian}
+      <Frau
+        italic
+        size={13}
+        lineHeight={17}
+        color={danger ? c.recRedMuted : c.ink2}
         align="center"
+        numberOfLines={1}
       >
         {label}
-      </Sans>
+      </Frau>
     </Pressable>
   )
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
     overflow: 'hidden',
   },
   body: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 8,
+    gap: 7,
+    marginBottom: 12,
   },
+  metaSep: { opacity: 0.45 },
+  metaTrailing: { marginLeft: 'auto' },
   uppercase: { textTransform: 'uppercase' },
-  privacyAlignRight: { marginLeft: 'auto' },
-  nextStep: { marginTop: 8 },
+  domainBullet: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    marginLeft: 3,
+    marginRight: 3,
+  },
+  nextStepRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 7,
+  },
+  nextStepStar: {
+    lineHeight: 13,
+  },
   destinationRow: {
     borderTopWidth: StyleSheet.hairlineWidth,
     minHeight: 42,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     gap: 4,
   },
   destinationHeader: {
@@ -409,13 +441,15 @@ const styles = StyleSheet.create({
   actionRow: {
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
+    marginHorizontal: 24,
+    marginTop: 4,
   },
   quickAction: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
 })
 

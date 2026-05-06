@@ -145,7 +145,10 @@ export function AtlasShell({ children }: Props) {
         <Animated.View style={[styles.fill, showQueue && { opacity: 0.85 }, childrenWrapStyle]}>
           {children}
         </Animated.View>
-        <SyncBar active={syncActive || syncing} />
+        <SyncBar
+          active={syncActive || syncing || queue > 0}
+          state={showOffline ? 'offline' : showPending ? 'error' : 'synced'}
+        />
         <OfflineBanner visible={showQueue} queue={queue} label={showOffline ? 'Sem conexão' : 'Sync pendente'} />
         <Dock />
         <OverlayHost />

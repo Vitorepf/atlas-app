@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas — Inbox refatorado v1</title>
+
+<!-- Fonts: Fraunces (serif contemplativo) + Inter (sans funcional) + JetBrains Mono (dados) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- React + Babel pinned (huashu protocol) -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<style>
+/* === Atlas tokens (light) — espelho de design/tokens.ts === */
+:root {
+  --bg:        #F4EFE6;
+  --surface:   #EAE3D6;
+  --premium:   #E0D8C9;
+  --ink:       #1A1612;
+  --ink2:      #6B6358;
+  --ink3:      #A89F90;
+  --border:    #D4CCBC;
+  --bronze:    #9B7A3F;
+  --bronze-deep: #7A5E2F;
+  --prussian:  #1B3A57;
+  --rec-red:   #8B2635;
+  --moss:      #4A5D3A;
+  --dom-blackink: #1B3A57;
+  --dom-atlas:    #5D4A8A;
+  --dom-saude:    #4A5D3A;
+  --dom-financas: #9B7A3F;
+  --dom-outro:    #6B6358;
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans:  'Inter', -apple-system, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  background: #15110d;
+  font-family: var(--sans);
+  color: rgba(244,239,230,0.85);
+  min-height: 100vh;
+}
+
+@keyframes sync-sweep {
+  0%, 100% { opacity: 0; transform: translateX(-100%); }
+  50%      { opacity: 1; transform: translateX(0%); }
+}
+
+@keyframes capture-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(26,22,18,0.25), 0 0 0 0 rgba(139,38,53,0); }
+  50%      { box-shadow: 0 4px 16px rgba(26,22,18,0.25), 0 0 0 6px rgba(139,38,53,0.12); }
+}
+
+.stage {
+  min-height: 100vh;
+  padding: 56px 40px;
+  display: flex;
+  gap: 56px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.frame-cap {
+  font-family: var(--serif);
+  font-style: italic;
+  color: rgba(244,239,230,0.5);
+  font-size: 13px;
+  margin: 0 0 14px;
+  text-align: center;
+  letter-spacing: 0.005em;
+}
+
+.notes {
+  max-width: 380px;
+  padding-top: 28px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(244,239,230,0.72);
+}
+.notes h2 {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  color: #F4EFE6;
+  margin: 0 0 4px;
+}
+.notes .lede {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(244,239,230,0.92);
+  margin: 8px 0 28px;
+  border-left: 1px solid rgba(155,122,63,0.5);
+  padding-left: 14px;
+}
+.notes h3 {
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: rgba(244,239,230,0.45);
+  margin: 26px 0 10px;
+  font-weight: 500;
+}
+.notes p { margin: 0 0 12px; }
+.notes em {
+  font-family: var(--serif);
+  font-style: italic;
+  color: rgba(244,239,230,0.95);
+}
+.notes ul { margin: 0; padding: 0; list-style: none; }
+.notes li {
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(244,239,230,0.06);
+  display: flex; gap: 12px;
+}
+.notes li:last-child { border-bottom: none; }
+.notes li .num {
+  font-family: var(--mono);
+  color: rgba(244,239,230,0.4);
+  font-size: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  min-width: 18px;
+}
+.notes li .ok { color: #9B7A3F; }
+.notes li .rm { color: rgba(244,239,230,0.35); text-decoration: line-through; text-decoration-thickness: 0.5px; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+// ════════════════════════════════════════════════════════
+//  IosFrame — huashu canonical (não reescrever Dynamic Island)
+// ════════════════════════════════════════════════════════
+const iosFrameStyles = {
+  wrapper: {
+    display: 'inline-block',
+    padding: 12,
+    background: '#000',
+    borderRadius: 60,
+    boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.4)',
+    position: 'relative',
+  },
+  screen: {
+    position: 'relative',
+    borderRadius: 48,
+    overflow: 'hidden',
+    background: '#F4EFE6',
+  },
+  statusBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 54,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 32px',
+    fontSize: 16,
+    fontWeight: 600,
+    fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+    zIndex: 20,
+    pointerEvents: 'none',
+  },
+  dynamicIsland: {
+    position: 'absolute',
+    top: 12,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    width: 124, height: 36,
+    background: '#000',
+    borderRadius: 999,
+    zIndex: 30,
+  },
+  statusIcons: { display: 'flex', alignItems: 'center', gap: 6 },
+  signalIcon: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 12 },
+  signalBar: { width: 3, background: 'currentColor', borderRadius: 1 },
+  batteryIcon: {
+    width: 26, height: 12,
+    border: '1.5px solid currentColor',
+    borderRadius: 3, padding: 1,
+    position: 'relative', opacity: 0.85,
+  },
+  batteryCap: {
+    position: 'absolute', top: 3, right: -3,
+    width: 2, height: 6, background: 'currentColor',
+    borderRadius: '0 1px 1px 0',
+  },
+  content: {
+    position: 'absolute',
+    top: 54, left: 0, right: 0, bottom: 34,
+    overflow: 'auto',
+  },
+  homeIndicator: {
+    position: 'absolute', bottom: 10,
+    left: '50%', transform: 'translateX(-50%)',
+    width: 140, height: 5,
+    background: 'rgba(0,0,0,0.3)',
+    borderRadius: 999, zIndex: 10,
+  },
+};
+
+function IosFrame({ children, time = '12:24', battery = 82 }) {
+  return (
+    <div style={iosFrameStyles.wrapper}>
+      <div style={{ ...iosFrameStyles.screen, width: 393, height: 852 }}>
+        <div style={{ ...iosFrameStyles.statusBar, color: '#1A1612' }}>
+          <span>{time}</span>
+          <div style={iosFrameStyles.statusIcons}>
+            <div style={iosFrameStyles.signalIcon}>
+              <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+            </div>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: '#1A1612' }}>
+              <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+              <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+              <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+            </svg>
+            <div style={iosFrameStyles.batteryIcon}>
+              <div style={{ width: `${battery}%`, height: '100%', background: 'currentColor', borderRadius: 1, opacity: 0.9 }} />
+              <div style={iosFrameStyles.batteryCap} />
+            </div>
+          </div>
+        </div>
+        <div style={iosFrameStyles.dynamicIsland} />
+        <div style={iosFrameStyles.content}>{children}</div>
+        <div style={iosFrameStyles.homeIndicator} />
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Cartog — symbols cartográficos a 3% opacity (P12)
+// ════════════════════════════════════════════════════════
+function Cartog() {
+  return (
+    <svg
+      width="100%" height="100%"
+      viewBox="0 0 393 800"
+      preserveAspectRatio="xMidYMid slice"
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.05, color: '#1A1612' }}
+    >
+      {/* meridianos curvos verticais — sutil */}
+      <path d="M 60 -20 Q 90 200 60 420 Q 30 640 60 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 333 -20 Q 303 200 333 420 Q 363 640 333 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 196 -20 Q 196 400 196 860" stroke="currentColor" strokeWidth="0.4" fill="none" opacity="0.6" />
+
+      {/* paralelos curvos horizontais */}
+      <path d="M -20 180 Q 196 200 410 180" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 460 Q 196 480 410 460" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 700 Q 196 720 410 700" stroke="currentColor" strokeWidth="0.4" fill="none" />
+
+      {/* rosa dos ventos sutil — quadrante inferior direito, decorativo */}
+      <g transform="translate(330 720)" opacity="0.55">
+        <circle r="14" fill="none" stroke="currentColor" strokeWidth="0.5" />
+        <circle r="9"  fill="none" stroke="currentColor" strokeWidth="0.4" opacity="0.6" />
+        <path d="M 0 -14 L 0 14 M -14 0 L 14 0" stroke="currentColor" strokeWidth="0.5" />
+        <path d="M 0 -16 L 1.5 -3 L 0 0 L -1.5 -3 Z" fill="currentColor" />
+        <path d="M 0 16 L 1.5 3 L 0 0 L -1.5 3 Z" fill="currentColor" />
+        <path d="M -16 0 L -3 1.5 L 0 0 L -3 -1.5 Z" fill="currentColor" />
+        <path d="M 16 0 L 3 1.5 L 0 0 L 3 -1.5 Z" fill="currentColor" />
+      </g>
+
+      {/* pontos coordenados — marcadores esparsos */}
+      <circle cx="120" cy="320" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="270" cy="240" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="80"  cy="540" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="290" cy="600" r="0.8" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Inbox screen styles
+// ════════════════════════════════════════════════════════
+const inboxStyles = {
+  screen: {
+    minHeight: '100%',
+    background: 'var(--bg)',
+    position: 'relative',
+    paddingBottom: 110,
+  },
+  syncBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 1,
+    background: 'linear-gradient(90deg, transparent, var(--bronze) 50%, transparent)',
+    animation: 'sync-sweep 5s ease-in-out infinite',
+    zIndex: 2,
+  },
+  header: {
+    padding: '24px 28px 6px',
+    position: 'relative',
+    zIndex: 1,
+  },
+  title: {
+    fontFamily: 'var(--serif)',
+    fontWeight: 400,
+    fontSize: 42,
+    lineHeight: '44px',
+    letterSpacing: '-0.025em',
+    color: 'var(--ink)',
+    margin: 0,
+  },
+  sub: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontWeight: 400,
+    fontSize: 17,
+    lineHeight: '26px',
+    color: 'var(--ink2)',
+    margin: '8px 0 0',
+    letterSpacing: '-0.005em',
+  },
+  divider: {
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 11,
+    fontWeight: 500,
+    color: 'var(--ink3)',
+    padding: '34px 28px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    position: 'relative',
+    zIndex: 1,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    background: 'var(--border)',
+    opacity: 0.5,
+  },
+  list: {
+    padding: '0 4px',
+    position: 'relative',
+    zIndex: 1,
+  },
+  card: {
+    padding: '14px 28px 22px',
+    position: 'relative',
+  },
+  cardMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 9,
+    marginBottom: 12,
+  },
+  cardTime: {
+    fontFamily: 'var(--mono)',
+    fontWeight: 500,
+    fontSize: 12,
+    letterSpacing: '0.02em',
+    color: 'var(--ink2)',
+  },
+  cardSeparator: {
+    color: 'var(--ink3)',
+    fontSize: 11,
+    opacity: 0.5,
+  },
+  cardKind: {
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 10,
+    fontWeight: 500,
+    color: 'var(--ink2)',
+  },
+  cardDomain: {
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 10,
+    fontWeight: 600,
+  },
+  cardPrivate: {
+    marginLeft: 'auto',
+    fontFamily: 'var(--sans)',
+    fontSize: 9.5,
+    fontWeight: 500,
+    letterSpacing: '0.16em',
+    textTransform: 'uppercase',
+    color: 'var(--ink3)',
+  },
+  bronzeStar: {
+    color: 'var(--bronze)',
+    fontSize: 13,
+    marginLeft: 'auto',
+    paddingLeft: 8,
+    lineHeight: 1,
+  },
+  cardTranscription: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontWeight: 400,
+    fontSize: 18,
+    lineHeight: '28px',
+    color: 'var(--ink)',
+    margin: 0,
+    textWrap: 'pretty',
+    letterSpacing: '-0.005em',
+  },
+  cardActions: {
+    marginTop: 14,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 14,
+    color: 'var(--ink3)',
+  },
+  cardAction: {
+    cursor: 'pointer',
+  },
+  // Dock
+  dockWrap: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    paddingTop: 20,
+    paddingBottom: 8,
+    background: 'linear-gradient(to top, var(--bg) 70%, transparent)',
+    zIndex: 5,
+  },
+  dock: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    width: '100%',
+    padding: '0 22px',
+  },
+  dockBtn: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    padding: '6px 0',
+    cursor: 'pointer',
+    color: 'var(--ink3)',
+  },
+  dockBtnActive: {
+    color: 'var(--bronze)',
+  },
+  dockLabel: {
+    fontFamily: 'var(--sans)',
+    fontSize: 10,
+    fontWeight: 500,
+    letterSpacing: '0.04em',
+  },
+  dockCenterWrap: {
+    flex: 1,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  dockCenterBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 999,
+    background: 'var(--ink)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--bg)',
+    cursor: 'pointer',
+    animation: 'capture-pulse 4s ease-in-out infinite',
+    marginTop: -2,
+  },
+};
+
+// ════════════════════════════════════════════════════════
+//  Icons (linha fina, 1.5px, ink3 default)
+// ════════════════════════════════════════════════════════
+const HomeIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 11l9-8 9 8" />
+    <path d="M5 10v10h14V10" />
+  </svg>
+);
+const InboxIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="6" width="18" height="13" rx="1" />
+    <path d="M3 13h6l1 2h4l1-2h6" />
+  </svg>
+);
+const CalendarIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="18" height="16" rx="1.5" />
+    <path d="M3 9.5h18M8 3.5v3.5M16 3.5v3.5" />
+  </svg>
+);
+const ClockIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5l3 1.8" />
+  </svg>
+);
+const CaptureIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+    <circle cx="12" cy="12" r="9" opacity="0.45" />
+    <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+    <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" opacity="0.6" />
+  </svg>
+);
+
+// ════════════════════════════════════════════════════════
+//  Components
+// ════════════════════════════════════════════════════════
+function FragmentCard({ time, kind, domain, domainColor, text, isCandidate, isPrivate }) {
+  return (
+    <div style={inboxStyles.card}>
+      <div style={inboxStyles.cardMeta}>
+        <span style={inboxStyles.cardTime}>{time}</span>
+        <span style={inboxStyles.cardSeparator}>·</span>
+        <span style={inboxStyles.cardKind}>{kind}</span>
+        <span style={inboxStyles.cardSeparator}>·</span>
+        <span style={{ ...inboxStyles.cardDomain, color: domainColor || 'var(--dom-atlas)' }}>{domain}</span>
+        {isPrivate && <span style={inboxStyles.cardPrivate}>privado</span>}
+        {isCandidate && !isPrivate && <span style={inboxStyles.bronzeStar}>✦</span>}
+      </div>
+      <p style={inboxStyles.cardTranscription}>«{text}»</p>
+      <div style={inboxStyles.cardActions}>
+        <span style={inboxStyles.cardAction}>promover</span>
+        <span style={inboxStyles.cardSeparator}>·</span>
+        <span style={inboxStyles.cardAction}>adiar</span>
+      </div>
+    </div>
+  );
+}
+
+function Dock({ active = 'inbox' }) {
+  const items = [
+    { id: 'home',    label: 'Home',   Icon: HomeIcon },
+    { id: 'inbox',   label: 'Inbox',  Icon: InboxIcon },
+    { id: 'capture', center: true,    Icon: CaptureIcon },
+    { id: 'review',  label: 'Review', Icon: CalendarIcon },
+    { id: 'ritual',  label: 'Ritual', Icon: ClockIcon },
+  ];
+  return (
+    <div style={inboxStyles.dockWrap}>
+      <div style={inboxStyles.dock}>
+        {items.map(it => {
+          if (it.center) {
+            return (
+              <div key={it.id} style={inboxStyles.dockCenterWrap}>
+                <div style={inboxStyles.dockCenterBtn}>
+                  <it.Icon />
+                </div>
+              </div>
+            );
+          }
+          const isActive = it.id === active;
+          return (
+            <div
+              key={it.id}
+              style={{ ...inboxStyles.dockBtn, ...(isActive ? inboxStyles.dockBtnActive : {}) }}
+            >
+              <it.Icon />
+              <span style={inboxStyles.dockLabel}>{it.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InboxScreen() {
+  return (
+    <div style={inboxStyles.screen}>
+      <Cartog />
+      <div style={inboxStyles.syncBar} />
+
+      <div style={inboxStyles.header}>
+        <h1 style={inboxStyles.title}>Inbox</h1>
+        <p style={inboxStyles.sub}>1 fragmento, capturado às 03:09</p>
+      </div>
+
+      <div style={inboxStyles.divider}>
+        <span>Hoje</span>
+        <span style={inboxStyles.dividerLine} />
+      </div>
+
+      <div style={inboxStyles.list}>
+        <FragmentCard
+          time="03:09"
+          kind="áudio"
+          domain="Atlas"
+          domainColor="var(--dom-atlas)"
+          text="Testando nova versão do Insper. Parece que ele melhorou bastante. Vamos ver se ele melhorou mesmo."
+          isCandidate={true}
+        />
+      </div>
+
+      <Dock active="inbox" />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  App — IosFrame + design notes lateral (assumptions)
+// ════════════════════════════════════════════════════════
+function App() {
+  return (
+    <div className="stage">
+      <div>
+        <p className="frame-cap">depois — fragmento como caderno editorial</p>
+        <IosFrame time="12:24" battery={82}>
+          <InboxScreen />
+        </IosFrame>
+      </div>
+
+      <div className="notes">
+        <h2>Inbox · refatorado</h2>
+        <p className="lede">
+          O Inbox do Atlas é um caderno onde fragmentos do dia repousam. Você lê primeiro, age depois. Ações são gestos, não toolbars.
+        </p>
+
+        <h3>Removido</h3>
+        <ul>
+          <li><span className="num">01</span><span><span className="rm">Avatar circular "T"</span> — Atlas é single-tenant (P4)</span></li>
+          <li><span className="num">02</span><span><span className="rm">Segmented Capturas / Operacional</span> — hierarquia se faz por tipografia</span></li>
+          <li><span className="num">03</span><span><span className="rm">Search bar permanente</span> — search vira gesto pull-down</span></li>
+          <li><span className="num">04</span><span><span className="rm">4 chips "abertas / sem destino / candidatas / propostas"</span> — divisor temporal basta</span></li>
+          <li><span className="num">05</span><span><span className="rm">Toolbar de 5 ações no card</span> — gerava ansiedade</span></li>
+          <li><span className="num">06</span><span><span className="rm">FAB azul prussiano cheio</span> — virou ink discreto com pulso vermelho-tinta</span></li>
+          <li><span className="num">07</span><span><span className="rm">Card com background surface</span> — captura virou parágrafo, não cartão</span></li>
+        </ul>
+
+        <h3>Adicionado</h3>
+        <ul>
+          <li><span className="num">08</span><span>Sub em Fraunces italic <em>"1 fragmento, capturado às 03:09"</em> — substitui "1 ABERTA · 9H IDADE MÉDIA" frio (P2)</span></li>
+          <li><span className="num">09</span><span>Cartog 3%: meridianos curvos + rosa dos ventos sutil (P12 literal)</span></li>
+          <li><span className="num">10</span><span>Transcrição em <em>Fraunces italic</em> com aspas «» — captura vira leitura editorial</span></li>
+          <li><span className="num">11</span><span>Glifo <span className="ok">✦</span> bronze: candidata a promover (P8 — bronze raro como joia)</span></li>
+          <li><span className="num">12</span><span>2 ações em italic ink3 ("promover · adiar"). Arquivar/destrutivo: swipe-left iOS</span></li>
+          <li><span className="num">13</span><span>Sync sweep bronze 1px sob status bar (já era DS, mantido)</span></li>
+          <li><span className="num">14</span><span>Aba ativa em bronze, não cor cheia</span></li>
+        </ul>
+
+        <h3>Bronze count <span style={{opacity: 0.5}}>(P8 ≤ 2 elementos)</span></h3>
+        <ul>
+          <li><span className="num">·</span><span>Glifo ✦ no fragment card promovível (1)</span></li>
+          <li><span className="num">·</span><span>Aba "Inbox" ativa no dock (2)</span></li>
+          <li><span className="num">·</span><span style={{opacity: 0.55}}>Sync sweep — pulso temporário, não conta</span></li>
+        </ul>
+
+        <h3>Assumptions <span style={{opacity: 0.5}}>(critique aqui se errei)</span></h3>
+        <p><em>1.</em> Search vira gesto pull-down (estilo Apple Mail). Sem chrome permanente.</p>
+        <p><em>2.</em> Ações destrutivas (Arquivar) ficam em swipe-left native iOS, não exposto no card.</p>
+        <p><em>3.</em> "Operacional" vira aba editorial (Fraunces italic em label) quando volume justificar — não merece segmented control.</p>
+        <p><em>4.</em> Card sem background, sem border. Captura é parágrafo, não cartão. Quando houver múltiplos, divisor temporal "Hoje / Ontem / Esta semana" separa.</p>
+        <p><em>5.</em> Botão captura central: ink (não prussiano), pulso vermelho-tinta sussurrado a 4s ease — ativo somente quando gravando.</p>
+        <p><em>6.</em> Domínio "Atlas" em label uppercase no chip de meta — não pílula chunky.</p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>

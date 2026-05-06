@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, type AppStateStatus, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -18,12 +19,19 @@ import {
 } from '../components/inbox/InboxDomainStatus'
 import { CaptureButton } from '../components/inbox/CaptureButton'
 import { OperationalInboxCard } from '../components/inbox/OperationalInboxCard'
+import { SwipeableCard } from '../components/inbox/SwipeableCard'
+import { LiveStatus } from '../components/inbox/LiveStatus'
+import { PaperVignette } from '../components/inbox/PaperVignette'
+import { NewCapturesPill } from '../components/inbox/NewCapturesPill'
+import { FocusModePill } from '../components/inbox/FocusModePill'
+import { useFreshCaptures } from '../lib/useFreshCaptures'
 import { Frau, Mono, Sans } from '../design/Type'
 import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 import { useShell } from '../components/AtlasShell'
 import { captureToInboxItem, useAtlasStore, visibleCaptures } from '../lib/atlasStore'
+import { atlasStorage } from '../lib/storage'
 import { syncAtlasBadge } from '../lib/pushNotifications'
 import {
   AtlasApiError,
@@ -43,7 +51,7 @@ import {
   type CaptureTriageInput,
 } from '../lib/api/client'
 
-type InboxFilter = 'open' | 'candidate' | 'proposal' | 'no_destination' | 'snoozed' | 'routed' | 'failed' | 'pending'
+type InboxFilter = 'open' | 'candidate' | 'proposal' | 'no_destination' | 'snoozed' | 'routed' | 'failed' | 'pending' | 'archived'
 type InboxSort = 'recent' | 'oldest' | 'needs_triage'
 type QuickAction = 'promote' | 'create_task' | 'create_project' | 'snooze' | 'archive'
 type BulkAction = 'promote' | 'snooze' | 'archive'
@@ -57,15 +65,19 @@ type ProjectPlanDraft = {
   estimatedMinutes: string
 }
 
+// 'no_destination' removido (2026-05) · era duplicata operacional de 'abertas'.
+// abertas = visíveis sem destino resolvido. no_destination = isRawCapture flag.
+// Toda captura aberta é também raw (não foi triada) → counts iguais sempre.
+// Mantido o case no filterItem switch caso precise no futuro, só fora do strip visual.
 const FILTERS: Array<{ key: InboxFilter; label: string }> = [
   { key: 'open', label: 'abertas' },
-  { key: 'no_destination', label: 'sem destino' },
   { key: 'candidate', label: 'candidatas' },
   { key: 'proposal', label: 'propostas' },
   { key: 'snoozed', label: 'adiadas' },
   { key: 'failed', label: 'falhas' },
   { key: 'pending', label: 'pendentes' },
   { key: 'routed', label: 'com destino' },
+  { key: 'archived', label: 'arquivadas' },
 ]
 
 const TASK_PRIORITIES: Array<{ key: TaskPriority; label: string }> = [
@@ -97,12 +109,16 @@ const ROMAN_MONTHS = [
   'VII', 'VIII', 'IX', 'X', 'XI', 'XII',
 ]
 
+// Microcopy educativa 1x na vida ao primeiro arquivamento · Lei 6 dataset sagrado.
+const ARCHIVE_HINT_STORAGE_KEY = 'atlas-inbox.archive-hint-shown'
+
 const OPERATIONAL_PAGE_SIZE = 25
 const OPERATIONAL_POLL_INTERVAL_MS = 90_000
 const OPERATIONAL_POLL_JITTER_MS = 4_000
 
 export default function InboxScreen() {
   const c = usePalette()
+  const insets = useSafeAreaInsets()
   const router = useRouter()
   const { showToast } = useShell()
   const openDetail = useOverlays((s) => s.openDetail)
@@ -122,6 +138,8 @@ export default function InboxScreen() {
   )
   const [mode, setMode] = useState<InboxMode>('captures')
   const [filter, setFilter] = useState<InboxFilter>('open')
+  const [morningNotifDismissed, setMorningNotifDismissed] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
   const [domainFilter, setDomainFilter] = useState<InboxDomainFilter>('all')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<InboxSort>('recent')
@@ -164,7 +182,7 @@ export default function InboxScreen() {
   )
   const metrics = useMemo(() => inboxMetrics(openItems), [openItems])
   const filteredItems = useMemo(() => {
-    const baseItems = filter === 'snoozed' || filter === 'proposal' ? items : visibleItems
+    const baseItems = filter === 'snoozed' || filter === 'proposal' || filter === 'archived' ? items : visibleItems
 
     return baseItems
         .filter((item) => domainFilter === 'all' || item.domain === domainFilter)
@@ -173,6 +191,18 @@ export default function InboxScreen() {
   }, [items, visibleItems, domainFilter, filter, query])
   const sortedItems = useMemo(() => sortItems(filteredItems, sort), [filteredItems, sort])
   const groups = useMemo(() => groupByDate(sortedItems), [sortedItems])
+  // Frente 4 v6 · fresh capture detection (≤30s) · usado em isFresh prop do InboxCard
+  const freshIds = useFreshCaptures(items)
+  // Frente 2 v7 · morning notification editorial · só mostra quando há propostas reais e usuário não dismissou
+  const proposalsCount = useMemo(
+    () => items.filter((item) => isProposalItem(item)).length,
+    [items],
+  )
+  const showMorningNotif =
+    !morningNotifDismissed &&
+    proposalsCount > 0 &&
+    filter !== 'proposal' &&
+    mode === 'captures'
   const operationalCounts = useMemo(() => countOperationalItems(operationalItems), [operationalItems])
   const operationalCriticalCount = useMemo(
     () => operationalItems.filter((item) => item.severity === 'critical').length,
@@ -355,7 +385,18 @@ export default function InboxScreen() {
     setBusyCaptureId(item.id)
     try {
       const result = await triageCapture(item.id, triageInputFor(item, action, overrides))
-      showToast(result ? quickActionMessage(action) : 'falha ao aplicar ação')
+      if (result && action === 'archive') {
+        // Microcopy educativa 1x na vida · Lei 6 dataset sagrado
+        const seen = await atlasStorage.getItem(ARCHIVE_HINT_STORAGE_KEY)
+        if (!seen) {
+          showToast('arquivado · vira filtro "arquivadas". nada se perde.')
+          await atlasStorage.setItem(ARCHIVE_HINT_STORAGE_KEY, '1')
+        } else {
+          showToast(quickActionMessage(action))
+        }
+      } else {
+        showToast(result ? quickActionMessage(action) : 'falha ao aplicar ação')
+      }
     } finally {
       setBusyCaptureId(null)
     }
@@ -538,12 +579,39 @@ export default function InboxScreen() {
   }
 
   return (
+    <View style={styles.fill}>
+    {/* PaperVignette FORA do Screen · absoluteFillObject precisa preencher
+        a viewport, não o contentContainer do ScrollView (que tem altura da
+        rolagem inteira e gera retângulo visível com borda dura). */}
+    <PaperVignette />
     <Screen>
-      <View style={[styles.titleBlock, styles.titleRow]}>
+      <LiveStatus initialIdx={0} hasEvent={proposalsCount > 0} />
+      <NewCapturesPill
+        visible={showMorningNotif}
+        count={proposalsCount}
+        onPress={() => {
+          setFilter('proposal')
+          setMorningNotifDismissed(true)
+        }}
+      />
+      <View style={styles.titleBlock}>
         <View style={styles.titleColumn}>
-          <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink}>
-            Inbox
-          </Frau>
+          <Pressable
+            onLongPress={() => setFocusMode((f) => !f)}
+            delayLongPress={400}
+            accessibilityRole="header"
+            accessibilityLabel="Inbox · pressione e segure para entrar em modo foco"
+          >
+            <Frau
+              size={focusMode ? 32 : 42}
+              lineHeight={focusMode ? 36 : 44}
+              letterSpacing={-1.05}
+              color={c.ink}
+              style={styles.letterpressTitle}
+            >
+              Inbox
+            </Frau>
+          </Pressable>
           {mode === 'captures' ? (
             <MetaLine metrics={metrics} />
           ) : (
@@ -555,24 +623,28 @@ export default function InboxScreen() {
             />
           )}
         </View>
-        <CaptureButton onPress={() => router.push('/capture?mode=text')} />
       </View>
 
-      <InboxModeTabs
-        active={mode}
-        capturesCount={metrics.open}
-        operationalCount={operationalCounts.all}
-        operationalCritical={operationalCriticalCount}
-        onChange={setMode}
-      />
+      {!focusMode ? (
+        <InboxModeTabs
+          active={mode}
+          capturesCount={metrics.open}
+          operationalCount={operationalCounts.all}
+          operationalCritical={operationalCriticalCount}
+          onChange={setMode}
+        />
+      ) : null}
 
       {mode === 'captures' ? (
         <>
-          <InboxDomainStatus
-            domain={domainFilter}
-            onPress={() => openDomainFilter(domainFilter, setDomainFilter)}
-          />
+          {!focusMode ? (
+            <InboxDomainStatus
+              domain={domainFilter}
+              onPress={() => openDomainFilter(domainFilter, setDomainFilter)}
+            />
+          ) : null}
 
+          {!focusMode ? (
           <Animated.View
             style={[
               styles.searchPill,
@@ -607,83 +679,121 @@ export default function InboxScreen() {
               </Frau>
             </Pressable>
           </Animated.View>
+          ) : null}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterStrip}
-            style={styles.filterScroll}
-          >
-            {FILTERS.map((option) => (
-              <FilterChip
-                key={option.key}
-                label={option.label}
-                active={filter === option.key}
-                onPress={() => setFilter(option.key)}
-              />
-            ))}
-            <Pressable
-              onPress={() => setSort(nextSort(sort))}
-              hitSlop={6}
-              style={({ pressed }) => [styles.sortLink, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Frau italic size={13} lineHeight={17} color={c.ink2} style={{ opacity: 0.8 }}>
-                · por {sortLabel(sort)}
+          {!focusMode ? (
+            <View style={styles.filterStripWrap}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterStrip}
+                style={styles.filterScroll}
+              >
+                {FILTERS.map((option) => (
+                  <FilterChip
+                    key={option.key}
+                    label={option.label}
+                    count={countItemsForFilter(items, visibleItems, option.key)}
+                    active={filter === option.key}
+                    onPress={() => setFilter(option.key)}
+                  />
+                ))}
+                <Pressable
+                  onPress={() => setSort(nextSort(sort))}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.sortLink, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Frau italic size={13} lineHeight={17} color={c.ink2} style={{ opacity: 0.8 }}>
+                    · por {sortLabel(sort)}
+                  </Frau>
+                </Pressable>
+              </ScrollView>
+              {/* Frente 7 v6 · fade-edge à direita + glifo "→" indicando overflow */}
+              <View pointerEvents="none" style={[styles.filterFadeEdge, { backgroundColor: c.bg }]} />
+              <Frau
+                italic
+                size={13}
+                lineHeight={17}
+                color={c.ink3}
+                style={styles.filterEdgeArrow}
+              >
+                →
               </Frau>
-            </Pressable>
-          </ScrollView>
+            </View>
+          ) : null}
 
           {selectionMode && selectedIds.length > 0 ? (
-            <View style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.surface }]}>
-              <Sans size={12} lineHeight={16} color={c.ink2}>{selectedIds.length} selecionadas</Sans>
-              <ActionText label="Promover" onPress={() => void runBulkAction('promote')} />
-              <ActionText label="Adiar" onPress={() => setSnoozeTarget('bulk')} />
-              <ActionText label="Arquivar" danger onPress={() => void runBulkAction('archive')} />
+            <View style={[styles.bulkBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
+              <Frau italic size={14} lineHeight={18} color={c.ink}>
+                {selectedIds.length} selecionada{selectedIds.length !== 1 ? 's' : ''}
+              </Frau>
+              <View style={{ flex: 1 }} />
+              <ActionText label="promover" onPress={() => void runBulkAction('promote')} />
+              <Frau italic size={12} color={c.ink3} style={{ opacity: 0.45 }}>·</Frau>
+              <ActionText label="adiar" onPress={() => setSnoozeTarget('bulk')} />
+              <Frau italic size={12} color={c.ink3} style={{ opacity: 0.45 }}>·</Frau>
+              <ActionText label="arquivar" danger onPress={() => void runBulkAction('archive')} />
             </View>
           ) : null}
 
           {taskPriorityItem ? (
-            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
+            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
+                <Sans
+                  weight="med"
+                  size={10}
+                  lineHeight={14}
+                  letterSpacing={1.3}
+                  color={c.ink2}
+                  style={styles.uppercase}
+                >
                   Prioridade da tarefa
                 </Sans>
-                <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
+                <Frau italic size={13} lineHeight={17} color={c.ink2} numberOfLines={1} style={{ marginTop: 2 }}>
                   {compactTitle(taskPriorityItem)}
-                </Sans>
+                </Frau>
               </View>
               <View style={styles.priorityOptions}>
                 {TASK_PRIORITIES.map((priority) => (
                   <PriorityChip
                     key={priority.key}
                     label={priority.label}
+                    tone={priority.key}
                     onPress={() => void runTaskWithPriority(priority.key)}
                   />
                 ))}
-                <ActionText label="Cancelar" onPress={() => setTaskPriorityItem(null)} />
+                <ActionText label="cancelar" onPress={() => setTaskPriorityItem(null)} />
               </View>
             </View>
           ) : null}
 
           {snoozeTarget ? (
-            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.surface }]}>
+            <View style={[styles.priorityBar, { borderColor: c.border, backgroundColor: c.bgDeep }]}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Sans weight="med" size={12} lineHeight={16} color={c.ink}>
-                  Adiar captura
+                <Sans
+                  weight="med"
+                  size={10}
+                  lineHeight={14}
+                  letterSpacing={1.3}
+                  color={c.ink2}
+                  style={styles.uppercase}
+                >
+                  Adiar para
                 </Sans>
-                <Sans size={11.5} lineHeight={15} color={c.ink2} numberOfLines={1}>
+                <Frau italic size={13} lineHeight={17} color={c.ink2} numberOfLines={1} style={{ marginTop: 2 }}>
                   {snoozeTarget === 'bulk' ? `${selectedIds.length} selecionadas` : compactTitle(snoozeTarget)}
-                </Sans>
+                </Frau>
               </View>
               <View style={styles.priorityOptions}>
                 {SNOOZE_CHOICES.map((choice) => (
                   <PriorityChip
                     key={choice.key}
                     label={choice.label}
+                    tone="neutral"
                     onPress={() => void runSnoozeChoice(choice.days, choice.reason)}
                   />
                 ))}
-                <ActionText label="Cancelar" onPress={() => setSnoozeTarget(null)} />
+                <ActionText label="cancelar" onPress={() => setSnoozeTarget(null)} />
               </View>
             </View>
           ) : null}
@@ -728,7 +838,7 @@ export default function InboxScreen() {
                       <PriorityChip
                         key={priority.key}
                         label={priority.label}
-                        active={projectPlanDraft.priority === priority.key}
+                        tone={projectPlanDraft.priority === priority.key ? priority.key : 'neutral'}
                         onPress={() => setProjectPlanDraft((draft) => ({ ...draft, priority: priority.key }))}
                       />
                     ))}
@@ -762,7 +872,7 @@ export default function InboxScreen() {
           {loading ? (
             <InboxSkeleton />
           ) : groups.length === 0 ? (
-            <EmptyInbox />
+            <EmptyInbox variant={openItems.length === 0 ? 'inbox' : filter} />
           ) : (
             <View>
               {groups.map((group, idx) => (
@@ -773,20 +883,27 @@ export default function InboxScreen() {
                   />
                   <View style={styles.list}>
                     {group.items.map((item) => (
-                      <InboxCard
+                      <SwipeableCard
                         key={item.id}
-                        item={item}
-                        selected={selectedIds.includes(item.id)}
-                        selectionMode={selectionMode}
-                        onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
-                        onPromote={() => void runQuickAction(item, 'promote')}
-                        onCreateTask={() => askTaskPriority(item)}
-                        onCreateProject={() => void askProjectPlan(item)}
-                        onSnooze={() => askSnooze(item)}
-                        onArchive={() => void runQuickAction(item, 'archive')}
-                        onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
-                        actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
-                      />
+                        enabled={!selectionMode && !item.isLocal && !item.isArchived}
+                        onSnooze={item.isLocal ? undefined : () => askSnooze(item)}
+                        onArchive={item.isLocal ? undefined : () => void runQuickAction(item, 'archive')}
+                      >
+                        <InboxCard
+                          item={item}
+                          selected={selectedIds.includes(item.id)}
+                          selectionMode={selectionMode}
+                          isFresh={freshIds.has(item.id)}
+                          onPress={() => selectionMode ? toggleSelected(item) : openDetail(item)}
+                          onPromote={() => void runQuickAction(item, 'promote')}
+                          onCreateTask={() => askTaskPriority(item)}
+                          onCreateProject={() => void askProjectPlan(item)}
+                          onSnooze={() => askSnooze(item)}
+                          onArchive={() => void runQuickAction(item, 'archive')}
+                          onOpenDestination={isNavigableDestination(item) ? () => openDestination(item) : undefined}
+                          actionBusy={busyCaptureId === item.id || busyCaptureId === 'bulk'}
+                        />
+                      </SwipeableCard>
                     ))}
                   </View>
                 </View>
@@ -860,9 +977,32 @@ export default function InboxScreen() {
         </>
       )}
     </Screen>
+
+    {/* Floating capture · v8 thumb-zone · sai do top-right pra perto do polegar.
+        Bottom = dock height (64) + dock baseline (8) + insets + 16 breath.
+        pointerEvents="box-none" deixa toques passarem pelo overlay vazio. */}
+    <View
+      pointerEvents="box-none"
+      style={[styles.floatingCapture, { bottom: 88 + insets.bottom }]}
+    >
+      {focusMode ? (
+        <FocusModePill onPress={() => setFocusMode(false)} />
+      ) : (
+        <CaptureButton
+          onPress={() => router.push('/capture?mode=text')}
+          onLongPress={() => router.push('/capture?mode=audio')}
+          size={60}
+        />
+      )}
+    </View>
+    </View>
   )
 }
 
+// v11 · ModeTabs centralizados · número ao lado removido (era "Capturas 5"/"Operacional 0")
+// — count agora vive APENAS no subtitle ("5 abertas"/"0 ativos"), evita redundância.
+// Tabs como grupo centralizado · gap 40 entre eles · underline acompanha largura
+// exata da label (não overflow no tab inteiro como antes).
 function InboxModeTabs({
   active,
   capturesCount,
@@ -879,18 +1019,16 @@ function InboxModeTabs({
   const c = usePalette()
 
   return (
-    <View style={[styles.modeTabs, { borderColor: c.border, backgroundColor: c.premium }]}>
+    <View style={[styles.modeTabs, { borderBottomColor: c.border }]}>
       <InboxModeTab
         label="Capturas"
         subtitle={captureCountLabel(capturesCount)}
-        count={capturesCount}
         active={active === 'captures'}
         onPress={() => onChange('captures')}
       />
       <InboxModeTab
         label="Operacional"
         subtitle={operationalTabSubtitle(operationalCount, operationalCritical)}
-        count={operationalCount}
         critical={operationalCritical > 0}
         active={active === 'operational'}
         onPress={() => onChange('operational')}
@@ -902,45 +1040,63 @@ function InboxModeTabs({
 function InboxModeTab({
   label,
   subtitle,
-  count,
   critical,
   active,
   onPress,
 }: {
   label: string
   subtitle: string
-  count: number
   critical?: boolean
   active: boolean
   onPress: () => void
 }) {
   const c = usePalette()
-  const tone = critical ? c.recRed : c.prussian
 
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={`${label} · ${subtitle}`}
       style={({ pressed }) => [
         styles.modeTab,
         {
-          backgroundColor: active ? c.surface : 'transparent',
           opacity: pressed ? 0.72 : 1,
         },
       ]}
     >
-      <View style={styles.modeTabHeader}>
-        <Sans weight="sb" size={13} lineHeight={17} color={active ? c.ink : c.ink2} numberOfLines={1}>
-          {label}
-        </Sans>
-        <View style={[styles.modeTabBadge, { borderColor: active ? tone : c.border }]}>
-          <Mono size={10.5} lineHeight={14} color={active ? tone : c.ink3}>
-            {count}
-          </Mono>
+      {/* Label group · underline acompanha largura exata da label.
+          Ativo: 22pt ink full · Inativo: 19pt ink2 muted · diferença
+          de scale (3pt) faz a hierarquia editorial sem precisar de cor saturada. */}
+      <View style={styles.modeTabLabelGroup}>
+        <View style={styles.modeTabLabelRow}>
+          <Frau
+            size={active ? 22 : 19}
+            lineHeight={active ? 28 : 24}
+            letterSpacing={active ? -0.3 : -0.1}
+            color={active ? c.ink : c.ink2}
+            numberOfLines={1}
+          >
+            {label}
+          </Frau>
+          {critical ? (
+            <View style={[styles.modeTabCriticalDot, { backgroundColor: c.recRed }]} />
+          ) : null}
         </View>
+        {active ? <View style={styles.modeTabUnderline} /> : null}
       </View>
-      <Sans size={11} lineHeight={14} color={active ? c.ink2 : c.ink3} numberOfLines={1}>
+      {/* Subtitle · count vive aqui ("5 abertas") · italic small ink2 muted.
+          Sempre visível em ambos tabs · sem ocultar contexto. */}
+      <Frau
+        italic
+        size={12}
+        lineHeight={16}
+        color={c.ink2}
+        numberOfLines={1}
+        style={!active ? styles.modeTabSubtitleInactive : undefined}
+      >
         {subtitle}
-      </Sans>
+      </Frau>
     </Pressable>
   )
 }
@@ -956,35 +1112,71 @@ function MetaLine({ metrics }: { metrics: ReturnType<typeof inboxMetrics> }) {
   if (metrics.failed > 0) {
     segments.push({ text: failureLabel(metrics.failed), color: c.recRed })
   }
+  const voice = inboxVoiceLine(metrics)
   return (
-    <View style={styles.metaRow}>
-      {segments.map((seg, i) => (
-        <View key={i} style={styles.metaSegment}>
-          {i > 0 ? (
+    <View>
+      <View style={styles.metaRow}>
+        {segments.map((seg, i) => (
+          <View key={i} style={styles.metaSegment}>
+            {i > 0 ? (
+              <Sans
+                weight="med"
+                size={11}
+                lineHeight={14}
+                letterSpacing={1.1}
+                color={c.ink3}
+              >
+                ·
+              </Sans>
+            ) : null}
             <Sans
               weight="med"
               size={11}
               lineHeight={14}
               letterSpacing={1.1}
-              color={c.ink3}
+              color={seg.color}
+              style={styles.uppercase}
             >
-              ·
+              {seg.text}
             </Sans>
-          ) : null}
-          <Sans
-            weight="med"
-            size={11}
-            lineHeight={14}
-            letterSpacing={1.1}
-            color={seg.color}
-            style={styles.uppercase}
-          >
-            {seg.text}
-          </Sans>
-        </View>
-      ))}
+          </View>
+        ))}
+      </View>
+      {voice ? (
+        <Frau
+          italic
+          size={14.5}
+          lineHeight={21}
+          letterSpacing={-0.07}
+          color={c.ink2}
+          style={styles.voiceLine}
+        >
+          {voice}
+        </Frau>
+      ) : null}
     </View>
   )
+}
+
+// Voz editorial dinâmica · Atlas falando, não posando.
+function inboxVoiceLine(metrics: ReturnType<typeof inboxMetrics>): string | null {
+  if (metrics.open === 0) return 'o dia ainda está por dizer.'
+  if (metrics.open === 1) {
+    return metrics.firstTimeLabel
+      ? `um fragmento, capturado às ${metrics.firstTimeLabel} — ainda por destinar.`
+      : 'um fragmento — ainda por destinar.'
+  }
+  return metrics.firstTimeLabel
+    ? `${numberInWords(metrics.open)} fragmentos · o primeiro às ${metrics.firstTimeLabel}.`
+    : `${numberInWords(metrics.open)} fragmentos · ainda por destinar.`
+}
+
+function numberInWords(n: number): string {
+  const map: Record<number, string> = {
+    2: 'dois', 3: 'três', 4: 'quatro', 5: 'cinco',
+    6: 'seis', 7: 'sete', 8: 'oito', 9: 'nove', 10: 'dez',
+  }
+  return map[n] ?? String(n)
 }
 
 function OperationalMetaLine({
@@ -1333,10 +1525,12 @@ function operationalActionMessage(actionId: string, result: Record<string, unkno
 function FilterChip({
   label,
   active,
+  count,
   onPress,
 }: {
   label: string
   active: boolean
+  count?: number
   onPress: () => void
 }) {
   const c = usePalette()
@@ -1346,20 +1540,32 @@ function FilterChip({
       style={({ pressed }) => [
         styles.filterChip,
         {
-          borderColor: active ? c.ink : c.border,
-          backgroundColor: active ? c.surface : 'transparent',
+          // v12 · bronze 60% sussurro · matching ModeTabs underline.
+          // Era c.ink full = SaaS shouting. Agora bronze editorial signature.
+          borderBottomColor: active ? 'rgba(155,122,63,0.60)' : 'transparent',
           opacity: pressed ? 0.6 : 1,
         },
       ]}
     >
-      <Sans
-        weight={active ? 'med' : 'reg'}
-        size={13}
-        lineHeight={17}
+      <Frau
+        italic
+        size={14.5}
+        lineHeight={18}
         color={active ? c.ink : c.ink3}
       >
         {label}
-      </Sans>
+      </Frau>
+      {count != null && count > 0 ? (
+        <Mono
+          size={10.5}
+          lineHeight={14}
+          letterSpacing={0.21}
+          color={active ? c.ink2 : c.ink3}
+          style={styles.filterChipCount}
+        >
+          {count}
+        </Mono>
+      ) : null}
     </Pressable>
   )
 }
@@ -1373,6 +1579,17 @@ function isVisibleInboxItem(item: InboxItem): boolean {
 
 function isOpenInboxItem(item: InboxItem): boolean {
   return isVisibleInboxItem(item) && !hasResolvedDestination(item)
+}
+
+// Conta capturas pra cada filtro · usado pelo count nos chips do FilterStrip.
+// Usa items completos (snoozed/proposal precisam disso) ou visibleItems (resto).
+function countItemsForFilter(
+  items: InboxItem[],
+  visibleItems: InboxItem[],
+  filter: InboxFilter,
+): number {
+  const baseItems = filter === 'snoozed' || filter === 'proposal' ? items : visibleItems
+  return baseItems.filter((item) => filterItem(item, filter)).length
 }
 
 function filterItem(item: InboxItem, filter: InboxFilter): boolean {
@@ -1395,6 +1612,8 @@ function filterItem(item: InboxItem, filter: InboxFilter): boolean {
       return hasResolvedDestination(item)
     case 'failed':
       return Boolean(item.transcriptionStatus === 'failed' || item.fileIntegrity === 'missing')
+    case 'archived':
+      return Boolean(item.isArchived)
     case 'open':
     default:
       return isOpenInboxItem(item)
@@ -1630,29 +1849,35 @@ function ProposalText({ label, value }: { label: string; value?: string | null }
 
 function PriorityChip({
   label,
-  active,
+  tone,
   onPress,
 }: {
   label: string
-  active?: boolean
+  tone?: 'low' | 'normal' | 'high' | 'urgent' | 'neutral'
   onPress: () => void
 }) {
   const c = usePalette()
+  const color =
+    tone === 'low' ? c.ink3 :
+    tone === 'normal' ? c.ink2 :
+    tone === 'high' ? c.bronze :
+    tone === 'urgent' ? c.recRed :
+    c.ink2
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.priorityChip,
         {
-          borderColor: active ? c.prussian : c.border,
-          backgroundColor: active ? c.premium : (pressed ? c.premium : c.bg),
+          borderColor: color,
+          backgroundColor: pressed ? c.bgRaised : c.bg,
           opacity: pressed ? 0.75 : 1,
         },
       ]}
     >
-      <Sans weight="med" size={11.5} lineHeight={15} color={c.prussian}>
+      <Frau italic size={14} lineHeight={18} color={color}>
         {label}
-      </Sans>
+      </Frau>
     </Pressable>
   )
 }
@@ -1672,9 +1897,9 @@ function ActionText({
       onPress={onPress}
       style={({ pressed }) => [styles.actionText, { opacity: pressed ? 0.6 : 1 }]}
     >
-      <Sans weight="med" size={12} lineHeight={16} color={danger ? c.recRed : c.prussian}>
+      <Frau italic size={13} lineHeight={17} color={danger ? c.recRedMuted : c.ink2}>
         {label}
-      </Sans>
+      </Frau>
     </Pressable>
   )
 }
@@ -1690,9 +1915,20 @@ function inboxMetrics(items: InboxItem[]) {
     ? ages.reduce((sum, age) => sum + age, 0) / ages.length
     : 0
 
+  // Primeira captura (mais antiga) — usado pela voz editorial
+  const sortedByCaptured = [...items]
+    .filter((item) => Boolean(item.capturedAt))
+    .sort(
+      (a, b) =>
+        new Date(a.capturedAt as string).getTime() -
+        new Date(b.capturedAt as string).getTime(),
+    )
+  const firstTimeLabel = sortedByCaptured[0]?.time ?? null
+
   return {
     open: items.length,
     averageAgeLabel: formatAge(averageAgeMs),
+    firstTimeLabel,
     failed: items.filter(
       (item) =>
         item.transcriptionStatus === 'failed' || item.fileIntegrity === 'missing',
@@ -1778,13 +2014,17 @@ function dateLabel(date: Date): string {
 }
 
 const styles = StyleSheet.create({
-  titleBlock: { marginBottom: 14 },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 16,
+  fill: { flex: 1 },
+  // Floating capture · v8 thumb-zone · ancorado ao bottom-right do dispositivo.
+  // Right alinhado com padrão do dock (margem 24px) · zIndex 28 fica acima do
+  // conteúdo do ScrollView mas abaixo do dock (zIndex 30) e modais (z >= 40).
+  floatingCapture: {
+    position: 'absolute',
+    right: 24,
+    zIndex: 28,
+    alignItems: 'flex-end',
   },
+  titleBlock: { marginBottom: 14 },
   titleColumn: { flex: 1 },
   metaRow: {
     flexDirection: 'row',
@@ -1795,36 +2035,68 @@ const styles = StyleSheet.create({
   },
   metaSegment: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   uppercase: { textTransform: 'uppercase' },
+  voiceLine: {
+    marginTop: 12,
+    maxWidth: 320,
+  },
+  // Técnica #4 v5 · letterpress sutil · highlight marfim 1px abaixo simula deboss em papel.
+  // RN não suporta múltiplas textShadows como CSS — usamos apenas a highlight clara.
+  letterpressTitle: {
+    textShadowColor: 'rgba(255, 250, 240, 0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 0,
+  },
+  // v11 · ModeTabs centralizados · gap 40 entre tabs · sem border row inteira.
+  // justifyContent center → ambos tabs viram um grupo no centro da tela.
   modeTabs: {
     flexDirection: 'row',
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 4,
-    gap: 4,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: 40,
+    paddingTop: 4,
+    paddingBottom: 14,
+    marginTop: 14,
     marginBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'transparent',
   },
+  // Tab individual · alignItems center → label e subtitle alinhados no eixo X.
+  // gap 6 → respiro entre label e subtitle (com underline no meio quando active).
   modeTab: {
-    flex: 1,
-    minHeight: 54,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    justifyContent: 'center',
-    gap: 4,
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    gap: 6,
   },
-  modeTabHeader: {
+  // Label group · column · alignItems stretch → underline acompanha largura
+  // exata da label-row (não mais do tab inteiro como no v10).
+  modeTabLabelGroup: {
+    alignItems: 'stretch',
+  },
+  // Row da label · centro horizontal pra critical dot ficar adjacente sem
+  // empurrar a label fora do center.
+  modeTabLabelRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  modeTabBadge: {
-    minWidth: 24,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'center',
-    paddingHorizontal: 7,
+    gap: 5,
+  },
+  modeTabSubtitleInactive: {
+    opacity: 0.78,
+  },
+  // v12 · underline editorial premium · 1.5→1px bronze 60% (não mais ink full).
+  // Antes: traço grosso 1.5px ink full = SaaS UI shouting. Agora: hairline
+  // bronze sussurrando = Aesop/Parfums de Marly editorial signature (P12 + bronze
+  // count P8: 1 aqui + 1 no FilterChip = 2 always-visible permanente).
+  // marginTop 5→7 dá mais respiro entre label baseline e underline (peso magazine).
+  modeTabUnderline: {
+    height: 1,
+    marginTop: 7,
+    backgroundColor: 'rgba(155,122,63,0.60)', // bronze 60% sussurro
+  },
+  modeTabCriticalDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
   },
   filterScroll: { marginBottom: 8 },
   searchPill: {
@@ -1956,16 +2228,44 @@ const styles = StyleSheet.create({
     minHeight: 30,
     justifyContent: 'center',
   },
+  filterStripWrap: {
+    position: 'relative',
+  },
+  filterFadeEdge: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 6,
+    width: 28,
+    opacity: 0.9,
+  },
+  filterEdgeArrow: {
+    position: 'absolute',
+    right: 6,
+    top: '50%',
+    marginTop: -10,
+    opacity: 0.7,
+  },
   filterStrip: {
     flexDirection: 'row',
-    gap: 8,
-    paddingRight: 16,
+    alignItems: 'baseline',
+    gap: 22,
+    paddingRight: 36,
   },
+  // v12 · underline editorial premium matching ModeTabs.
+  // borderBottomWidth 1.5→1 · paddingBottom 4→6 (mais respiro pré-underline).
+  // borderBottomColor agora bronze 60% (vem inline na render porque depende
+  // do active state). Quieto, sussurra, jamais grita.
   filterChip: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 5,
+    paddingHorizontal: 0,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+  },
+  filterChipCount: {
+    opacity: 0.6,
   },
   operationalFilterScroll: {
     marginTop: -4,

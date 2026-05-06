@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas — Inbox v2</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<style>
+:root {
+  --bg:        #F4EFE6;
+  --surface:   #EAE3D6;
+  --premium:   #E0D8C9;
+  --ink:       #1A1612;
+  --ink2:      #6B6358;
+  --ink3:      #A89F90;
+  --border:    #D4CCBC;
+  --bronze:    #9B7A3F;
+  --bronze-deep: #7A5E2F;
+  --prussian:  #1B3A57;
+  --rec-red:   #8B2635;
+  --moss:      #4A5D3A;
+  --dom-blackink: #1B3A57;
+  --dom-atlas:    #5D4A8A;
+  --dom-saude:    #4A5D3A;
+  --dom-financas: #9B7A3F;
+  --dom-outro:    #6B6358;
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans:  'Inter', -apple-system, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  background: #15110d;
+  font-family: var(--sans);
+  color: rgba(244,239,230,0.85);
+  min-height: 100vh;
+}
+
+@keyframes sync-sweep {
+  0%, 100% { opacity: 0; transform: translateX(-100%); }
+  50%      { opacity: 1; transform: translateX(0%); }
+}
+@keyframes capture-rest {
+  0%, 100% { box-shadow: 0 8px 24px rgba(26,22,18,0.18); }
+  50%      { box-shadow: 0 8px 24px rgba(26,22,18,0.18), 0 0 0 4px rgba(155,122,63,0.06); }
+}
+
+.stage {
+  min-height: 100vh;
+  padding: 56px 40px;
+  display: flex;
+  gap: 56px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.frame-cap {
+  font-family: var(--serif);
+  font-style: italic;
+  color: rgba(244,239,230,0.5);
+  font-size: 13px;
+  margin: 0 0 14px;
+  text-align: center;
+}
+
+.notes {
+  max-width: 380px;
+  padding-top: 28px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(244,239,230,0.72);
+}
+.notes h2 {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  color: #F4EFE6;
+  margin: 0 0 4px;
+}
+.notes .lede {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(244,239,230,0.92);
+  margin: 8px 0 28px;
+  border-left: 1px solid rgba(155,122,63,0.5);
+  padding-left: 14px;
+}
+.notes h3 {
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: rgba(244,239,230,0.45);
+  margin: 26px 0 10px;
+  font-weight: 500;
+}
+.notes p { margin: 0 0 12px; }
+.notes em {
+  font-family: var(--serif);
+  font-style: italic;
+  color: rgba(244,239,230,0.95);
+}
+.notes ul { margin: 0; padding: 0; list-style: none; }
+.notes li {
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(244,239,230,0.06);
+  display: flex; gap: 12px;
+}
+.notes li:last-child { border-bottom: none; }
+.notes li .num {
+  font-family: var(--mono);
+  color: rgba(244,239,230,0.4);
+  font-size: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  min-width: 18px;
+}
+.notes .br { color: #C9A663; font-family: var(--serif); font-style: italic; }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+// ════════════════════════════════════════════════════════
+//  IosFrame — huashu canonical
+// ════════════════════════════════════════════════════════
+const iosFrameStyles = {
+  wrapper: {
+    display: 'inline-block',
+    padding: 12,
+    background: '#000',
+    borderRadius: 60,
+    boxShadow: '0 0 0 2px #1f2937, 0 20px 60px rgba(0,0,0,0.4)',
+    position: 'relative',
+  },
+  screen: {
+    position: 'relative',
+    borderRadius: 48,
+    overflow: 'hidden',
+    background: '#F4EFE6',
+  },
+  statusBar: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 54,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 32px',
+    fontSize: 16,
+    fontWeight: 600,
+    fontFamily: '-apple-system, "SF Pro Text", sans-serif',
+    zIndex: 20,
+    pointerEvents: 'none',
+  },
+  dynamicIsland: {
+    position: 'absolute',
+    top: 12, left: '50%',
+    transform: 'translateX(-50%)',
+    width: 124, height: 36,
+    background: '#000',
+    borderRadius: 999,
+    zIndex: 30,
+  },
+  statusIcons: { display: 'flex', alignItems: 'center', gap: 6 },
+  signalIcon: { display: 'flex', alignItems: 'flex-end', gap: 2, height: 12 },
+  signalBar: { width: 3, background: 'currentColor', borderRadius: 1 },
+  batteryIcon: {
+    width: 26, height: 12,
+    border: '1.5px solid currentColor',
+    borderRadius: 3, padding: 1,
+    position: 'relative', opacity: 0.85,
+  },
+  batteryCap: {
+    position: 'absolute', top: 3, right: -3,
+    width: 2, height: 6, background: 'currentColor',
+    borderRadius: '0 1px 1px 0',
+  },
+  content: {
+    position: 'absolute',
+    top: 54, left: 0, right: 0, bottom: 34,
+    overflow: 'auto',
+  },
+  homeIndicator: {
+    position: 'absolute', bottom: 10,
+    left: '50%', transform: 'translateX(-50%)',
+    width: 140, height: 5,
+    background: 'rgba(0,0,0,0.3)',
+    borderRadius: 999, zIndex: 10,
+  },
+};
+function IosFrame({ children, time = '12:39', battery = 81 }) {
+  return (
+    <div style={iosFrameStyles.wrapper}>
+      <div style={{ ...iosFrameStyles.screen, width: 393, height: 852 }}>
+        <div style={{ ...iosFrameStyles.statusBar, color: '#1A1612' }}>
+          <span>{time}</span>
+          <div style={iosFrameStyles.statusIcons}>
+            <div style={iosFrameStyles.signalIcon}>
+              <div style={{ ...iosFrameStyles.signalBar, height: 4 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 6 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 9 }} />
+              <div style={{ ...iosFrameStyles.signalBar, height: 11 }} />
+            </div>
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style={{ color: '#1A1612' }}>
+              <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor" />
+              <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+              <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" opacity="0.7" />
+            </svg>
+            <div style={iosFrameStyles.batteryIcon}>
+              <div style={{ width: `${battery}%`, height: '100%', background: 'currentColor', borderRadius: 1, opacity: 0.9 }} />
+              <div style={iosFrameStyles.batteryCap} />
+            </div>
+          </div>
+        </div>
+        <div style={iosFrameStyles.dynamicIsland} />
+        <div style={iosFrameStyles.content}>{children}</div>
+        <div style={iosFrameStyles.homeIndicator} />
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Cartog — meridianos curvos + rosa dos ventos (P12)
+// ════════════════════════════════════════════════════════
+function Cartog() {
+  return (
+    <svg
+      width="100%" height="100%"
+      viewBox="0 0 393 800"
+      preserveAspectRatio="xMidYMid slice"
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.05, color: '#1A1612' }}
+    >
+      <path d="M 60 -20 Q 90 200 60 420 Q 30 640 60 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 333 -20 Q 303 200 333 420 Q 363 640 333 860" stroke="currentColor" strokeWidth="0.5" fill="none" />
+      <path d="M 196 -20 Q 196 400 196 860" stroke="currentColor" strokeWidth="0.4" fill="none" opacity="0.6" />
+      <path d="M -20 180 Q 196 200 410 180" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 460 Q 196 480 410 460" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <path d="M -20 700 Q 196 720 410 700" stroke="currentColor" strokeWidth="0.4" fill="none" />
+      <g transform="translate(345 30)" opacity="0.5">
+        <circle r="11" fill="none" stroke="currentColor" strokeWidth="0.5" />
+        <circle r="7"  fill="none" stroke="currentColor" strokeWidth="0.4" opacity="0.7" />
+        <path d="M 0 -11 L 0 11 M -11 0 L 11 0" stroke="currentColor" strokeWidth="0.5" />
+      </g>
+      <circle cx="120" cy="320" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="270" cy="240" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="80"  cy="540" r="0.8" fill="currentColor" opacity="0.7" />
+      <circle cx="290" cy="600" r="0.8" fill="currentColor" opacity="0.7" />
+    </svg>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Header — title + meta line
+// ════════════════════════════════════════════════════════
+const headerStyles = {
+  wrap: { padding: '20px 24px 6px', position: 'relative', zIndex: 1 },
+  title: {
+    fontFamily: 'var(--serif)',
+    fontWeight: 400,
+    fontSize: 42,
+    lineHeight: '44px',
+    letterSpacing: '-0.025em',
+    color: 'var(--ink)',
+    margin: 0,
+  },
+  meta: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 8,
+    marginTop: 8,
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 11,
+    fontWeight: 500,
+    color: 'var(--ink2)',
+  },
+  metaSep: { color: 'var(--ink3)', opacity: 0.5 },
+};
+
+function Header({ openCount = 1, ageLabel = '9h', failedCount = 0 }) {
+  return (
+    <div style={headerStyles.wrap}>
+      <h1 style={headerStyles.title}>Inbox</h1>
+      <div style={headerStyles.meta}>
+        <span>{openCount} aberta</span>
+        <span style={headerStyles.metaSep}>·</span>
+        <span>{ageLabel} idade média</span>
+        {failedCount > 0 && (
+          <>
+            <span style={headerStyles.metaSep}>·</span>
+            <span style={{ color: 'var(--rec-red)' }}>{failedCount} falha</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Mode Tabs — Capturas / Operacional (sem caixa, underline ink)
+// ════════════════════════════════════════════════════════
+const modeStyles = {
+  wrap: {
+    display: 'flex',
+    padding: '20px 24px 0',
+    gap: 0,
+    borderBottom: '0.5px solid var(--border)',
+    position: 'relative',
+    zIndex: 1,
+  },
+  tab: {
+    paddingBottom: 14,
+    paddingRight: 28,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    cursor: 'pointer',
+    position: 'relative',
+  },
+  tabHeader: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 7,
+  },
+  tabLabel: {
+    fontFamily: 'var(--serif)',
+    fontWeight: 400,
+    fontSize: 19,
+    letterSpacing: '-0.01em',
+    color: 'var(--ink2)',
+  },
+  tabLabelActive: {
+    color: 'var(--ink)',
+  },
+  tabCount: {
+    fontFamily: 'var(--mono)',
+    fontWeight: 500,
+    fontSize: 12,
+    color: 'var(--ink3)',
+    letterSpacing: '0.02em',
+  },
+  tabCountActive: { color: 'var(--ink)' },
+  tabSubtitle: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'var(--ink3)',
+  },
+  tabSubtitleActive: { color: 'var(--ink2)' },
+  underline: {
+    position: 'absolute',
+    bottom: -0.5,
+    left: 0, right: 28,
+    height: 1.5,
+    background: 'var(--ink)',
+  },
+  tabCriticalDot: {
+    width: 5, height: 5, borderRadius: 999,
+    background: 'var(--rec-red)',
+    marginLeft: 4,
+  },
+};
+
+function ModeTab({ label, count, subtitle, active, critical }) {
+  return (
+    <div style={modeStyles.tab}>
+      <div style={modeStyles.tabHeader}>
+        <span style={{ ...modeStyles.tabLabel, ...(active ? modeStyles.tabLabelActive : {}) }}>{label}</span>
+        <span style={{ ...modeStyles.tabCount, ...(active ? modeStyles.tabCountActive : {}) }}>{count}</span>
+        {critical > 0 && <span style={modeStyles.tabCriticalDot} />}
+      </div>
+      <span style={{ ...modeStyles.tabSubtitle, ...(active ? modeStyles.tabSubtitleActive : {}) }}>
+        {subtitle}
+      </span>
+      {active && <div style={modeStyles.underline} />}
+    </div>
+  );
+}
+
+function ModeTabs({ active = 'captures' }) {
+  return (
+    <div style={modeStyles.wrap}>
+      <ModeTab
+        label="Capturas"
+        count="1"
+        subtitle="1 aberta"
+        active={active === 'captures'}
+      />
+      <ModeTab
+        label="Operacional"
+        count="0"
+        subtitle="0 ativos"
+        active={active === 'operational'}
+      />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  DomainChip + SearchPill + FilterStrip
+// ════════════════════════════════════════════════════════
+const filterStyles = {
+  domainRow: {
+    padding: '14px 24px 10px',
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 14,
+    color: 'var(--ink2)',
+    position: 'relative',
+    zIndex: 1,
+  },
+  domainTrocar: { color: 'var(--ink3)', marginLeft: 6 },
+  searchWrap: {
+    margin: '0 24px 14px',
+    position: 'relative',
+    zIndex: 1,
+  },
+  searchPill: {
+    background: 'var(--surface)',
+    border: '0.5px solid var(--border)',
+    borderRadius: 999,
+    padding: '11px 18px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 15,
+    color: 'var(--ink2)',
+    background: 'transparent',
+    border: 0,
+    outline: 'none',
+  },
+  searchSelect: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'var(--ink3)',
+    cursor: 'pointer',
+  },
+  filterStrip: {
+    padding: '0 24px 6px',
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 22,
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    whiteSpace: 'nowrap',
+    scrollbarWidth: 'none',
+    position: 'relative',
+    zIndex: 1,
+  },
+  chip: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 14.5,
+    color: 'var(--ink3)',
+    cursor: 'pointer',
+    paddingBottom: 4,
+    borderBottom: '1.5px solid transparent',
+    transition: 'all 200ms',
+    flexShrink: 0,
+  },
+  chipActive: {
+    color: 'var(--ink)',
+    borderBottomColor: 'var(--ink)',
+  },
+  sortLink: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'var(--ink3)',
+    marginLeft: 'auto',
+    flexShrink: 0,
+    paddingBottom: 4,
+    cursor: 'pointer',
+    opacity: 0.85,
+  },
+};
+
+function DomainChip() {
+  return (
+    <div style={filterStyles.domainRow}>
+      em todos os domínios
+      <span style={filterStyles.domainTrocar}>· trocar</span>
+    </div>
+  );
+}
+
+function SearchPill() {
+  return (
+    <div style={filterStyles.searchWrap}>
+      <div style={filterStyles.searchPill}>
+        <input
+          style={filterStyles.searchInput}
+          placeholder="buscar"
+          readOnly
+        />
+        <span style={filterStyles.searchSelect}>· selecionar</span>
+      </div>
+    </div>
+  );
+}
+
+const FILTERS = [
+  { key: 'open', label: 'abertas' },
+  { key: 'no_destination', label: 'sem destino' },
+  { key: 'candidate', label: 'candidatas' },
+  { key: 'proposal', label: 'propostas' },
+  { key: 'snoozed', label: 'adiadas' },
+  { key: 'failed', label: 'falhas' },
+  { key: 'pending', label: 'pendentes' },
+  { key: 'routed', label: 'com destino' },
+];
+
+function FilterStrip({ active = 'open' }) {
+  return (
+    <div style={filterStyles.filterStrip}>
+      {FILTERS.map(f => (
+        <span
+          key={f.key}
+          style={{ ...filterStyles.chip, ...(active === f.key ? filterStyles.chipActive : {}) }}
+        >
+          {f.label}
+        </span>
+      ))}
+      <span style={filterStyles.sortLink}>· por recente</span>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Date divider
+// ════════════════════════════════════════════════════════
+const dividerStyles = {
+  wrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    padding: '24px 24px 8px',
+    position: 'relative',
+    zIndex: 1,
+  },
+  label: {
+    fontFamily: 'var(--sans)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.16em',
+    fontSize: 10,
+    fontWeight: 500,
+    color: 'var(--ink3)',
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    background: 'var(--border)',
+    opacity: 0.55,
+  },
+};
+
+function DateDivider({ label }) {
+  return (
+    <div style={dividerStyles.wrap}>
+      <span style={dividerStyles.label}>{label}</span>
+      <span style={dividerStyles.line} />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Inbox Card — meta + body + nextStepLabel + 5 actions
+// ════════════════════════════════════════════════════════
+const cardStyles = {
+  card: {
+    padding: '12px 24px 18px',
+    borderBottom: '0.5px solid var(--border)',
+    position: 'relative',
+  },
+  cardLast: { borderBottom: 'none' },
+  meta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  time: {
+    fontFamily: 'var(--mono)',
+    fontWeight: 500,
+    fontSize: 12,
+    letterSpacing: '0.02em',
+    color: 'var(--ink2)',
+  },
+  sep: { color: 'var(--ink3)', opacity: 0.45, fontSize: 11 },
+  kind: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'var(--ink2)',
+  },
+  domainBullet: {
+    width: 6, height: 6, borderRadius: 999,
+    display: 'inline-block',
+    marginRight: 7,
+  },
+  domainName: {
+    fontFamily: 'var(--sans)',
+    fontWeight: 500,
+    textTransform: 'uppercase',
+    letterSpacing: '0.13em',
+    fontSize: 10,
+  },
+  privateTag: {
+    marginLeft: 'auto',
+    fontFamily: 'var(--sans)',
+    fontWeight: 500,
+    textTransform: 'uppercase',
+    letterSpacing: '0.16em',
+    fontSize: 9.5,
+    color: 'var(--ink3)',
+    opacity: 0.85,
+  },
+  body: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontWeight: 400,
+    fontSize: 17.5,
+    lineHeight: '27px',
+    color: 'var(--ink)',
+    margin: 0,
+    letterSpacing: '-0.005em',
+    textWrap: 'pretty',
+  },
+  nextStep: {
+    marginTop: 12,
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 7,
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'var(--prussian)',
+    opacity: 0.92,
+  },
+  bronzeStar: {
+    color: 'var(--bronze)',
+    fontSize: 13,
+    lineHeight: 1,
+  },
+  actionRow: {
+    marginTop: 16,
+    display: 'flex',
+    alignItems: 'stretch',
+    gap: 0,
+    paddingTop: 14,
+    borderTop: '0.5px solid var(--border)',
+  },
+  action: {
+    flex: 1,
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontSize: 14,
+    color: 'var(--ink2)',
+    textAlign: 'center',
+    cursor: 'pointer',
+    padding: '2px 0',
+    borderRight: '0.5px solid var(--border)',
+  },
+  actionLast: { borderRight: 'none' },
+  actionDanger: { color: 'var(--rec-red)', opacity: 0.72 },
+};
+
+function InboxCard({
+  time, kind, domainKey, domainLabel,
+  text, isPrivate, isCandidate,
+  nextStepLabel, isLast,
+}) {
+  const domainColors = {
+    blackink: 'var(--dom-blackink)',
+    atlas: 'var(--dom-atlas)',
+    saude: 'var(--dom-saude)',
+    financas: 'var(--dom-financas)',
+    outro: 'var(--dom-outro)',
+  };
+  const dColor = domainColors[domainKey] || 'var(--ink3)';
+  return (
+    <div style={{ ...cardStyles.card, ...(isLast ? cardStyles.cardLast : {}) }}>
+      <div style={cardStyles.meta}>
+        <span style={cardStyles.time}>{time}</span>
+        <span style={cardStyles.sep}>·</span>
+        <span style={cardStyles.kind}>{kind}</span>
+        <span style={cardStyles.sep}>·</span>
+        <span style={{ ...cardStyles.domainBullet, background: dColor }} />
+        <span style={{ ...cardStyles.domainName, color: dColor }}>{domainLabel}</span>
+        {isPrivate && <span style={cardStyles.privateTag}>privado</span>}
+      </div>
+      <p style={cardStyles.body}>«{text}»</p>
+      {nextStepLabel && (
+        <div style={cardStyles.nextStep}>
+          {isCandidate && <span style={cardStyles.bronzeStar}>✦</span>}
+          <span>{nextStepLabel}</span>
+        </div>
+      )}
+      <div style={cardStyles.actionRow}>
+        <span style={cardStyles.action}>promover</span>
+        <span style={cardStyles.action}>tarefa</span>
+        <span style={cardStyles.action}>projeto</span>
+        <span style={cardStyles.action}>adiar</span>
+        <span style={{ ...cardStyles.action, ...cardStyles.actionLast, ...cardStyles.actionDanger }}>arquivar</span>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  CapturePill — sagrado P1 sub-10s, thumb-zone bottom
+//  tap = texto · hold = áudio
+// ════════════════════════════════════════════════════════
+const captureStyles = {
+  wrap: {
+    position: 'absolute',
+    bottom: 102,
+    left: 0, right: 0,
+    display: 'flex',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+    zIndex: 6,
+  },
+  pill: {
+    pointerEvents: 'auto',
+    display: 'inline-flex',
+    alignItems: 'center',
+    background: 'var(--ink)',
+    color: 'var(--bg)',
+    borderRadius: 999,
+    padding: '11px 6px',
+    cursor: 'pointer',
+    userSelect: 'none',
+    animation: 'capture-rest 6s ease-in-out infinite',
+  },
+  half: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '0 16px',
+  },
+  glyphT: {
+    fontFamily: 'var(--serif)',
+    fontStyle: 'italic',
+    fontWeight: 500,
+    fontSize: 18,
+    lineHeight: 1,
+  },
+  glyphMic: {
+    fontSize: 14,
+    lineHeight: 1,
+    transform: 'translateY(-0.5px)',
+  },
+  micro: {
+    fontFamily: 'var(--mono)',
+    fontWeight: 400,
+    fontSize: 10,
+    letterSpacing: '0.06em',
+    color: 'rgba(244,239,230,0.65)',
+    textTransform: 'lowercase',
+  },
+  divider: {
+    width: 0.5,
+    alignSelf: 'stretch',
+    background: 'rgba(244,239,230,0.18)',
+  },
+};
+
+function CapturePill() {
+  return (
+    <div style={captureStyles.wrap}>
+      <div style={captureStyles.pill}>
+        <div style={captureStyles.half}>
+          <span style={captureStyles.glyphT}>T</span>
+          <span style={captureStyles.micro}>toque</span>
+        </div>
+        <div style={captureStyles.divider} />
+        <div style={captureStyles.half}>
+          <span style={captureStyles.glyphMic}>◉</span>
+          <span style={captureStyles.micro}>segure</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  Sync bar (bronze 1px sweep)
+// ════════════════════════════════════════════════════════
+const syncBarStyle = {
+  position: 'absolute',
+  top: 0, left: 0, right: 0,
+  height: 1,
+  background: 'linear-gradient(90deg, transparent, var(--bronze) 50%, transparent)',
+  animation: 'sync-sweep 5s ease-in-out infinite',
+  zIndex: 2,
+};
+
+// ════════════════════════════════════════════════════════
+//  Dock (mantido exatamente — center = AtlasAi prussian)
+// ════════════════════════════════════════════════════════
+const dockStyles = {
+  wrap: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    paddingTop: 14,
+    paddingBottom: 14,
+    background: 'linear-gradient(to top, var(--bg) 65%, rgba(244,239,230,0.92) 88%, transparent)',
+    zIndex: 5,
+  },
+  dock: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    width: '100%',
+    padding: '0 20px',
+  },
+  btn: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 0',
+    cursor: 'pointer',
+    color: 'var(--ink3)',
+  },
+  btnActive: { color: 'var(--bronze)' },
+  label: {
+    fontFamily: 'var(--sans)',
+    fontSize: 10,
+    fontWeight: 500,
+    letterSpacing: '0.04em',
+  },
+  centerWrap: {
+    flex: 1,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  centerBtn: {
+    width: 50, height: 50,
+    borderRadius: 999,
+    background: 'var(--prussian)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--bg)',
+    cursor: 'pointer',
+    boxShadow: '0 4px 14px rgba(27,58,87,0.32)',
+    border: '0.5px solid rgba(155,122,63,0.35)',
+  },
+};
+
+const HomeIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 11l9-8 9 8" />
+    <path d="M5 10v10h14V10" />
+  </svg>
+);
+const InboxIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="6" width="18" height="13" rx="1" />
+    <path d="M3 13h6l1 2h4l1-2h6" />
+  </svg>
+);
+const CalendarIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="5" width="18" height="16" rx="1.5" />
+    <path d="M3 9.5h18M8 3.5v3.5M16 3.5v3.5" />
+  </svg>
+);
+const ClockIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5l3 1.8" />
+  </svg>
+);
+const AtlasMark = () => (
+  <svg width="28" height="28" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="50" cy="50" r="32" opacity="0.45" />
+    <circle cx="50" cy="50" r="24" opacity="0.7" />
+    <path d="M50 16 L50 32 M50 68 L50 84 M16 50 L32 50 M68 50 L84 50" />
+    <circle cx="50" cy="50" r="2" fill="currentColor" />
+  </svg>
+);
+
+function Dock({ active = 'inbox' }) {
+  return (
+    <div style={dockStyles.wrap}>
+      <div style={dockStyles.dock}>
+        <div style={{ ...dockStyles.btn, ...(active === 'home' ? dockStyles.btnActive : {}) }}>
+          <HomeIcon />
+          <span style={dockStyles.label}>Home</span>
+        </div>
+        <div style={{ ...dockStyles.btn, ...(active === 'inbox' ? dockStyles.btnActive : {}) }}>
+          <InboxIcon />
+          <span style={dockStyles.label}>Inbox</span>
+        </div>
+        <div style={dockStyles.centerWrap}>
+          <div style={dockStyles.centerBtn}>
+            <AtlasMark />
+          </div>
+        </div>
+        <div style={{ ...dockStyles.btn, ...(active === 'review' ? dockStyles.btnActive : {}) }}>
+          <CalendarIcon />
+          <span style={dockStyles.label}>Review</span>
+        </div>
+        <div style={{ ...dockStyles.btn, ...(active === 'ritual' ? dockStyles.btnActive : {}) }}>
+          <ClockIcon />
+          <span style={dockStyles.label}>Ritual</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  InboxScreen — composição final
+// ════════════════════════════════════════════════════════
+function InboxScreen() {
+  return (
+    <div style={{ minHeight: '100%', background: 'var(--bg)', position: 'relative', paddingBottom: 200 }}>
+      <Cartog />
+      <div style={syncBarStyle} />
+
+      <Header openCount={1} ageLabel="9h" failedCount={0} />
+      <ModeTabs active="captures" />
+      <DomainChip />
+      <SearchPill />
+      <FilterStrip active="open" />
+
+      <DateDivider label="hoje" />
+
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <InboxCard
+          time="03:09"
+          kind="áudio"
+          domainKey="atlas"
+          domainLabel="Atlas"
+          text="Testando nova versão do Insper. Parece que ele melhorou bastante. Vamos ver se ele melhorou mesmo."
+          isPrivate
+          isCandidate
+          nextStepLabel="Próximo: promover"
+          isLast
+        />
+      </div>
+
+      <CapturePill />
+      <Dock active="inbox" />
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════
+//  App
+// ════════════════════════════════════════════════════════
+function App() {
+  return (
+    <div className="stage">
+      <div>
+        <p className="frame-cap">v2 · refator completa · capture pill thumb-zone</p>
+        <IosFrame time="12:39" battery={81}>
+          <InboxScreen />
+        </IosFrame>
+      </div>
+
+      <div className="notes">
+        <h2>Inbox v2</h2>
+        <p className="lede">
+          Função integral preservada. Refino visual em 9 frentes. Captura sagrada move pro thumb-zone, redesenhada como pill gesture-rich tap/hold.
+        </p>
+
+        <h3>Captura · novo</h3>
+        <ul>
+          <li><span className="num">·</span><span>Pill <span style={{background: '#1A1612', color: '#F4EFE6', padding: '2px 10px', borderRadius: 999, fontFamily: 'var(--serif)', fontStyle: 'italic'}}>T toque · ◉ segure</span> ancorada bottom-area, thumb-zone</span></li>
+          <li><span className="num">·</span><span><em>tap</em> (&lt;220ms) → texto direto, abre /capture?mode=text</span></li>
+          <li><span className="num">·</span><span><em>hold</em> (≥220ms) → áudio começa imediatamente, pulso vermelho-tinta sussurrado, counter mono cresce</span></li>
+          <li><span className="num">·</span><span><em>release</em> &gt;500ms → salva. &lt;500ms → descarta + haptic curto</span></li>
+          <li><span className="num">·</span><span><em>slide-up enquanto segura</em> → lock (mãos livres)</span></li>
+          <li><span className="num">·</span><span><em>slide-left</em> → cancela (haptic forte)</span></li>
+          <li><span className="num">·</span><span>Microcopy mono <em>"toque / segure"</em> ensina sem coach mark</span></li>
+          <li><span className="num">·</span><span>Hairline divisor vertical entre as duas zonas — <em>premium signal</em></span></li>
+        </ul>
+
+        <h3>Refinos visuais (9)</h3>
+        <ul>
+          <li><span className="num">01</span><span>Mode tabs sem caixa, ativo = <em>underline ink 1.5px</em>. Label Frau 19pt + count mono + subtitle Frau italic 13pt. Critical = dot recRed</span></li>
+          <li><span className="num">02</span><span>Domain chip "em todos os domínios · trocar" Frau italic, sem caixa</span></li>
+          <li><span className="num">03</span><span>Search pill flat com hairline interno 0.5px. Placeholder Frau italic. " · selecionar" inline</span></li>
+          <li><span className="num">04</span><span>8 filter chips Frau italic 14.5pt sem caixa, ativo = <em>underline ink 1.5px</em>. Sort link " · por recente" Frau italic à direita</span></li>
+          <li><span className="num">05</span><span>Date divider em sans uppercase 10pt tracking 0.16em + hairline border</span></li>
+          <li><span className="num">06</span><span>Card meta: <span style={{fontFamily: 'var(--mono)'}}>03:09</span> · <em>áudio</em> · <span style={{display:'inline-block', width:6, height:6, borderRadius:999, background:'#5D4A8A', verticalAlign:'middle'}}/> ATLAS — bullet de domínio + label sans uppercase tracking 0.13em</span></li>
+          <li><span className="num">07</span><span>Body em <em>Fraunces italic 17.5pt</em> com aspas «»</span></li>
+          <li><span className="num">08</span><span>nextStepLabel: <span className="br">✦</span> bronze + Frau italic prussiano "Próximo: promover" — IA falando, voz editorial</span></li>
+          <li><span className="num">09</span><span>5 actions Frau italic 14pt ink2, hairlines verticais 0.5px entre. "arquivar" recRed muted opacity 0.72</span></li>
+        </ul>
+
+        <h3>Bronze count <span style={{opacity: 0.5}}>(P8 ≤ 2 permanentes)</span></h3>
+        <ul>
+          <li><span className="num">·</span><span><span className="br">✦</span> bronze antes do nextStepLabel candidato (1)</span></li>
+          <li><span className="num">·</span><span>Aba ativa "Inbox" no Dock em bronze (2)</span></li>
+          <li><span className="num">·</span><span style={{opacity: 0.55}}>Sync bar bronze + aro bronze sutil no AtlasAi central — pulsos/details, não conta</span></li>
+        </ul>
+
+        <h3>Mantidos <span style={{opacity: 0.5}}>(função integral)</span></h3>
+        <ul>
+          <li><span className="num">·</span><span>InboxModeTabs Capturas / Operacional com counts e critical</span></li>
+          <li><span className="num">·</span><span>DomainStatus chip → abre InboxDomainSheet</span></li>
+          <li><span className="num">·</span><span>Search + selecionar → bulk mode</span></li>
+          <li><span className="num">·</span><span>8 filter chips + sort</span></li>
+          <li><span className="num">·</span><span>5 quick actions (Promover/Tarefa/Projeto/Adiar/Arquivar)</span></li>
+          <li><span className="num">·</span><span>Dock central prussiano AtlasAi (não tocado)</span></li>
+          <li><span className="num">·</span><span>Cartog 3% meridianos (P12)</span></li>
+          <li><span className="num">·</span><span>Sync bar bronze (DS canônico)</span></li>
+        </ul>
+
+        <h3>Removido</h3>
+        <ul>
+          <li><span className="num">·</span><span>Botão "T" top-right (era P2 fora do thumb-zone, P3 ambíguo). Substituído pela CapturePill bottom-area</span></li>
+        </ul>
+
+        <h3>Assumptions</h3>
+        <p><em>1.</em> 220ms threshold tap/hold (WhatsApp = 200ms, Twitter Spaces = 250ms — meio termo).</p>
+        <p><em>2.</em> Hint primeira vez: bolha sutil aparece quando operador olha pro pill &gt;2s sem tocar. 1x na vida (persistido em atlasStorage).</p>
+        <p><em>3.</em> CapturePill exclusiva do Inbox, conforme você pediu — outras telas têm seus próprios fluxos.</p>
+        <p><em>4.</em> AtlasAi mantém slot central do dock — você pediu pra não tocar no menu de navegação.</p>
+        <p><em>5.</em> Card sem fundo nem border-left accent. Hairline divisor border-bottom entre cards quando há vários. Single card = sem hairline final.</p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>

@@ -6,6 +6,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated'
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg'
 import { useRouter, usePathname } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -100,12 +101,59 @@ export function Dock() {
             {
               backgroundColor: c.prussian,
               transform: [{ scale: pressed ? 0.92 : 1 }],
-              shadowColor: '#1C1916',
-              shadowOpacity: 0.25,
+              shadowColor: '#1A1612', // ink-tinted warm shadow
+              shadowOpacity: 0.32,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: 'rgba(155,122,63,0.42)', // edge lighting bronze · decisivo
             },
           ]}
+          accessibilityRole="button"
+          accessibilityLabel="Atlas AI"
         >
-          <AtlasBrandMark size={36} />
+          {/* Camada 1 · superfície de domo · radial highlight top-left + depth bottom-right.
+              Substitui o specular oval chapado v5 (parecia smudge UI). Agora é curvatura
+              óptica real · selo de cera oxidado, não enamel pintado. */}
+          <Svg
+            width="100%"
+            height="100%"
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          >
+            <Defs>
+              <RadialGradient
+                id="atlasDome"
+                cx="32%"
+                cy="22%"
+                r="62%"
+                fx="32%"
+                fy="22%"
+              >
+                <Stop offset="0%" stopColor="#F4EFE6" stopOpacity="0.18" />
+                <Stop offset="55%" stopColor="#F4EFE6" stopOpacity="0" />
+              </RadialGradient>
+              <RadialGradient
+                id="atlasDepth"
+                cx="78%"
+                cy="84%"
+                r="58%"
+                fx="78%"
+                fy="84%"
+              >
+                <Stop offset="0%" stopColor="#06080F" stopOpacity="0.32" />
+                <Stop offset="60%" stopColor="#06080F" stopOpacity="0" />
+              </RadialGradient>
+            </Defs>
+            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDepth)" />
+            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDome)" />
+          </Svg>
+
+          {/* Camada 2 · brand mark astrolábio · reduzido 36→30 (53% fill).
+              Respiro de medalhão / signet ring · não emblema apertado. */}
+          <AtlasBrandMark size={30} />
+
+          {/* Camada 3 · inner bezel · 1px marfim 7% inset · sinal de "biselado",
+              como anel de joalheria · adiciona profundidade sem virar contorno visível. */}
+          <View pointerEvents="none" style={styles.atlasBezel} />
         </Pressable>
 
         {ITEMS.slice(2).map((it) => {
@@ -249,5 +297,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 16,
     elevation: 6,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  // Inner bezel · inset 1px · marfim 7% · sinal de biselado de joalheria.
+  // Não é contorno visível — é profundidade sussurrada. Casa com bronze edge top.
+  atlasBezel: {
+    position: 'absolute',
+    left: 1,
+    top: 1,
+    right: 1,
+    bottom: 1,
+    borderRadius: 27,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(244,239,230,0.07)',
   },
 })
