@@ -20,9 +20,7 @@ import {
 import { CaptureButton } from '../components/inbox/CaptureButton'
 import { OperationalInboxCard } from '../components/inbox/OperationalInboxCard'
 import { SwipeableCard } from '../components/inbox/SwipeableCard'
-import { LiveStatus } from '../components/inbox/LiveStatus'
 import { PaperVignette } from '../components/inbox/PaperVignette'
-import { NewCapturesPill } from '../components/inbox/NewCapturesPill'
 import { FocusModePill } from '../components/inbox/FocusModePill'
 import { useFreshCaptures } from '../lib/useFreshCaptures'
 import { Frau, Mono, Sans } from '../design/Type'
@@ -585,15 +583,12 @@ export default function InboxScreen() {
         rolagem inteira e gera retângulo visível com borda dura). */}
     <PaperVignette />
     <Screen>
-      <LiveStatus initialIdx={0} hasEvent={proposalsCount > 0} />
-      <NewCapturesPill
-        visible={showMorningNotif}
-        count={proposalsCount}
-        onPress={() => {
-          setFilter('proposal')
-          setMorningNotifDismissed(true)
-        }}
-      />
+      {/* v13 · NewCapturesPill removido · era a "listra bronze que continua passando"
+          que o usuário reclamou. Pill montava brevemente em propostas overnight e o
+          fade-in 480ms expunha a borderTopColor: c.bronze como traço transient.
+          Redundante: filter chip "propostas X" já comunica novidade · com bronze
+          underline 60% quando ativo. Pill virava ruído acima da informação real.
+          (Junto com LiveStatus removido em v12 · header zone agora silencioso.) */}
       <View style={styles.titleBlock}>
         <View style={styles.titleColumn}>
           <Pressable
@@ -1020,15 +1015,16 @@ function InboxModeTabs({
 
   return (
     <View style={[styles.modeTabs, { borderBottomColor: c.border }]}>
+      {/* v13 · subtitles "5 abertas"/"0 ativos" removidos · count vive no
+          filter chip "abertas 5" da linha de baixo · evita mostrar mesmo número
+          duas vezes em 60pt verticais. Tabs ficam puros: label + underline. */}
       <InboxModeTab
         label="Capturas"
-        subtitle={captureCountLabel(capturesCount)}
         active={active === 'captures'}
         onPress={() => onChange('captures')}
       />
       <InboxModeTab
         label="Operacional"
-        subtitle={operationalTabSubtitle(operationalCount, operationalCritical)}
         critical={operationalCritical > 0}
         active={active === 'operational'}
         onPress={() => onChange('operational')}
@@ -1039,13 +1035,11 @@ function InboxModeTabs({
 
 function InboxModeTab({
   label,
-  subtitle,
   critical,
   active,
   onPress,
 }: {
   label: string
-  subtitle: string
   critical?: boolean
   active: boolean
   onPress: () => void
@@ -1057,7 +1051,7 @@ function InboxModeTab({
       onPress={onPress}
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label} · ${subtitle}`}
+      accessibilityLabel={label}
       style={({ pressed }) => [
         styles.modeTab,
         {
@@ -1065,9 +1059,9 @@ function InboxModeTab({
         },
       ]}
     >
-      {/* Label group · underline acompanha largura exata da label.
-          Ativo: 22pt ink full · Inativo: 19pt ink2 muted · diferença
-          de scale (3pt) faz a hierarquia editorial sem precisar de cor saturada. */}
+      {/* v13 · label + underline puros · sem subtitle · count vive nos chips.
+          Ativo: 22pt ink full · Inativo: 19pt ink2 muted · diferença de scale
+          faz a hierarquia editorial sem cor saturada. */}
       <View style={styles.modeTabLabelGroup}>
         <View style={styles.modeTabLabelRow}>
           <Frau
@@ -1085,76 +1079,40 @@ function InboxModeTab({
         </View>
         {active ? <View style={styles.modeTabUnderline} /> : null}
       </View>
-      {/* Subtitle · count vive aqui ("5 abertas") · italic small ink2 muted.
-          Sempre visível em ambos tabs · sem ocultar contexto. */}
-      <Frau
-        italic
-        size={12}
-        lineHeight={16}
-        color={c.ink2}
-        numberOfLines={1}
-        style={!active ? styles.modeTabSubtitleInactive : undefined}
-      >
-        {subtitle}
-      </Frau>
     </Pressable>
   )
 }
 
+// v13 · MetaLine compressão · removidos meta uppercase ("5 ABERTAS · IDADE MÉDIA")
+// e voice ("cinco fragmentos · o primeiro às..."). Ambos repetiam contagens já
+// presentes em outros lugares (tabs, chips). Fica APENAS uma linha sussurrada
+// com idade média · informação contextual única (não disponível em outro lugar).
+//
+// Estados:
+// - 0 capturas abertas: nada renderiza (Header silencia · captura limpa)
+// - 1+ capturas com falha: vermelho italic compact ("1 falha de transcrição")
+// - default: italic ink2 "23h em média"
 function MetaLine({ metrics }: { metrics: ReturnType<typeof inboxMetrics> }) {
   const c = usePalette()
-  const segments: Array<{ text: string; color: string }> = [
-    { text: openLabel(metrics.open), color: c.ink2 },
-  ]
-  if (metrics.open > 0) {
-    segments.push({ text: `${metrics.averageAgeLabel} IDADE MÉDIA`, color: c.ink2 })
-  }
+
+  // Failure tem precedência · usuário precisa saber que algo está quebrado
   if (metrics.failed > 0) {
-    segments.push({ text: failureLabel(metrics.failed), color: c.recRed })
+    return (
+      <Frau italic size={13} lineHeight={18} color={c.recRed} style={styles.metaSingleLine}>
+        {failureLabel(metrics.failed).toLowerCase()}
+      </Frau>
+    )
   }
-  const voice = inboxVoiceLine(metrics)
+
+  // Header silencia quando inbox vazio · nada pra dizer
+  if (metrics.open === 0) {
+    return null
+  }
+
   return (
-    <View>
-      <View style={styles.metaRow}>
-        {segments.map((seg, i) => (
-          <View key={i} style={styles.metaSegment}>
-            {i > 0 ? (
-              <Sans
-                weight="med"
-                size={11}
-                lineHeight={14}
-                letterSpacing={1.1}
-                color={c.ink3}
-              >
-                ·
-              </Sans>
-            ) : null}
-            <Sans
-              weight="med"
-              size={11}
-              lineHeight={14}
-              letterSpacing={1.1}
-              color={seg.color}
-              style={styles.uppercase}
-            >
-              {seg.text}
-            </Sans>
-          </View>
-        ))}
-      </View>
-      {voice ? (
-        <Frau
-          italic
-          size={14.5}
-          lineHeight={21}
-          letterSpacing={-0.07}
-          color={c.ink2}
-          style={styles.voiceLine}
-        >
-          {voice}
-        </Frau>
-      ) : null}
-    </View>
+    <Frau italic size={13} lineHeight={18} color={c.ink2} style={styles.metaSingleLine}>
+      {metrics.averageAgeLabel} em média
+    </Frau>
   )
 }
 
@@ -1556,15 +1514,18 @@ function FilterChip({
         {label}
       </Frau>
       {count != null && count > 0 ? (
-        <Mono
-          size={10.5}
+        // v13 · count Mono→Frau italic · mesma família tipográfica da label
+        // (italic Frau 14.5 + count italic 11). Era Mono 10.5 = mistura "data table".
+        // Agora unifica família · count vira inflexão de scale + cor, não outra fonte.
+        <Frau
+          italic
+          size={11}
           lineHeight={14}
-          letterSpacing={0.21}
           color={active ? c.ink2 : c.ink3}
           style={styles.filterChipCount}
         >
           {count}
-        </Mono>
+        </Frau>
       ) : null}
     </Pressable>
   )
@@ -1936,12 +1897,14 @@ function inboxMetrics(items: InboxItem[]) {
   }
 }
 
+// v13 · units lowercase · "23h" / "5d" · padrão SI · usado em italic Frau
+// "23h em média" · era uppercase H/D quando metaRow uppercase consumia.
 function formatAge(ms: number): string {
-  if (!ms) return '0H'
+  if (!ms) return '0h'
   const hours = Math.max(1, Math.round(ms / (1000 * 60 * 60)))
-  if (hours < 24) return `${hours}H`
+  if (hours < 24) return `${hours}h`
   const days = Math.round(hours / 24)
-  return `${days}D`
+  return `${days}d`
 }
 
 function openLabel(count: number): string {
@@ -2024,20 +1987,42 @@ const styles = StyleSheet.create({
     zIndex: 28,
     alignItems: 'flex-end',
   },
-  titleBlock: { marginBottom: 14 },
-  titleColumn: { flex: 1 },
+  // v12 · header zone CENTRALIZADO · masthead editorial premium.
+  // Antes: zigzag de alinhamento (LiveStatus centro / Inbox esq / tabs centro /
+  // domain centro / chips esq) → impressão de tela quebrada. Agora: header zone
+  // toda no centro até os tabs, transição clara pra cards (esq) define
+  // "saí da capa, entrei no conteúdo" — gramática editorial Aperture/Apartamento.
+  titleBlock: {
+    marginBottom: 14,
+    alignItems: 'center',
+  },
+  titleColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  // metaRow agora justifica ao centro · segments clusterizados.
   metaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 10,
     gap: 8,
   },
   metaSegment: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   uppercase: { textTransform: 'uppercase' },
+  // voiceLine · italic · agora com textAlign center · maxWidth 320 garante
+  // legibilidade (linha não estica em telas grandes).
   voiceLine: {
     marginTop: 12,
     maxWidth: 320,
+    textAlign: 'center',
+  },
+  // v13 · meta single-line compressão · "23h em média" italic centro · única
+  // informação que sobrou após cortar uppercase row + voice line redundantes.
+  metaSingleLine: {
+    marginTop: 8,
+    textAlign: 'center',
   },
   // Técnica #4 v5 · letterpress sutil · highlight marfim 1px abaixo simula deboss em papel.
   // RN não suporta múltiplas textShadows como CSS — usamos apenas a highlight clara.

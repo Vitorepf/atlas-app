@@ -168,7 +168,10 @@ export function InboxCard({
         styles.card,
         {
           backgroundColor: cardBg,
-          borderColor: c.border,
+          // v13 · divider bronze 10% em vez de c.border cinza · sai do sabor
+          // "list view / database table" pra editorial Aesop product list.
+          // Sussurro warm em vez de linha gray ASCII default RN.
+          borderColor: 'rgba(155,122,63,0.10)',
           borderBottomWidth: StyleSheet.hairlineWidth,
         },
         topEdge,
@@ -253,16 +256,20 @@ export function InboxCard({
           {item.text}
         </Frau>
 
-        {item.nextStepLabel ? (
+        {/* v13 · nextStep só renderiza quando há SINAL DISTINTO (curation candidate).
+            Antes: "Próximo: decidir destino" repetido em TODA card raw = ruído editorial.
+            Apple Mail não escreve "ainda não lida" em cada email — usa peso tipográfico.
+            Agora: ausência de nextStepRow = "ainda raw, decidir destino implícito".
+            Quando isCurationCandidate=true: ✦ + "Próximo: promover" em prussian.
+            Estado tipográfico em vez de label repetida. */}
+        {item.nextStepLabel && item.isCurationCandidate ? (
           <View style={styles.nextStepRow}>
-            {item.isCurationCandidate ? (
-              <FoilStar shimmer={isFresh} size={13} style={styles.nextStepStar} />
-            ) : null}
+            <FoilStar shimmer={isFresh} size={13} style={styles.nextStepStar} />
             <Frau
               italic
               size={13}
               lineHeight={17}
-              color={item.isCurationCandidate ? c.prussian : c.ink2}
+              color={c.prussian}
             >
               {item.nextStepLabel}
             </Frau>
