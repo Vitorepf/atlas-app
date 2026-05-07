@@ -6,10 +6,12 @@ import Animated, {
   FadeIn,
   FadeOut,
   interpolate,
+  interpolateColor,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
@@ -114,6 +116,12 @@ const ROMAN_MONTHS = [
 ]
 
 // Microcopy educativa 1x na vida ao primeiro arquivamento · Lei 6 dataset sagrado.
+// v16 cinema · components animados pra interpolar color em texto.
+// Mesma vocabulary do home: Sans/Mono/Frau aceitam style animado via
+// createAnimatedComponent, permitindo crossfade de cor sem snap.
+const AnimatedSans = Animated.createAnimatedComponent(Sans)
+const AnimatedMono = Animated.createAnimatedComponent(Mono)
+
 const ARCHIVE_HINT_STORAGE_KEY = 'atlas-inbox.archive-hint-shown'
 
 const OPERATIONAL_PAGE_SIZE = 25
@@ -982,11 +990,11 @@ export default function InboxScreen() {
                       <Animated.View
                         key={item.id}
                         entering={FadeIn
-                          .duration(320)
-                          .delay(Math.min(cardIdx, 8) * 35)}
-                        exiting={FadeOut.duration(220)}
-                        layout={LinearTransition.duration(380).easing(
-                          Easing.bezier(0.32, 0.72, 0, 1).factory(),
+                          .duration(480)
+                          .delay(Math.min(cardIdx, 7) * 50)}
+                        exiting={FadeOut.duration(240)}
+                        layout={LinearTransition.duration(480).easing(
+                          Easing.bezier(0.16, 1, 0.3, 1).factory(),
                         )}
                       >
                         <SwipeableCard
@@ -1155,14 +1163,15 @@ function InboxModeTabs({
       underlineW.value = target.width
       initializedRef.current = true
     } else {
-      // Mudança de tab · slide com timing iOS sheet curve 380ms.
+      // v16 cinema · slider mode tab matches FilterChip vocabulary.
+      // Duration 520ms exhale (Apple Books page-turn) · contemplativo.
       underlineX.value = withTiming(target.x, {
-        duration: 380,
-        easing: Easing.bezier(0.32, 0.72, 0, 1),
+        duration: 520,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
       })
       underlineW.value = withTiming(target.width, {
-        duration: 380,
-        easing: Easing.bezier(0.32, 0.72, 0, 1),
+        duration: 520,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
       })
     }
   }, [active, layouts, underlineX, underlineW])
@@ -1218,6 +1227,25 @@ function InboxModeTab({
   onLayoutLabel?: (layout: { x: number; width: number }) => void
 }) {
   const c = usePalette()
+  // v16 cinema · render sempre em fontSize 22 (layout consistente), animar
+  // SCALE 0.86 (inativo) ↔ 1.0 (ativo) + OPACITY 0.55 ↔ 1.0. Color stays c.ink.
+  // Press feedback combinado · sensação de cera oxidada (220ms in / 360ms out).
+  const activeProgress = useSharedValue(active ? 1 : 0)
+  const pressProgress = useSharedValue(0)
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 480,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    })
+  }, [active, activeProgress])
+
+  const animatedRowStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: 0.86 + activeProgress.value * 0.14 - pressProgress.value * 0.025 },
+    ],
+    opacity: (0.55 + activeProgress.value * 0.45) * (1 - pressProgress.value * 0.35),
+  }))
 
   return (
     <Pressable
@@ -1225,30 +1253,34 @@ function InboxModeTab({
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
+      onPressIn={() => {
+        pressProgress.value = withTiming(1, {
+          duration: 220,
+          easing: Easing.bezier(0.32, 0, 0.67, 0),
+        })
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, {
+          duration: 360,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })
+      }}
       onLayout={(e) => {
-        // Reporta posição da Pressable (label + critical dot) pro container
-        // pra alimentar a posição do underline slider único.
         onLayoutLabel?.({
           x: e.nativeEvent.layout.x,
           width: e.nativeEvent.layout.width,
         })
       }}
-      style={({ pressed }) => [
-        styles.modeTab,
-        {
-          opacity: pressed ? 0.72 : 1,
-        },
-      ]}
+      style={styles.modeTab}
     >
-      {/* v15 · underline NÃO mais por tab · agora há um SLIDER único no container
-          parent. Cada tab só renderiza label + critical dot. Diferença de scale
-          (22 vs 19) faz a hierarquia editorial sem cor saturada. */}
-      <View style={styles.modeTabLabelRow}>
+      {/* v16 · scale via Animated.View · layout box sempre 22pt, scale visual
+          0.86↔1 cria hierarquia sem mudar fontSize (que reflowing layout). */}
+      <Animated.View style={[styles.modeTabLabelRow, animatedRowStyle]}>
         <Frau
-          size={active ? 22 : 19}
-          lineHeight={active ? 28 : 24}
-          letterSpacing={active ? -0.3 : -0.1}
-          color={active ? c.ink : c.ink2}
+          size={22}
+          lineHeight={28}
+          letterSpacing={-0.3}
+          color={c.ink}
           numberOfLines={1}
         >
           {label}
@@ -1256,7 +1288,7 @@ function InboxModeTab({
         {critical ? (
           <View style={[styles.modeTabCriticalDot, { backgroundColor: c.recRed }]} />
         ) : null}
-      </View>
+      </Animated.View>
     </Pressable>
   )
 }
@@ -1556,24 +1588,75 @@ function OperationalFilterChip({
   onPress: () => void
 }) {
   const c = usePalette()
+  // v16 cinema · interpolateColor para borderColor + backgroundColor + text
+  // colors. Press feedback animado (220ms in / 360ms out exhale).
+  // Empty state (count=0) tem opacity floor menor pra deferir.
+  const activeProgress = useSharedValue(active ? 1 : 0)
+  const pressProgress = useSharedValue(0)
+  const baseOpacity = count === 0 && !active ? 0.45 : 1
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 380,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    })
+  }, [active, activeProgress])
+
+  const animatedChipStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.border, c.prussian],
+    ),
+    backgroundColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', c.surface],
+    ),
+    opacity: baseOpacity * (1 - pressProgress.value * 0.45),
+    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
+  }))
+
+  const animatedLabelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.ink2, c.prussian],
+    ),
+  }))
+
+  const animatedCountStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.ink3, c.prussian],
+    ),
+  }))
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.operationalFilterChip,
-        {
-          borderColor: active ? c.prussian : c.border,
-          backgroundColor: active ? c.surface : 'transparent',
-          opacity: pressed ? 0.65 : count === 0 ? 0.45 : 1,
-        },
-      ]}
+      onPressIn={() => {
+        pressProgress.value = withTiming(1, {
+          duration: 220,
+          easing: Easing.bezier(0.32, 0, 0.67, 0),
+        })
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, {
+          duration: 360,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })
+      }}
     >
-      <Sans weight={active ? 'sb' : 'med'} size={11.5} lineHeight={15} color={active ? c.prussian : c.ink2} numberOfLines={1}>
-        {label}
-      </Sans>
-      <Mono size={10.5} lineHeight={14} color={active ? c.prussian : c.ink3}>
-        {count}
-      </Mono>
+      <Animated.View style={[styles.operationalFilterChip, animatedChipStyle]}>
+        <AnimatedSans weight={active ? 'sb' : 'med'} size={11.5} lineHeight={15} numberOfLines={1} style={animatedLabelStyle}>
+          {label}
+        </AnimatedSans>
+        <AnimatedMono size={10.5} lineHeight={14} style={animatedCountStyle}>
+          {count}
+        </AnimatedMono>
+      </Animated.View>
     </Pressable>
   )
 }

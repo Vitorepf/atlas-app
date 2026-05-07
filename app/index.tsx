@@ -10,7 +10,6 @@ import Animated, {
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withTiming,
 } from 'react-native-reanimated'
 import { Screen } from '../components/Screen'
@@ -727,7 +726,7 @@ export default function HomeScreen() {
       </CodexEnter>
 
       <CodexEnter delay={320}>
-        <TierMark ordinal="i" label="hoje" settleDelay={320} />
+        <TierMark label="hoje" />
       </CodexEnter>
 
       {/* Estado · TDAH ergonomic move · how-you-are before what-you-do.
@@ -1114,7 +1113,7 @@ export default function HomeScreen() {
       </CodexEnter>
 
       <CodexEnter delay={880}>
-        <TierMark ordinal="ii" label="operação atlas" settleDelay={880} />
+        <TierMark label="operação atlas" />
       </CodexEnter>
 
       {/* Codex austero · 10/10 sussurro · sem box, sem subtitle, sem CTA.
@@ -1178,7 +1177,7 @@ export default function HomeScreen() {
       </CodexEnter>
 
       <CodexEnter delay={1320}>
-        <TierMark ordinal="iii" label="tecido" settleDelay={1320} />
+        <TierMark label="tecido" />
       </CodexEnter>
 
       <CodexEnter delay={1400}>
@@ -1186,7 +1185,7 @@ export default function HomeScreen() {
       </CodexEnter>
 
       <CodexEnter delay={1540}>
-        <TierMark ordinal="iv" label="rituais" settleDelay={1540} />
+        <TierMark label="rituais" />
       </CodexEnter>
 
       {/* Portas · só destinos NÃO duplicados pelo dock ou pelos 4 cards Atlas.
@@ -1478,52 +1477,15 @@ function MiniAction({
   )
 }
 
-// Codex tier mark · illuminated initial + italic label + bronze hairline
-// + Atlas mark ✦ at the end. References Codex Atlanticus (Leonardo) and
-// medieval manuscript chapter openers — ancient hierarchy, modern execution.
-// The roman numeral is a drop cap (Frau, big), label is italic Renaissance,
-// rule is bronze 22%, ✦ closes the line as Atlas signature (same glyph as
-// masthead and the inline card marks — visual coherence across the home).
-//
-// Drop cap settle · scale 1.04 → 1.0 com delay alinhado ao CodexEnter parent.
-// Como joalheria sendo posta no lugar com pequeno tap de assentamento.
-// settleDelay = mesmo valor do CodexEnter delay externo · settle começa
-// logo depois da fade-in completar.
-function TierMark({
-  ordinal,
-  label,
-  settleDelay = 0,
-}: {
-  ordinal: string
-  label: string
-  settleDelay?: number
-}) {
+// Codex tier mark · italic label + bronze hairline + Atlas mark ✦.
+// Refinamento Aldine (Aldus Manutius 1500, italic pra leitura, sem ornamento
+// medieval iluminado). Drop caps removidos · personagem do codex vem da
+// vocabulary tipográfica geral (Frau italic, em-dashes, paper bg), não de
+// enfeite de chapter opener. Label apenas + régua + ✦ Atlas signature ao fim.
+function TierMark({ label }: { label: string }) {
   const c = usePalette()
-  const settleScale = useSharedValue(1.04)
-
-  useEffect(() => {
-    settleScale.value = withDelay(
-      settleDelay + 280,
-      withTiming(1.0, { duration: 640, easing: exhaleEase() }),
-    )
-  }, [settleDelay, settleScale])
-
-  const dropCapStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: settleScale.value }],
-  }))
-
   return (
     <View style={styles.tierMark}>
-      <Animated.View style={dropCapStyle}>
-        <Frau
-          size={30}
-          lineHeight={32}
-          color={c.bronzeDeep}
-          style={[styles.tierOrdinal, { opacity: 0.78 }]}
-        >
-          {ordinal.toUpperCase()}
-        </Frau>
-      </Animated.View>
       <Frau italic size={17} lineHeight={22} color={c.ink} style={{ opacity: 0.55 }}>
         {label}
       </Frau>
@@ -1893,11 +1855,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 30,
     marginBottom: 12,
-  },
-  tierOrdinal: {
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    paddingBottom: 2,
   },
   tierRule: {
     flex: 1,
