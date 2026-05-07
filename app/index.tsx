@@ -83,17 +83,10 @@ const ENERGY_CHOICES: Array<{ key: TaskEditDraft['energyRequired']; label: strin
   { key: 'high', label: 'Alta' },
 ]
 
-// =====================================================================
-// CINEMA LAYER · animações contemplativas para a home
-// =====================================================================
-// Vocabulário: Apple Books page-turn, não SaaS snap-back.
-// Durações longas (480-560ms), easing exhale (cubic-bezier 0.16, 1, 0.3, 1),
-// release sempre mais lento que press (sensação de cera oxidada).
-// Stagger 80ms entre blocos de tier · 50ms entre itens de lista.
-// =====================================================================
+// Atlas DNA: peso, não cascata. Página chega inteira (settle no Screen.tsx).
+// CodexPressable abaixo é o único motion da home: release mais lento que
+// press · sensação de cera oxidada / latão envelhecido sob o dedo.
 
-const MOUNT_DURATION = 520
-// Easing factories (chamados a cada uso · withTiming exige easing fresh)
 const exhaleEase = () => Easing.bezier(0.16, 1, 0.3, 1)
 const pressInEase = () => Easing.bezier(0.32, 0, 0.67, 0)
 
@@ -101,32 +94,6 @@ const pressInEase = () => Easing.bezier(0.32, 0, 0.67, 0)
 // faz Sans/Mono receberem useAnimatedStyle no style prop sem hack.
 const AnimatedSans = Animated.createAnimatedComponent(Sans)
 const AnimatedMono = Animated.createAnimatedComponent(Mono)
-
-/**
- * CodexEnter · wrapper de seção com fade-in cinemático.
- * Cada bloco da home revela com delay incremental — ritmo de manuscrito
- * sendo descortinado.
- */
-function CodexEnter({
-  children,
-  delay = 0,
-  duration = MOUNT_DURATION,
-  style,
-}: {
-  children: ReactNode
-  delay?: number
-  duration?: number
-  style?: StyleProp<ViewStyle>
-}) {
-  return (
-    <Animated.View
-      entering={FadeIn.duration(duration).delay(delay)}
-      style={style}
-    >
-      {children}
-    </Animated.View>
-  )
-}
 
 /**
  * CodexPressable · Pressable com transição animada de press state.
@@ -692,7 +659,6 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <CodexEnter delay={0} duration={560}>
         <View style={styles.greetRow}>
           <View style={{ flex: 1 }}>
             <Frau size={38} lineHeight={40} letterSpacing={-0.95} color={c.ink}>
@@ -711,27 +677,19 @@ export default function HomeScreen() {
             <BronzeDiamond size={20} opacity={0.85} />
           </CodexPressable>
         </View>
-      </CodexEnter>
 
-      <CodexEnter delay={120} duration={480}>
         <View style={styles.statusLine}>
           <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
             {bodyStatusLine({ sleep, hrv, energy: currentLevelState?.energy_level ?? null, readiness: readiness.base.display })}
           </Frau>
         </View>
-      </CodexEnter>
 
-      <CodexEnter delay={200} duration={380}>
         <View style={[styles.divider, { backgroundColor: c.ink2, opacity: 0.5 }]} />
-      </CodexEnter>
 
-      <CodexEnter delay={320}>
         <TierMark label="hoje" />
-      </CodexEnter>
 
       {/* Estado · TDAH ergonomic move · how-you-are before what-you-do.
           Compact pill when state is fresh; full panel when stale or absent. */}
-      <CodexEnter delay={420}>
       {currentLevelState && !checkinEditing && !(checkinState || energyLevel || moodLevel) ? (
         <Animated.View
           entering={FadeIn.duration(420)}
@@ -820,17 +778,13 @@ export default function HomeScreen() {
           ) : null}
         </Animated.View>
       )}
-      </CodexEnter>
 
-      <CodexEnter delay={520}>
         <View style={styles.promptInTier}>
           <Frau italic size={18} lineHeight={26} color={c.ink2}>
             {question ? `“${question}”` : '— Nenhuma pergunta registrada para hoje.'}
           </Frau>
         </View>
-      </CodexEnter>
 
-      <CodexEnter delay={620}>
       {mission ? (
         <Pressable
           onPress={() => router.push('/ritual')}
@@ -863,9 +817,7 @@ export default function HomeScreen() {
           </Frau>
         </Pressable>
       )}
-      </CodexEnter>
 
-      <CodexEnter delay={720}>
       {agenda && agenda.tasks.length > 0 ? (
         <View style={[styles.agendaPanel, styles.tierBlock, { backgroundColor: c.surface, borderColor: c.border }]}>
           <>
@@ -1110,21 +1062,15 @@ export default function HomeScreen() {
           </Frau>
         </View>
       )}
-      </CodexEnter>
 
-      <CodexEnter delay={880}>
         <TierMark label="operação atlas" />
-      </CodexEnter>
 
       {/* Codex austero · 10/10 sussurro · sem box, sem subtitle, sem CTA.
           Título Frau italic com ponto terminal (pontuação de tratado) +
           classification em caps tiny right-aligned + hairline entre.
           Vocabulário Penguin Classics / Hermès Le Carré / Cucinelli Solomeo. */}
-      <CodexEnter delay={940}>
         <View style={[styles.codexListTopRule, { backgroundColor: c.bronze, opacity: 0.12 }]} />
-      </CodexEnter>
 
-      <CodexEnter delay={1000}>
         <CodexPressable
           onPress={() => router.push('/memory')}
           accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}.`}
@@ -1135,9 +1081,7 @@ export default function HomeScreen() {
             {`${memoryHome.title.replace(/[.!?]+$/, '')}.`}
           </Frau>
         </CodexPressable>
-      </CodexEnter>
 
-      <CodexEnter delay={1060}>
         <CodexPressable
           onPress={() => router.push('/open-brain')}
           accessibilityLabel="Abrir Atlas Open Brain · recall e context pack."
@@ -1148,9 +1092,7 @@ export default function HomeScreen() {
             Recall e context pack.
           </Frau>
         </CodexPressable>
-      </CodexEnter>
 
-      <CodexEnter delay={1120}>
         <CodexPressable
           onPress={() => router.push('/engineering')}
           accessibilityLabel="Abrir Atlas Engineering · harness runner e bench."
@@ -1161,9 +1103,7 @@ export default function HomeScreen() {
             Harness Runner e Atlas-Bench.
           </Frau>
         </CodexPressable>
-      </CodexEnter>
 
-      <CodexEnter delay={1180}>
         <CodexPressable
           onPress={() => router.push('/rivals')}
           accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
@@ -1174,19 +1114,12 @@ export default function HomeScreen() {
             Relatório Fair Claude.
           </Frau>
         </CodexPressable>
-      </CodexEnter>
 
-      <CodexEnter delay={1320}>
         <TierMark label="tecido" />
-      </CodexEnter>
 
-      <CodexEnter delay={1400}>
         <ConstelacaoWhisper onPress={() => router.push('/celestial')} />
-      </CodexEnter>
 
-      <CodexEnter delay={1540}>
         <TierMark label="rituais" />
-      </CodexEnter>
 
       {/* Portas · só destinos NÃO duplicados pelo dock ou pelos 4 cards Atlas.
           Ritual + Review vivem no dock (botões à direita). Inbox vive no dock.
@@ -1194,34 +1127,26 @@ export default function HomeScreen() {
           outro ponto de entrada na home — destinos verdadeiramente únicos.
           Stagger interno 50ms entre portas pra ritmo de manuscrito. */}
       <View style={styles.portas}>
-        <CodexEnter delay={1620}>
           <Doorway
             label="bitácula"
             value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
             onPress={() => router.push('/bitacula')}
           />
-        </CodexEnter>
-        <CodexEnter delay={1680}>
           <Doorway
             label="saúde"
             value={healthValue(sleep, hrv)}
             onPress={() => router.push('/health')}
           />
-        </CodexEnter>
-        <CodexEnter delay={1740}>
           <Doorway
             label="plano"
             value="abrir"
             onPress={() => router.push('/projects')}
           />
-        </CodexEnter>
-        <CodexEnter delay={1800}>
           <Doorway
             label="rotinas"
             value="montar dia"
             onPress={() => router.push('/routines')}
           />
-        </CodexEnter>
       </View>
     </Screen>
   )

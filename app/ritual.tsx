@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
+import { CodexReveal } from '../components/CodexReveal'
 import { Sparkle } from '../components/Sparkle'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { EmptyMission } from '../components/EmptyMission'
@@ -60,100 +61,114 @@ export default function RitualScreen() {
 
   return (
     <Screen>
-      <View style={{ marginBottom: 28 }}>
-        <Label>Briefing matinal</Label>
-        <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 6 }}>
-          Bom dia,{'\n'}Vitor
-        </Frau>
-        <Mono size={12} color={c.ink2} letterSpacing={0.48} style={{ marginTop: 10, textTransform: 'uppercase' }}>
-          {todayLine()} · {deviceTimezone()}
-        </Mono>
-      </View>
-
-      {!mission ? (
-        <EmptyMission onDefine={() => router.push('/capture')} />
-      ) : (
-        <View
-          style={[
-            styles.missionCard,
-            { backgroundColor: c.premium, borderColor: c.border, borderLeftColor: c.bronze },
-          ]}
-        >
-          <View style={styles.starRow}>
-            <Sparkle size={13} />
-            <Sans
-              weight="med"
-              size={10.5}
-              letterSpacing={1.05}
-              color={c.bronze}
-              style={{ textTransform: 'uppercase' }}
-            >
-              Missão de hoje
-            </Sans>
-          </View>
-          <Sans weight="sb" size={17} lineHeight={22} color={c.ink} style={{ marginBottom: 4 }}>
-            {mission.title}
-          </Sans>
-          <Mono size={11.5} color={c.ink2} letterSpacing={0.23}>
-            {mission.detail ?? mission.status.toUpperCase()}
+      <CodexReveal index={0}>
+        <View style={{ marginBottom: 28 }}>
+          <Label>Briefing matinal</Label>
+          <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 6 }}>
+            Bom dia,{'\n'}Vitor
+          </Frau>
+          <Mono size={12} color={c.ink2} letterSpacing={0.48} style={{ marginTop: 10, textTransform: 'uppercase' }}>
+            {todayLine()} · {deviceTimezone()}
           </Mono>
         </View>
-      )}
+      </CodexReveal>
 
-      <Label style={{ marginBottom: 10 }}>A pergunta do dia</Label>
-      <View style={[styles.questionBlock, { borderLeftColor: c.bronze }]}>
-        <Frau italic size={17} lineHeight={26} color={c.ink}>
-          {question ? `“${question}”` : 'Nenhuma pergunta registrada para hoje.'}
-        </Frau>
-      </View>
+      <CodexReveal index={1}>
+        {!mission ? (
+          <EmptyMission onDefine={() => router.push('/capture')} />
+        ) : (
+          <View
+            style={[
+              styles.missionCard,
+              { backgroundColor: c.premium, borderColor: c.border, borderLeftColor: c.bronze },
+            ]}
+          >
+            <View style={styles.starRow}>
+              <Sparkle size={13} />
+              <Sans
+                weight="med"
+                size={10.5}
+                letterSpacing={1.05}
+                color={c.bronze}
+                style={{ textTransform: 'uppercase' }}
+              >
+                Missão de hoje
+              </Sans>
+            </View>
+            <Sans weight="sb" size={17} lineHeight={22} color={c.ink} style={{ marginBottom: 4 }}>
+              {mission.title}
+            </Sans>
+            <Mono size={11.5} color={c.ink2} letterSpacing={0.23}>
+              {mission.detail ?? mission.status.toUpperCase()}
+            </Mono>
+          </View>
+        )}
+      </CodexReveal>
 
-      <BitaculaBriefing
-        behaviors={visibleBehaviors({ behaviors, queuedBehaviors })}
-        logs={visibleBehaviorLogs({ behaviorLogs, queuedBehaviorLogs })}
-        onOpen={() => router.push('/bitacula')}
-        onToggle={(behaviorClientId, value, date) => {
-          void logBehavior({
-            behaviorClientId,
-            logDate: date,
-            value,
-            source: 'morning_briefing',
-            metadata: { entrypoint: 'morning_briefing' },
-          })
-        }}
-      />
-
-      <Pressable
-        onPress={() => router.push('/memory')}
-        style={({ pressed }) => [
-          styles.memoryEntry,
-          { backgroundColor: pressed ? c.premium : c.surface, borderColor: c.border },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Memória semântica</Label>
-          <Sans size={14} lineHeight={20} color={c.ink2} style={{ marginTop: 6 }}>
-            Revisar ativações, curar capturas e buscar no vault.
-          </Sans>
+      <CodexReveal index={2}>
+        <Label style={{ marginBottom: 10 }}>A pergunta do dia</Label>
+        <View style={[styles.questionBlock, { borderLeftColor: c.bronze }]}>
+          <Frau italic size={17} lineHeight={26} color={c.ink}>
+            {question ? `“${question}”` : 'Nenhuma pergunta registrada para hoje.'}
+          </Frau>
         </View>
-        <Mono size={11} letterSpacing={0.22} color={c.prussian}>
-          ABRIR
-        </Mono>
-      </Pressable>
+      </CodexReveal>
 
-      <Label style={{ marginTop: 26, marginBottom: 10 }}>Estado físico</Label>
-      <View style={[styles.physical, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <PhysicalRow label="Prontidão" value={readiness.base.display} />
-        <PhysicalRow label="Agora" value={readiness.current.display} />
-        <PhysicalRow label="Sono" value={formatPassiveSignal(sleep)} />
-        <PhysicalRow label="HRV" value={formatPassiveSignal(hrv)} />
-        <PhysicalRow label="Energia" value={currentLevelState ? `${currentLevelState.energy_level} / 5` : 'Sem check-in'} last />
-      </View>
+      <CodexReveal index={3}>
+        <BitaculaBriefing
+          behaviors={visibleBehaviors({ behaviors, queuedBehaviors })}
+          logs={visibleBehaviorLogs({ behaviorLogs, queuedBehaviorLogs })}
+          onOpen={() => router.push('/bitacula')}
+          onToggle={(behaviorClientId, value, date) => {
+            void logBehavior({
+              behaviorClientId,
+              logDate: date,
+              value,
+              source: 'morning_briefing',
+              metadata: { entrypoint: 'morning_briefing' },
+            })
+          }}
+        />
+      </CodexReveal>
 
-      <View style={{ height: 28 }} />
-      <PrimaryButton
-        label="Começar o dia"
-        onPress={() => router.push('/capture')}
-      />
+      <CodexReveal index={4}>
+        <Pressable
+          onPress={() => router.push('/memory')}
+          style={({ pressed }) => [
+            styles.memoryEntry,
+            { backgroundColor: pressed ? c.premium : c.surface, borderColor: c.border },
+          ]}
+        >
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Memória semântica</Label>
+            <Sans size={14} lineHeight={20} color={c.ink2} style={{ marginTop: 6 }}>
+              Revisar ativações, curar capturas e buscar no vault.
+            </Sans>
+          </View>
+          <Mono size={11} letterSpacing={0.22} color={c.prussian}>
+            ABRIR
+          </Mono>
+        </Pressable>
+      </CodexReveal>
+
+      <CodexReveal index={5}>
+        <Label style={{ marginTop: 26, marginBottom: 10 }}>Estado físico</Label>
+        <View style={[styles.physical, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <PhysicalRow label="Prontidão" value={readiness.base.display} />
+          <PhysicalRow label="Agora" value={readiness.current.display} />
+          <PhysicalRow label="Sono" value={formatPassiveSignal(sleep)} />
+          <PhysicalRow label="HRV" value={formatPassiveSignal(hrv)} />
+          <PhysicalRow label="Energia" value={currentLevelState ? `${currentLevelState.energy_level} / 5` : 'Sem check-in'} last />
+        </View>
+      </CodexReveal>
+
+      <CodexReveal index={6}>
+        <View style={{ height: 28 }} />
+        <PrimaryButton
+          label="Começar o dia"
+          onPress={() => router.push('/capture')}
+        />
+      </CodexReveal>
     </Screen>
   )
 }

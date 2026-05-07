@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { Screen } from '../components/Screen'
+import { CodexReveal } from '../components/CodexReveal'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { Sparkle } from '../components/Sparkle'
 import { EmptyWeekly } from '../components/EmptyWeekly'
@@ -29,69 +30,75 @@ export default function ReviewScreen() {
 
   return (
     <Screen>
-      <View style={{ marginBottom: 28 }}>
-        <Label>Weekly review</Label>
-        <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
-          Semana atual
-        </Frau>
-        <Mono size={12} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 4 }}>
-          {formatRange(range.start, range.end)}
-        </Mono>
-      </View>
-
-      {weeklyCaptures.length === 0 ? (
-        <EmptyWeekly />
-      ) : (
-        <>
-          <View style={styles.dividerRow}>
-            <View style={[styles.line, { backgroundColor: c.border }]} />
-            <Sparkle size={14} />
-            <View style={[styles.line, { backgroundColor: c.border }]} />
-          </View>
-
-          <Frau italic size={19} lineHeight={28} color={c.ink}>
-            {weeklyCaptures.length === 1
-              ? '1 captura registrada nesta semana.'
-              : `${weeklyCaptures.length} capturas registradas nesta semana.`}
+      <CodexReveal index={0}>
+        <View style={{ marginBottom: 28 }}>
+          <Label>Weekly review</Label>
+          <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
+            Semana atual
           </Frau>
+          <Mono size={12} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 4 }}>
+            {formatRange(range.start, range.end)}
+          </Mono>
+        </View>
+      </CodexReveal>
 
-          <Label style={{ marginTop: 30, marginBottom: 0 }}>Resumo real</Label>
-          <View style={[styles.list, { borderTopColor: c.border }]}>
-            {rows.map((row, i) => (
-              <View
-                key={row.label}
-                style={[
-                  styles.row,
-                  i === rows.length - 1 ? null : { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
-                ]}
-              >
-                <Sans size={16} color={c.ink}>{row.label}</Sans>
-                <Mono size={13.5} letterSpacing={0.27} color={c.ink2}>
-                  {row.value}
-                </Mono>
-              </View>
-            ))}
-          </View>
+      <CodexReveal index={1}>
+        {weeklyCaptures.length === 0 ? (
+          <EmptyWeekly />
+        ) : (
+          <>
+            <View style={styles.dividerRow}>
+              <View style={[styles.line, { backgroundColor: c.border }]} />
+              <Sparkle size={14} />
+              <View style={[styles.line, { backgroundColor: c.border }]} />
+            </View>
 
-          <View style={[styles.coordsBlock, { borderTopColor: c.border, borderBottomColor: c.border }]}>
-            <Sparkle size={18} style={{ marginBottom: 8 }} />
-            <Mono size={11} color={c.ink2} letterSpacing={0.66} align="center">
-              Dados sincronizados do Atlas Server
-            </Mono>
-            <Frau italic size={15} color={c.ink2} align="center" style={{ marginTop: 6 }}>
-              Última captura: {formatDateTime(weeklyCaptures[0]?.captured_at)}
+            <Frau italic size={19} lineHeight={28} color={c.ink}>
+              {weeklyCaptures.length === 1
+                ? '1 captura registrada nesta semana.'
+                : `${weeklyCaptures.length} capturas registradas nesta semana.`}
             </Frau>
-          </View>
-        </>
-      )}
 
-      <View style={{ height: 28 }} />
-      <PrimaryButton
-        label={syncing ? 'Sincronizando…' : 'Atualizar dados'}
-        onPress={() => {
-          void sync()
-        }}
-      />
+            <Label style={{ marginTop: 30, marginBottom: 0 }}>Resumo real</Label>
+            <View style={[styles.list, { borderTopColor: c.border }]}>
+              {rows.map((row, i) => (
+                <View
+                  key={row.label}
+                  style={[
+                    styles.row,
+                    i === rows.length - 1 ? null : { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
+                  ]}
+                >
+                  <Sans size={16} color={c.ink}>{row.label}</Sans>
+                  <Mono size={13.5} letterSpacing={0.27} color={c.ink2}>
+                    {row.value}
+                  </Mono>
+                </View>
+              ))}
+            </View>
+
+            <View style={[styles.coordsBlock, { borderTopColor: c.border, borderBottomColor: c.border }]}>
+              <Sparkle size={18} style={{ marginBottom: 8 }} />
+              <Mono size={11} color={c.ink2} letterSpacing={0.66} align="center">
+                Dados sincronizados do Atlas Server
+              </Mono>
+              <Frau italic size={15} color={c.ink2} align="center" style={{ marginTop: 6 }}>
+                Última captura: {formatDateTime(weeklyCaptures[0]?.captured_at)}
+              </Frau>
+            </View>
+          </>
+        )}
+      </CodexReveal>
+
+      <CodexReveal index={2}>
+        <View style={{ height: 28 }} />
+        <PrimaryButton
+          label={syncing ? 'Sincronizando…' : 'Atualizar dados'}
+          onPress={() => {
+            void sync()
+          }}
+        />
+      </CodexReveal>
     </Screen>
   )
 }

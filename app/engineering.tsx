@@ -2,6 +2,7 @@ import { Image, RefreshControl, Pressable, ScrollView, StyleSheet, TextInput, Vi
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
+import { CodexReveal } from '../components/CodexReveal'
 import { Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -739,34 +740,42 @@ export default function EngineeringScreen() {
       topExtra={22}
       refreshControl={<RefreshControl refreshing={loading || detailLoading} onRefresh={() => { void refresh() }} />}
     >
-      <View style={styles.header}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Engineering Harness</Label>
-          <Sans weight="sb" size={23} lineHeight={29} color={c.ink}>
-            Atlas-Bench
-          </Sans>
+      <CodexReveal index={0}>
+        <View style={styles.header}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Engineering Harness</Label>
+            <Sans weight="sb" size={23} lineHeight={29} color={c.ink}>
+              Atlas-Bench
+            </Sans>
+          </View>
+          <StatusPill status={aggregate.status} />
         </View>
-        <StatusPill status={aggregate.status} />
-      </View>
+      </CodexReveal>
 
-      <View style={styles.metrics}>
-        <Metric label="suites" value={String(suites.length)} />
-        <Metric label="pass rate" value={aggregate.passRate == null ? '-' : `${aggregate.passRate}%`} tone={aggregate.status} />
-        <Metric label="score" value={aggregate.averageScore == null ? '-' : String(aggregate.averageScore)} />
-      </View>
+      <CodexReveal index={1}>
+        <View style={styles.metrics}>
+          <Metric label="suites" value={String(suites.length)} />
+          <Metric label="pass rate" value={aggregate.passRate == null ? '-' : `${aggregate.passRate}%`} tone={aggregate.status} />
+          <Metric label="score" value={aggregate.averageScore == null ? '-' : String(aggregate.averageScore)} />
+        </View>
+      </CodexReveal>
 
-      <RivalsReportCard
-        report={rivalsReport}
-        loading={rivalsLoading}
-        onOpenReport={() => router.push('/rivals')}
-        onRefresh={() => { void loadRivalsReport() }}
-      />
+      <CodexReveal index={2}>
+        <RivalsReportCard
+          report={rivalsReport}
+          loading={rivalsLoading}
+          onOpenReport={() => router.push('/rivals')}
+          onRefresh={() => { void loadRivalsReport() }}
+        />
+      </CodexReveal>
 
-      <HarnessabilityCalibrationCard
-        calibration={harnessCalibration}
-        calibrating={calibratingHarness}
-        onCalibrate={() => { void calibrateHarnessability() }}
-      />
+      <CodexReveal index={3}>
+        <HarnessabilityCalibrationCard
+          calibration={harnessCalibration}
+          calibrating={calibratingHarness}
+          onCalibrate={() => { void calibrateHarnessability() }}
+        />
+      </CodexReveal>
 
       <KnowledgeBaseCard
         knowledge={knowledge}

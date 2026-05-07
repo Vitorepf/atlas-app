@@ -73,25 +73,33 @@ function ThemedRoot() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: c.bg },
+            // v17 cinema · transição entre tabs principais (home/inbox/review/ritual).
+            // 4 specialists convergiram em fade + 400ms · contemplative cross-fade
+            // entre páginas de codex, NÃO slide direcional rude. Atlas DNA:
+            // Aldine page-turn é dissolução, não deslocamento mecânico.
             animation: 'fade',
-            animationDuration: 360,
+            animationDuration: 400,
           }}
         >
           <Stack.Screen name="index" />
           <Stack.Screen name="inbox" />
+          {/* Tabs principais · review e ritual herdam fade default (eram
+              slide_from_bottom = modal SaaS rude · removido). */}
+          <Stack.Screen name="ritual" />
+          <Stack.Screen name="review" />
           <Stack.Screen name="mobile-pairing" options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="mobile-inbox-item" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="mobile-thread" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="health"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="sleep"    options={{ animation: 'slide_from_right', animationDuration: 320 }} />
-          <Stack.Screen name="ritual"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
-          <Stack.Screen name="review"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="projects" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="engineering" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="rivals" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="routines" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="bitacula" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="memory"   options={{ animation: 'slide_from_right', animationDuration: 320 }} />
+          {/* Modais (capture/detail/decision) · slide_from_bottom é apropriado
+              aqui · são overlays operacionais, não navegação principal. */}
           <Stack.Screen name="capture"  options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="detail"   options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="decision" options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />

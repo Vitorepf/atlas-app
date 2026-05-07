@@ -2,6 +2,7 @@ import { RefreshControl, Pressable, StyleSheet, View } from 'react-native'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
+import { CodexReveal } from '../components/CodexReveal'
 import { Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -81,29 +82,32 @@ export default function RivalsScreen() {
       topExtra={22}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadReport() }} />}
     >
-      <View style={styles.header}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Engineering</Label>
-          <Sans weight="sb" size={24} lineHeight={30} color={c.ink}>
-            Atlas Rivals
-          </Sans>
-          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
-            Fair Claude · Atlas harness vs Claude Code CLI · {report?.generated_at ? dateLabel(report.generated_at) : 'sem report'}
-          </Mono>
+      <CodexReveal index={0}>
+        <View style={styles.header}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Label>Atlas Engineering</Label>
+            <Sans weight="sb" size={24} lineHeight={30} color={c.ink}>
+              Atlas Rivals
+            </Sans>
+            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+              Fair Claude · Atlas harness vs Claude Code CLI · {report?.generated_at ? dateLabel(report.generated_at) : 'sem report'}
+            </Mono>
+          </View>
+          <Pressable
+            onPress={() => router.push('/engineering')}
+            style={({ pressed }) => [
+              styles.backButton,
+              { borderColor: c.border, backgroundColor: pressed ? c.premium : c.surface },
+            ]}
+          >
+            <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.prussian}>
+              bench
+            </Mono>
+          </Pressable>
         </View>
-        <Pressable
-          onPress={() => router.push('/engineering')}
-          style={({ pressed }) => [
-            styles.backButton,
-            { borderColor: c.border, backgroundColor: pressed ? c.premium : c.surface },
-          ]}
-        >
-          <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.prussian}>
-            bench
-          </Mono>
-        </Pressable>
-      </View>
+      </CodexReveal>
 
+      <CodexReveal index={1}>
       <View style={[styles.executivePanel, { borderColor: ready ? c.moss : c.border, backgroundColor: c.surface }]}>
         <View style={styles.executiveTop}>
           <View style={{ flex: 1, minWidth: 0 }}>
@@ -125,24 +129,29 @@ export default function RivalsScreen() {
           <Metric label="Claim" value={ready ? 'ready' : 'blocked'} tone={ready ? 'passed' : 'blocked'} />
         </View>
       </View>
+      </CodexReveal>
 
-      <Section title="O Que Importa Agora" count={insights.length}>
-        <View style={styles.insightList}>
-          {insights.map((insight) => (
-            <InsightRow key={`${insight.severity}:${insight.title}`} insight={insight} />
-          ))}
-        </View>
-      </Section>
-
-      <Section title="Next Actions" count={nextActions.length}>
-        {nextActions.length ? (
-          <View style={styles.actionList}>
-            {nextActions.map((action) => <NextActionRow key={action.id} action={action} />)}
+      <CodexReveal index={2}>
+        <Section title="O Que Importa Agora" count={insights.length}>
+          <View style={styles.insightList}>
+            {insights.map((insight) => (
+              <InsightRow key={`${insight.severity}:${insight.title}`} insight={insight} />
+            ))}
           </View>
-        ) : (
-          <EmptyLine text="Nenhuma ação operacional pendente." />
-        )}
-      </Section>
+        </Section>
+      </CodexReveal>
+
+      <CodexReveal index={3}>
+        <Section title="Next Actions" count={nextActions.length}>
+          {nextActions.length ? (
+            <View style={styles.actionList}>
+              {nextActions.map((action) => <NextActionRow key={action.id} action={action} />)}
+            </View>
+          ) : (
+            <EmptyLine text="Nenhuma ação operacional pendente." />
+          )}
+        </Section>
+      </CodexReveal>
 
       <Section title="Evidence Packet" count={evidence ? 1 : 0}>
         {evidence ? (

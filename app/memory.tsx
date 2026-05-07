@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
+import { CodexReveal } from '../components/CodexReveal'
 import { SectionHeader } from '../components/SectionHeader'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { Frau, Label, Mono, Sans } from '../design/Type'
@@ -745,60 +746,70 @@ export default function MemoryScreen() {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          style={({ pressed }) => [styles.backButton, { backgroundColor: pressed ? c.surface : c.premium, borderColor: c.border }]}
-        >
-          <Sans size={26} lineHeight={28} color={c.ink}>‹</Sans>
-        </Pressable>
-        <Mono size={11} color={c.ink2} letterSpacing={0.44}>
-          {health ? `Vault · ${health.health_state}` : 'Vault'}
-        </Mono>
-      </View>
+      <CodexReveal index={0}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => router.back()}
+            hitSlop={12}
+            style={({ pressed }) => [styles.backButton, { backgroundColor: pressed ? c.surface : c.premium, borderColor: c.border }]}
+          >
+            <Sans size={26} lineHeight={28} color={c.ink}>‹</Sans>
+          </Pressable>
+          <Mono size={11} color={c.ink2} letterSpacing={0.44}>
+            {health ? `Vault · ${health.health_state}` : 'Vault'}
+          </Mono>
+        </View>
+      </CodexReveal>
 
-      <View style={{ marginBottom: 24 }}>
-        <Label>Memória semântica</Label>
-        <Frau size={42} lineHeight={44} color={c.ink} style={{ marginTop: 6 }}>
-          Segundo cérebro ativo
-        </Frau>
-        <Mono size={12} lineHeight={18} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 10 }}>
-          Obsidian local + PostgreSQL + ativações contextuais.
-        </Mono>
-      </View>
+      <CodexReveal index={1}>
+        <View style={{ marginBottom: 24 }}>
+          <Label>Memória semântica</Label>
+          <Frau size={42} lineHeight={44} color={c.ink} style={{ marginTop: 6 }}>
+            Segundo cérebro ativo
+          </Frau>
+          <Mono size={12} lineHeight={18} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 10 }}>
+            Obsidian local + PostgreSQL + ativações contextuais.
+          </Mono>
+        </View>
+      </CodexReveal>
 
       {error ? (
-        <View style={[styles.errorBox, { borderColor: c.recRed, backgroundColor: c.surface }]}>
-          <Sans size={14} lineHeight={20} color={c.recRed}>
-            {error}
-          </Sans>
-        </View>
+        <CodexReveal index={2}>
+          <View style={[styles.errorBox, { borderColor: c.recRed, backgroundColor: c.surface }]}>
+            <Sans size={14} lineHeight={20} color={c.recRed}>
+              {error}
+            </Sans>
+          </View>
+        </CodexReveal>
       ) : partialFailure ? (
-        <View style={[styles.errorBox, { borderColor: c.border, backgroundColor: c.surface }]}>
-          <Sans size={13} lineHeight={19} color={c.ink2}>
-            Algumas seções não atualizaram desta vez. Toque em recarregar para tentar de novo.
-          </Sans>
-        </View>
+        <CodexReveal index={2}>
+          <View style={[styles.errorBox, { borderColor: c.border, backgroundColor: c.surface }]}>
+            <Sans size={13} lineHeight={19} color={c.ink2}>
+              Algumas seções não atualizaram desta vez. Toque em recarregar para tentar de novo.
+            </Sans>
+          </View>
+        </CodexReveal>
       ) : null}
 
-      <View style={styles.actionsGrid}>
-        <PrimaryButton
-          label={busy === 'reindex' ? 'Indexando...' : 'Indexar vault'}
-          variant="secondary"
-          onPress={() => {
-            void runAction('reindex', () => reindexSemanticVault())
-          }}
-          style={styles.actionButton}
-        />
-        <PrimaryButton
-          label={busy === 'activate' ? 'Criando...' : 'Ativar agora'}
-          onPress={() => {
-            void runAction('activate', () => createSemanticActivations({ context_type: 'manual_search' }))
-          }}
-          style={styles.actionButton}
-        />
-      </View>
+      <CodexReveal index={error || partialFailure ? 3 : 2}>
+        <View style={styles.actionsGrid}>
+          <PrimaryButton
+            label={busy === 'reindex' ? 'Indexando...' : 'Indexar vault'}
+            variant="secondary"
+            onPress={() => {
+              void runAction('reindex', () => reindexSemanticVault())
+            }}
+            style={styles.actionButton}
+          />
+          <PrimaryButton
+            label={busy === 'activate' ? 'Criando...' : 'Ativar agora'}
+            onPress={() => {
+              void runAction('activate', () => createSemanticActivations({ context_type: 'manual_search' }))
+            }}
+            style={styles.actionButton}
+          />
+        </View>
+      </CodexReveal>
 
       <SectionHeader label="Provider projection" />
       <View style={{ gap: 10 }}>

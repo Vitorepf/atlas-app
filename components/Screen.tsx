@@ -1,8 +1,19 @@
 import { Platform, ScrollView, StyleSheet, View, type ScrollViewProps, type ViewStyle } from 'react-native'
 import { type ReactNode } from 'react'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+import Animated, { Easing, Keyframe } from 'react-native-reanimated'
 import { CartogBackground } from './CartogBackground'
 import { usePalette } from '../design/theme'
+
+// Atlas weighted settle · scale 1.008→1.0, sem opacity, sem translateY.
+// Metáfora física: copo de uísque pousando em balcão de carvalho · objeto
+// pesado descendo no lugar, não folha leve flutuando até parar. Easing de
+// deceleração agressiva (thud-controlado), duração 280ms — `considered`
+// dos tokens. Não é exhale, é assentamento de massa.
+const atlasSettle = new Keyframe({
+  0: { transform: [{ scale: 1.008 }] },
+  100: { transform: [{ scale: 1 }], easing: Easing.bezier(0.4, 1, 0.2, 1) },
+}).duration(280)
 
 interface Props extends ScrollViewProps {
   children: ReactNode
@@ -50,27 +61,29 @@ export function Screen({
   return (
     <View style={[styles.fill, { backgroundColor: c.bg }, containerStyle]}>
       {!bare && <CartogBackground />}
-      <SafeAreaView edges={['top']} style={styles.fill}>
-        <ScrollView
-          contentContainerStyle={{
-            paddingTop: topExtra,
-            paddingHorizontal: 28,
-            paddingBottom: totalBottom,
-          }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
-          // 48px de respiro acima do teclado: iOS soma este contentInset ao
-          // ajuste automático, evitando que o input focado fique colado no
-          // topo do teclado. Sem isso, o cursor encosta na borda do teclado.
-          contentInset={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
-          scrollIndicatorInsets={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
-          {...rest}
-        >
-          {children}
-        </ScrollView>
-      </SafeAreaView>
+      <Animated.View entering={atlasSettle} style={styles.fill}>
+        <SafeAreaView edges={['top']} style={styles.fill}>
+          <ScrollView
+            contentContainerStyle={{
+              paddingTop: topExtra,
+              paddingHorizontal: 28,
+              paddingBottom: totalBottom,
+            }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            // 48px de respiro acima do teclado: iOS soma este contentInset ao
+            // ajuste automático, evitando que o input focado fique colado no
+            // topo do teclado. Sem isso, o cursor encosta na borda do teclado.
+            contentInset={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
+            scrollIndicatorInsets={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
+            {...rest}
+          >
+            {children}
+          </ScrollView>
+        </SafeAreaView>
+      </Animated.View>
     </View>
   )
 }

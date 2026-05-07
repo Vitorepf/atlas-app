@@ -4,9 +4,10 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated'
-import Svg, { Circle, Defs, RadialGradient, Rect, Stop } from 'react-native-svg'
+import Svg, { Circle, Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg'
 import { useRouter, usePathname } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -16,6 +17,11 @@ import { useOverlays } from '../lib/overlays'
 
 const FOCUSED_ROUTES = new Set(['/capture', '/detail', '/decision'])
 const atlasLogoMarfim = require('../assets/brand/atlas-logo-marfim.png')
+
+// Animated Pressable · permite passar style array contendo animated styles
+// pra Pressable. Usado no dome (singularity) pra animar transform + opacity
+// na própria Pressable, não wrapping View — preserva shadow/bg do dome.
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 interface DockItem {
   key: string
@@ -58,6 +64,17 @@ export function Dock() {
   }))
 
   const wrapStyle = [styles.wrap, { bottom: 8 + insets.bottom }, animStyle]
+
+  // Dome press · WEIGHTED singularity feedback · 220ms in / 520ms out.
+  // Mais lento que tabs (180/420) · sinal de massa simbólica.
+  // Opacity 1→0.78 (dim 0.22) · scale 1→0.93 (dim 0.07) · ligeiramente
+  // MAIS travel que tabs porque dome é gravitational (Vision Pro crown vibe).
+  const domePress = useSharedValue(0)
+
+  const animatedDomeStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 - domePress.value * 0.07 }],
+    opacity: 1 - domePress.value * 0.22,
+  }))
 
   // v15.3 · Triple-tap detector pro botão Inbox · 3 taps em janela 600ms abre
   // Atlas Celestial (tela secundária mapa estelar). Tap simples segue navegação
@@ -137,16 +154,25 @@ export function Dock() {
           },
         ]}
       >
-        {/* B · Atmospheric gradient · luz marfim warm top-center fading pra
-            sombra bronze sutil bottom-edges. Como pegada de luz internalizada
-            em pergaminho envelhecido (vocabulário Hermès Birkin). Clipped à
-            forma do pill via overflow:hidden no wrapper. */}
+        {/* Atmospheric layers · 3 gradients compostos pra realismo óptico:
+            - dockLight: luz marfim warm top-center (fonte de luz)
+            - dockTopRim: rim light crisp na borda superior (light catching edge,
+              como couro de Hermès Birkin captura sun)
+            - dockAmbience: sombra bronze sutil bottom (peso do papel)
+            Tudo clipped ao pill shape via overflow:hidden. */}
         <View pointerEvents="none" style={styles.dockAtmosphere}>
           <Svg width="100%" height="100%">
             <Defs>
               <RadialGradient id="dockLight" cx="50%" cy="0%" r="80%" fx="50%" fy="0%">
                 <Stop offset="0%" stopColor="#F4EFE6" stopOpacity={name === 'dark' ? '0.06' : '0.10'} />
                 <Stop offset="65%" stopColor="#F4EFE6" stopOpacity="0" />
+              </RadialGradient>
+              {/* Top rim light · crisp highlight na borda superior fading rápido.
+                  Pico em -2% (acima do pill) cria sensação de luz incidindo no rim.
+                  Apple-tier depth signal. */}
+              <RadialGradient id="dockTopRim" cx="50%" cy="-2%" r="55%" fx="50%" fy="-2%">
+                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={name === 'dark' ? '0.10' : '0.16'} />
+                <Stop offset="40%" stopColor="#FFFFFF" stopOpacity="0" />
               </RadialGradient>
               <RadialGradient id="dockAmbience" cx="50%" cy="100%" r="65%" fx="50%" fy="100%">
                 <Stop offset="0%" stopColor="#7A5E2F" stopOpacity={name === 'dark' ? '0.05' : '0.04'} />
@@ -155,6 +181,7 @@ export function Dock() {
             </Defs>
             <Rect width="100%" height="100%" fill="url(#dockLight)" />
             <Rect width="100%" height="100%" fill="url(#dockAmbience)" />
+            <Rect width="100%" height="100%" fill="url(#dockTopRim)" />
           </Svg>
         </View>
 
@@ -189,21 +216,36 @@ export function Dock() {
           )
         })}
 
-        <Pressable
+        <AnimatedPressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
             openAtlasAi()
           }}
-          style={({ pressed }) => [
+          onPressIn={() => {
+            // 220ms · weighted give · singularity resiste mais que tabs (180ms).
+            domePress.value = withTiming(1, {
+              duration: 220,
+              easing: Easing.bezier(0.32, 0.72, 0.24, 1),
+            })
+          }}
+          onPressOut={() => {
+            // 520ms · cinematic recovery · 2.36x slower than in.
+            // Dome respira de volta com massa, como Patek perpetual pusher.
+            domePress.value = withTiming(0, {
+              duration: 520,
+              easing: Easing.bezier(0.16, 1, 0.3, 1),
+            })
+          }}
+          style={[
             styles.atlas,
             {
               backgroundColor: c.prussian,
-              transform: [{ scale: pressed ? 0.92 : 1 }],
-              shadowColor: '#1A1612', // ink-tinted warm shadow
+              shadowColor: '#1A1612',
               shadowOpacity: 0.32,
               borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: 'rgba(155,122,63,0.36)', // v17 · edge bronze 42→36% (mais whisper, menos chunky)
+              borderTopColor: 'rgba(155,122,63,0.36)',
             },
+            animatedDomeStyle,
           ]}
           accessibilityRole="button"
           accessibilityLabel="Atlas AI"
@@ -255,8 +297,23 @@ export function Dock() {
                 <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.14" />
                 <Stop offset="80%" stopColor="#FFFFFF" stopOpacity="0" />
               </RadialGradient>
+              {/* v17 · Rim light bottom · luz bronze refletida do papel sob o
+                  dome batendo na base. Optical realism · cera oxidada pega
+                  reflexão warm do plano abaixo. Apple Watch caustic effect. */}
+              <RadialGradient
+                id="atlasRimLight"
+                cx="50%"
+                cy="100%"
+                r="48%"
+                fx="50%"
+                fy="100%"
+              >
+                <Stop offset="0%" stopColor="#9B7A3F" stopOpacity="0.14" />
+                <Stop offset="55%" stopColor="#9B7A3F" stopOpacity="0" />
+              </RadialGradient>
             </Defs>
             <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDepth)" />
+            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasRimLight)" />
             <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDome)" />
             <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasSpecular)" />
           </Svg>
@@ -268,7 +325,7 @@ export function Dock() {
           {/* Camada 3 · inner bezel · 1px marfim 7% inset · sinal de "biselado",
               como anel de joalheria · adiciona profundidade sem virar contorno visível. */}
           <View pointerEvents="none" style={styles.atlasBezel} />
-        </Pressable>
+        </AnimatedPressable>
 
         {ITEMS.slice(2).map((it) => {
           const active = pathname === it.href
@@ -309,6 +366,9 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
   const pressProgress = useSharedValue(0)
   // Active state progress · drive bronze hairline marker fade-in.
   const activeProgress = useSharedValue(active ? 1 : 0)
+  // v18 · breath pulse infinito quando ativo · marker respira como ember vivo.
+  // 5s cycle (2.5s up, 2.5s down), easing inOut sin · ritmo de respiração calma.
+  const pulseProgress = useSharedValue(0)
 
   useEffect(() => {
     activeProgress.value = withTiming(active ? 1 : 0, {
@@ -317,37 +377,95 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
     })
   }, [active, activeProgress])
 
+  useEffect(() => {
+    if (active) {
+      pulseProgress.value = withRepeat(
+        withTiming(1, { duration: 2500, easing: Easing.inOut(Easing.sin) }),
+        -1,
+        true,
+      )
+    } else {
+      pulseProgress.value = 0
+    }
+  }, [active, pulseProgress])
+
+  // Press feedback cinematic · valores VISÍVEIS em renderização real.
+  // Opacity 1→0.70 (dim 0.30) · scale 1→0.94 (dim 0.06) · perceptíveis.
+  // Timing cinematic preservado (180/420 in/out). A diferença SaaS vs codex
+  // é o TIMING + EASING, não a magnitude — magnitude precisa ser visível.
   const animatedContentStyle = useAnimatedStyle(() => ({
-    opacity: 1 - pressProgress.value * 0.45,
+    opacity: 1 - pressProgress.value * 0.30,
     transform: [{ scale: 1 - pressProgress.value * 0.06 }],
+  }))
+
+  // v19 · Active depression layer · simula item afundado no papel.
+  // Inset shadow top + highlight bottom (linear gradients) + warm bronze radial
+  // sob o active item · 3 SVG layers compostos. Active item = "pressionado",
+  // não "flutuando" como inactive. Como tecla pressionada na máquina de escrever.
+  const animatedActiveLayerStyle = useAnimatedStyle(() => ({
+    opacity: activeProgress.value,
   }))
 
   // Bronze hairline mark abaixo do label · "you are here" stamp.
   // Fade-in + scaleX 0→1 origin center · grows do meio quando vira ativo.
+  // v18 breath: opacity 0.5 ↔ 0.42 + scaleX 1.0 ↔ 0.96 quando ativo (pulseProgress).
   const animatedMarkStyle = useAnimatedStyle(() => ({
-    opacity: activeProgress.value * 0.5,
-    transform: [{ scaleX: activeProgress.value }],
+    opacity: activeProgress.value * (0.5 - pulseProgress.value * 0.08),
+    transform: [{ scaleX: activeProgress.value * (1 - pulseProgress.value * 0.04) }],
   }))
 
   return (
     <Pressable
       onPress={onPress}
       onPressIn={() => {
+        // 180ms · bezier(0.32, 0.72, 0.24, 1) · "give" codex (cera prensada,
+        // não snap SaaS). Suave nos dois lados, zero sharp.
         pressProgress.value = withTiming(1, {
-          duration: 220,
-          easing: Easing.bezier(0.32, 0, 0.67, 0),
+          duration: 180,
+          easing: Easing.bezier(0.32, 0.72, 0.24, 1),
         })
       }}
       onPressOut={() => {
+        // 420ms · 2.3x mais lento que in · assinatura iOS/Hermès cinematic.
+        // exhale Apple Books · cera respira de volta sem quicar.
         pressProgress.value = withTiming(0, {
-          duration: 360,
+          duration: 420,
           easing: Easing.bezier(0.16, 1, 0.3, 1),
         })
       }}
       style={styles.btn}
     >
+      {/* Active DEPRESSION layer · luz vinda de CIMA cai na depressão.
+          5 specialists convergiram: o gradient não pode estar centrado (halo
+          omnidirecional) · precisa ter cy=0% (origin top) e fy=-10% (focal
+          point acima do botão) · cria DOMO de luz top-down em vez de circle.
+          - WarmGlow: bronze radial top-down (light entering depression from above)
+          - InsetTop: ink linear (sombra do edge superior projetada na cavidade)
+          - InsetBottom: marfim linear (luz catching back wall na metade inferior) */}
+      <Animated.View pointerEvents="none" style={[styles.btnActiveLayer, animatedActiveLayerStyle]}>
+        <Svg width="100%" height="100%">
+          <Defs>
+            <RadialGradient id="btnWarmGlow" cx="50%" cy="0%" r="85%" fx="50%" fy="-10%">
+              <Stop offset="0%" stopColor="#9B7A3F" stopOpacity="0.16" />
+              <Stop offset="85%" stopColor="#9B7A3F" stopOpacity="0" />
+            </RadialGradient>
+            <LinearGradient id="btnInsetTop" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#1A1612" stopOpacity="0.05" />
+              <Stop offset="55%" stopColor="#1A1612" stopOpacity="0" />
+            </LinearGradient>
+            <LinearGradient id="btnInsetBottom" x1="0%" y1="100%" x2="0%" y2="0%">
+              <Stop offset="0%" stopColor="#F4EFE6" stopOpacity="0.05" />
+              <Stop offset="55%" stopColor="#F4EFE6" stopOpacity="0" />
+            </LinearGradient>
+          </Defs>
+          <Rect width="100%" height="100%" fill="url(#btnWarmGlow)" />
+          <Rect width="100%" height="100%" fill="url(#btnInsetTop)" />
+          <Rect width="100%" height="100%" fill="url(#btnInsetBottom)" />
+        </Svg>
+      </Animated.View>
+
       <Animated.View style={[styles.btnContent, animatedContentStyle]}>
-        <DockIcon icon={item.icon} color={iconColor} />
+        <DockIcon icon={item.icon} color={iconColor} active={active} />
         <Frau italic size={11} lineHeight={14} color={labelColor} style={{ marginTop: 3, opacity: active ? 0.85 : 0.55 }}>
           {item.label.toLowerCase()}
         </Frau>
@@ -363,50 +481,75 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
 interface DockIconProps {
   icon: DockItem['icon']
   color: string
+  active?: boolean
 }
 
 // Simple line icons drawn with Views to avoid a SVG dep.
 // v17 cinema · stroke refinado 1.6→1.0 (mais delicate, codex feel).
-function DockIcon({ icon, color }: DockIconProps) {
+// v18 letterpress · cada icon renderizado 2x: shadow ink offset 0.5px abaixo,
+// depois icon real em cima. Cria efeito "carimbado em pergaminho" — strokes
+// não pintados na superfície, mas IMPRESSOS · letterpress digital.
+// v19 differential · active letterpress mais profundo (0.18, mais carimbado),
+// inactive mais raso (0.06, quase-fade). Como manuscrito de uso real onde
+// sections lidas frequentemente ficam mais marcadas no papel.
+function DockIcon({ icon, color, active = false }: DockIconProps) {
   const stroke = 1.0
-  if (icon === 'home') {
+  const letterpressOpacity = active ? 0.18 : 0.06
+
+  const renderStrokes = (strokeColor: string) => {
+    if (icon === 'home') {
+      return (
+        <>
+          <View style={{ position: 'absolute', left: 1, top: 5, width: 14, height: stroke, backgroundColor: strokeColor, transform: [{ rotate: '-30deg' }], borderRadius: 1 }} />
+          <View style={{ position: 'absolute', right: 1, top: 5, width: 14, height: stroke, backgroundColor: strokeColor, transform: [{ rotate: '30deg' }], borderRadius: 1 }} />
+          <View style={{ position: 'absolute', left: 3, top: 10, width: stroke, height: 11, backgroundColor: strokeColor, borderRadius: 1 }} />
+          <View style={{ position: 'absolute', right: 3, top: 10, width: stroke, height: 11, backgroundColor: strokeColor, borderRadius: 1 }} />
+          <View style={{ position: 'absolute', left: 3, top: 20, right: 3, height: stroke, backgroundColor: strokeColor, borderRadius: 1 }} />
+        </>
+      )
+    }
+    if (icon === 'inbox') {
+      return (
+        <>
+          <View style={{ position: 'absolute', left: 1, top: 4, right: 1, height: stroke, backgroundColor: strokeColor }} />
+          <View style={{ position: 'absolute', left: 1, top: 4, width: stroke, height: 12, backgroundColor: strokeColor }} />
+          <View style={{ position: 'absolute', right: 1, top: 4, width: stroke, height: 12, backgroundColor: strokeColor }} />
+          <View style={{ position: 'absolute', left: 1, top: 14, width: 6, height: stroke, backgroundColor: strokeColor, transform: [{ rotate: '50deg' }] }} />
+          <View style={{ position: 'absolute', right: 1, top: 14, width: 6, height: stroke, backgroundColor: strokeColor, transform: [{ rotate: '-50deg' }] }} />
+          <View style={{ position: 'absolute', left: 5, top: 18, right: 5, height: stroke, backgroundColor: strokeColor }} />
+        </>
+      )
+    }
+    if (icon === 'review') {
+      return (
+        <>
+          <View style={{ position: 'absolute', left: 1, top: 3, right: 1, bottom: 1, borderWidth: stroke, borderColor: strokeColor, borderRadius: 1 }} />
+          <View style={{ position: 'absolute', left: 1, top: 8, right: 1, height: stroke, backgroundColor: strokeColor }} />
+          <View style={{ position: 'absolute', left: 6, top: 1, width: stroke, height: 5, backgroundColor: strokeColor }} />
+          <View style={{ position: 'absolute', left: 14, top: 1, width: stroke, height: 5, backgroundColor: strokeColor }} />
+        </>
+      )
+    }
     return (
-      <View style={{ width: 22, height: 22 }}>
-        <View style={{ position: 'absolute', left: 1, top: 5, width: 14, height: stroke, backgroundColor: color, transform: [{ rotate: '-30deg' }], borderRadius: 1 }} />
-        <View style={{ position: 'absolute', right: 1, top: 5, width: 14, height: stroke, backgroundColor: color, transform: [{ rotate: '30deg' }], borderRadius: 1 }} />
-        <View style={{ position: 'absolute', left: 3, top: 10, width: stroke, height: 11, backgroundColor: color, borderRadius: 1 }} />
-        <View style={{ position: 'absolute', right: 3, top: 10, width: stroke, height: 11, backgroundColor: color, borderRadius: 1 }} />
-        <View style={{ position: 'absolute', left: 3, top: 20, right: 3, height: stroke, backgroundColor: color, borderRadius: 1 }} />
-      </View>
+      <>
+        <View style={{ position: 'absolute', left: 1, top: 1, width: 20, height: 20, borderRadius: 10, borderWidth: stroke, borderColor: strokeColor }} />
+        <View style={{ position: 'absolute', left: 11 - stroke / 2, top: 6, width: stroke, height: 6, backgroundColor: strokeColor }} />
+        <View style={{ position: 'absolute', left: 11 - stroke / 2, top: 11 - stroke / 2, width: 5, height: stroke, backgroundColor: strokeColor }} />
+      </>
     )
   }
-  if (icon === 'inbox') {
-    return (
-      <View style={{ width: 22, height: 22 }}>
-        <View style={{ position: 'absolute', left: 1, top: 4, right: 1, height: stroke, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: 1, top: 4, width: stroke, height: 12, backgroundColor: color }} />
-        <View style={{ position: 'absolute', right: 1, top: 4, width: stroke, height: 12, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: 1, top: 14, width: 6, height: stroke, backgroundColor: color, transform: [{ rotate: '50deg' }] }} />
-        <View style={{ position: 'absolute', right: 1, top: 14, width: 6, height: stroke, backgroundColor: color, transform: [{ rotate: '-50deg' }] }} />
-        <View style={{ position: 'absolute', left: 5, top: 18, right: 5, height: stroke, backgroundColor: color }} />
-      </View>
-    )
-  }
-  if (icon === 'review') {
-    return (
-      <View style={{ width: 22, height: 22 }}>
-        <View style={{ position: 'absolute', left: 1, top: 3, right: 1, bottom: 1, borderWidth: stroke, borderColor: color, borderRadius: 1 }} />
-        <View style={{ position: 'absolute', left: 1, top: 8, right: 1, height: stroke, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: 6, top: 1, width: stroke, height: 5, backgroundColor: color }} />
-        <View style={{ position: 'absolute', left: 14, top: 1, width: stroke, height: 5, backgroundColor: color }} />
-      </View>
-    )
-  }
+
   return (
     <View style={{ width: 22, height: 22 }}>
-      <View style={{ position: 'absolute', left: 1, top: 1, width: 20, height: 20, borderRadius: 10, borderWidth: stroke, borderColor: color }} />
-      <View style={{ position: 'absolute', left: 11 - stroke / 2, top: 6, width: stroke, height: 6, backgroundColor: color }} />
-      <View style={{ position: 'absolute', left: 11 - stroke / 2, top: 11 - stroke / 2, width: 5, height: stroke, backgroundColor: color }} />
+      {/* Letterpress shadow · ink offset 0.5px down, opacity differential.
+          Renderiza o icon todo em ink scuro, deslocado, com opacity baseada
+          em active state. Active = mais profundo (mais marcado), inactive =
+          mais raso (esmaecido) · differential cria sensação tátil de leitura. */}
+      <View style={{ position: 'absolute', top: 0.5, left: 0, width: 22, height: 22, opacity: letterpressOpacity }} pointerEvents="none">
+        {renderStrokes('#1A1612')}
+      </View>
+      {/* Icon real · em cima do shadow */}
+      {renderStrokes(color)}
     </View>
   )
 }
@@ -492,6 +635,18 @@ const styles = StyleSheet.create({
   btnContent: {
     alignItems: 'center',
     justifyContent: 'center',
+    // Sem shadow · depression não projeta sombra (item está afundado, não erguido).
+  },
+  // v19 · Active depression layer · 3 gradients SVG clipped ao circle btn.
+  // Posicionado absolute sob o content, animated opacity 0→1 com activeProgress.
+  btnActiveLayer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 25,
+    overflow: 'hidden',
   },
   // Active state mark · bronze hairline 14×1 com EMBER HALO bronze.
   // shadowColor bronze + shadowRadius 4 cria glow perpendicular à linha,
