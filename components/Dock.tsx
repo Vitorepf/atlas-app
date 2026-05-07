@@ -1,5 +1,5 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -10,7 +10,7 @@ import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg'
 import { useRouter, usePathname } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Sans } from '../design/Type'
+import { Frau } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 
@@ -59,6 +59,42 @@ export function Dock() {
 
   const wrapStyle = [styles.wrap, { bottom: 8 + insets.bottom }, animStyle]
 
+  // v15.3 · Triple-tap detector pro botão Inbox · 3 taps em janela 600ms abre
+  // Atlas Celestial (tela secundária mapa estelar). Tap simples segue navegação
+  // normal pra /inbox. Decisão arquitetural: easter egg gestural · descoberta
+  // organica · não polui UI com botão extra "view celestial".
+  const inboxTapsRef = useRef(0)
+  const inboxTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleInboxTap = () => {
+    inboxTapsRef.current += 1
+
+    // 3º tap em janela ativa → abre celestial
+    if (inboxTapsRef.current >= 3) {
+      inboxTapsRef.current = 0
+      if (inboxTapTimerRef.current) {
+        clearTimeout(inboxTapTimerRef.current)
+        inboxTapTimerRef.current = null
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+      router.push('/celestial')
+      return
+    }
+
+    // 1º tap · navega pra inbox normal (preserva UX padrão)
+    if (inboxTapsRef.current === 1) {
+      Haptics.selectionAsync()
+      router.replace('/inbox')
+    }
+
+    // Reset counter após 600ms de inatividade · janela pra completar triple-tap
+    if (inboxTapTimerRef.current) clearTimeout(inboxTapTimerRef.current)
+    inboxTapTimerRef.current = setTimeout(() => {
+      inboxTapsRef.current = 0
+      inboxTapTimerRef.current = null
+    }, 600)
+  }
+
   if (focused) {
     return <Animated.View pointerEvents="none" style={wrapStyle} />
   }
@@ -84,8 +120,14 @@ export function Dock() {
               item={it}
               active={active}
               onPress={() => {
-                Haptics.selectionAsync()
-                router.replace(it.href)
+                // v15.3 · Inbox tap detection · single tap navigation,
+                // triple tap (3 taps em <600ms) abre Atlas Celestial.
+                if (it.key === 'inbox') {
+                  handleInboxTap()
+                } else {
+                  Haptics.selectionAsync()
+                  router.replace(it.href)
+                }
               }}
             />
           )
@@ -195,9 +237,9 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
       ]}
     >
       <DockIcon icon={item.icon} color={iconColor} />
-      <Sans weight="med" size={11} color={labelColor} style={{ marginTop: 2 }}>
-        {item.label}
-      </Sans>
+      <Frau italic size={11} lineHeight={14} color={labelColor} style={{ marginTop: 3, opacity: active ? 0.85 : 0.55 }}>
+        {item.label.toLowerCase()}
+      </Frau>
     </Pressable>
   )
 }

@@ -15,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
+import { PaperVignette } from '../components/inbox/PaperVignette'
 import { InboxCard, type InboxItem } from '../components/InboxCard'
 import { InboxSkeleton } from '../components/InboxSkeleton'
 import { EmptyInbox } from '../components/EmptyInbox'
@@ -26,7 +27,6 @@ import {
 import { CaptureButton } from '../components/inbox/CaptureButton'
 import { OperationalInboxCard } from '../components/inbox/OperationalInboxCard'
 import { SwipeableCard } from '../components/inbox/SwipeableCard'
-import { PaperVignette } from '../components/inbox/PaperVignette'
 import { FocusModePill } from '../components/inbox/FocusModePill'
 import { useFreshCaptures } from '../lib/useFreshCaptures'
 import { Frau, Mono, Sans } from '../design/Type'
@@ -184,13 +184,16 @@ export default function InboxScreen() {
       filterUnderlineW.value = target.width
       filterInitializedRef.current = true
     } else {
+      // Slider underline · Apple Books exhale (mesma curva da home cinema)
+      // Duration 520ms · contemplativo, não snappy. Easing bezier(0.16,1,0.3,1)
+      // = "exhale" lento que assenta como ar saindo, não como freada.
       filterUnderlineX.value = withTiming(target.x, {
-        duration: 320,
-        easing: Easing.bezier(0.32, 0.72, 0, 1),
+        duration: 520,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
       })
       filterUnderlineW.value = withTiming(target.width, {
-        duration: 320,
-        easing: Easing.bezier(0.32, 0.72, 0, 1),
+        duration: 520,
+        easing: Easing.bezier(0.16, 1, 0.3, 1),
       })
     }
   }, [filter, filterLayouts, filterUnderlineX, filterUnderlineW])
@@ -1670,7 +1673,21 @@ function FilterChip({
 }) {
   const c = usePalette()
   // v15.2 · per-chip underline removido · substituído pelo slider único no parent.
-  // Cada chip apenas reporta layout via onLayoutChip pra alimentar slider position.
+  // v16 · cinema crossfade · active state transita opacity smoothly em vez de
+  // trocar color={c.ink} ↔ color={c.ink3} instantâneo. Duration 480ms exhale
+  // = mesma curva do home cinema · contemplativo, não snap.
+  const activeProgress = useSharedValue(active ? 1 : 0)
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 480,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    })
+  }, [active, activeProgress])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: 0.42 + activeProgress.value * 0.58,
+  }))
 
   return (
     <Pressable
@@ -1681,35 +1698,21 @@ function FilterChip({
           width: e.nativeEvent.layout.width,
         })
       }
-      style={({ pressed }) => [
-        styles.filterChip,
-        {
-          opacity: pressed ? 0.6 : 1,
-        },
-      ]}
+      style={styles.filterChip}
     >
-      <Frau
-        italic
-        size={14.5}
-        lineHeight={18}
-        color={active ? c.ink : c.ink3}
-      >
-        {label}
-      </Frau>
-      {count != null && count > 0 ? (
-        // v13 · count Mono→Frau italic · mesma família tipográfica da label
-        // (italic Frau 14.5 + count italic 11). Era Mono 10.5 = mistura "data table".
-        // Agora unifica família · count vira inflexão de scale + cor, não outra fonte.
-        <Frau
-          italic
-          size={11}
-          lineHeight={14}
-          color={active ? c.ink2 : c.ink3}
-          style={styles.filterChipCount}
-        >
-          {count}
+      <Animated.View style={[styles.filterChipRow, animatedStyle]}>
+        <Frau italic size={14.5} lineHeight={18} color={c.ink}>
+          {label}
         </Frau>
-      ) : null}
+        {count != null && count > 0 ? (
+          // v13 · count Mono→Frau italic · mesma família tipográfica da label
+          // (italic Frau 14.5 + count italic 11). Era Mono 10.5 = mistura "data table".
+          // Agora unifica família · count vira inflexão de scale + cor, não outra fonte.
+          <Frau italic size={11} lineHeight={14} color={c.ink2} style={styles.filterChipCount}>
+            {count}
+          </Frau>
+        ) : null}
+      </Animated.View>
     </Pressable>
   )
 }
@@ -2433,13 +2436,18 @@ const styles = StyleSheet.create({
   // v12 · underline editorial premium matching ModeTabs.
   // v15 · borderBottomWidth removido · agora underline é Animated.View absoluto
   // sobreposto · permite scaleX + opacity transitions cinéticas.
+  // v16 cinema · row layout movido pra filterChipRow (Animated.View interno
+  // que carrega o crossfade de opacity). filterChip vira só wrapper de
+  // padding+position pro slider absolute funcionar.
   filterChip: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 5,
     paddingHorizontal: 0,
     paddingBottom: 6,
     position: 'relative',
+  },
+  filterChipRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 5,
   },
   // v15 · underline animado · 1px bronze 60% · scaleX origin left.
   // Posição absoluta preenche full-width do chip · escala anima entrada/saída.
@@ -2454,14 +2462,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(155,122,63,0.60)',
     transformOrigin: 'left center',
   },
-  // v15.2 · slider underline único entre filter chips · scrolla junto com
-  // contentContainer do ScrollView horizontal (renderizado dentro dele).
-  // Posição absolute · animado via left + width direto.
+  // v16 · slider underline único · opacity 60→45% pra whisper. Ainda visível
+  // (é selector indicator), mas não compete com codex separators (12-22%).
   filterChipSliderUnderline: {
     position: 'absolute',
     bottom: 0,
     height: 1,
-    backgroundColor: 'rgba(155,122,63,0.60)',
+    backgroundColor: 'rgba(155,122,63,0.45)',
   },
   filterChipCount: {
     opacity: 0.6,

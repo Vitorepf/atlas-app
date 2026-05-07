@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Atlas · Céu Pessoal v1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================================
+       Atlas Celestial v1 · protótipo HTML
+       Etimologicamente: você é dono de um atlas celestial pessoal.
+       Cada captura = uma estrela ✦ no SEU firmamento intelectual.
+       Atlas literalmente = mapa dos céus (Mercator/Hondius tradition).
+       ============================================================ */
+
+    :root {
+      --bg: #F4EFE6;
+      --bg-deep: #ECE4D5;
+      --ink: #1A1612;
+      --ink2: #5C4A38;
+      --ink3: #8C7866;
+      --ink4: #B8A78F;
+      --bronze: #9B7A3F;
+      --bronze-deep: #7A5E2F;
+      --bronze-light: #C19E6E;
+      --prussian: #1F2D44;
+      --serif: 'Fraunces', Georgia, serif;
+      --sans: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'SF Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--serif);
+      -webkit-font-smoothing: antialiased;
+      position: relative;
+    }
+
+    /* Subtle paper texture · radial highlight + subtle grain via SVG noise */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 22% 18%, rgba(255,250,240,0.5) 0%, transparent 55%),
+        radial-gradient(ellipse at 82% 88%, rgba(122,94,47,0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Cartografia sussurrada · faint meridians + parallels (Atlas signature P12) */
+    .cartog-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.06;
+      z-index: 1;
+    }
+
+    /* ============ HEADER ============ */
+    .header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      padding: 20px 28px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(180deg, var(--bg) 0%, rgba(244,239,230,0.95) 70%, transparent 100%);
+      pointer-events: none;
+    }
+    .header > * { pointer-events: auto; }
+    .header-title {
+      font-family: var(--serif);
+      font-size: 28px;
+      letter-spacing: -0.6px;
+      color: var(--ink);
+      animation: fadeIn 600ms ease-out;
+    }
+    .header-meta {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      letter-spacing: 1.4px;
+      color: var(--ink3);
+      text-transform: uppercase;
+      animation: fadeIn 800ms ease-out 200ms backwards;
+    }
+
+    /* ============ CARDINAL DIRECTIONS ============ */
+    .cardinal {
+      position: fixed;
+      font-family: var(--sans);
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--ink3);
+      z-index: 5;
+      animation: fadeIn 1200ms ease-out 600ms backwards;
+    }
+    .cardinal-bullet {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: var(--bronze);
+      vertical-align: middle;
+      margin-right: 6px;
+      opacity: 0.6;
+    }
+    .cardinal-N { top: 110px; left: 50%; transform: translateX(-50%); }
+    .cardinal-S { bottom: 200px; left: 50%; transform: translateX(-50%); }
+    .cardinal-E { right: 28px; top: 50%; transform: translateY(-50%) rotate(90deg); transform-origin: center; }
+    .cardinal-W { left: 28px; top: 50%; transform: translateY(-50%) rotate(-90deg); transform-origin: center; }
+
+    /* ============ STARS (CAPTURES) ============ */
+    .star {
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      z-index: 10;
+      will-change: transform;
+      animation: starAppear 800ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+    }
+    .star-glyph {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 18px;
+      color: var(--bronze);
+      line-height: 1;
+      transition: all 220ms cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform;
+    }
+    .star.star-recent .star-glyph {
+      font-size: 22px;
+      color: var(--bronze);
+      text-shadow: 0 0 12px rgba(155,122,63,0.35);
+    }
+    .star.star-old .star-glyph {
+      font-size: 14px;
+      color: rgba(155,122,63,0.45);
+    }
+    .star:hover .star-glyph {
+      transform: scale(1.3) rotate(8deg);
+      color: var(--bronze-deep);
+    }
+    .star.star-recent {
+      animation: starAppear 800ms cubic-bezier(0.32, 0.72, 0, 1) backwards,
+                 starBreathe 7s ease-in-out infinite 2s;
+    }
+
+    /* ============ STAR TOOLTIP ============ */
+    .star-tooltip {
+      position: absolute;
+      top: -32px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--ink);
+      color: var(--bg);
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      white-space: nowrap;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms;
+      z-index: 30;
+      box-shadow: 0 4px 16px rgba(26,22,18,0.18);
+    }
+    .star:hover .star-tooltip {
+      opacity: 1;
+    }
+
+    /* ============ CONSTELLATION LINES (SVG) ============ */
+    .constellation-svg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 8;
+    }
+    .constellation-line {
+      stroke: rgba(155,122,63,0.32);
+      stroke-width: 0.8;
+      stroke-dasharray: 3 4;
+      fill: none;
+      stroke-linecap: round;
+      animation: drawLine 2.4s cubic-bezier(0.32, 0.72, 0, 1) 1500ms backwards;
+    }
+    .constellation-label {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 11px;
+      fill: var(--bronze-deep);
+      animation: fadeIn 800ms ease-out 3500ms backwards;
+    }
+
+    /* ============ FOOTER / READING PANEL ============ */
+    .reading {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 28px 32px 38px;
+      background: linear-gradient(180deg, transparent 0%, rgba(244,239,230,0.9) 35%, var(--bg) 100%);
+      z-index: 40;
+      animation: fadeIn 1200ms ease-out 4000ms backwards;
+    }
+    .reading-label {
+      font-family: var(--sans);
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--ink3);
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .reading-text {
+      font-family: var(--serif);
+      font-size: 16px;
+      line-height: 1.55;
+      color: var(--ink);
+      letter-spacing: -0.05px;
+      text-align: center;
+      max-width: 580px;
+      margin: 0 auto;
+    }
+    .reading-text em {
+      color: var(--bronze-deep);
+      font-style: italic;
+    }
+    .reading-rule {
+      width: 60px;
+      height: 1px;
+      background: rgba(155,122,63,0.25);
+      margin: 18px auto 0;
+    }
+
+    /* ============ TELESCOPE ZOOM (modal) ============ */
+    .telescope-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(26,22,18,0.32);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 320ms cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 100;
+    }
+    .telescope-backdrop.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .telescope-card {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.92);
+      background: var(--bg);
+      border-radius: 18px;
+      padding: 36px 32px 28px;
+      width: min(420px, calc(100vw - 40px));
+      box-shadow: 0 30px 80px rgba(26,22,18,0.22);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 380ms cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 101;
+      border-top: 1px solid rgba(155,122,63,0.42);
+    }
+    .telescope-card.active {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      pointer-events: auto;
+    }
+    .telescope-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 18px;
+      font-size: 11px;
+    }
+    .telescope-meta .time { font-family: var(--mono); color: var(--ink2); letter-spacing: 0.4px; }
+    .telescope-meta .kind { font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink2); }
+    .telescope-meta .domain {
+      margin-left: auto;
+      font-family: var(--sans);
+      font-weight: 500;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: var(--prussian);
+      font-size: 10px;
+    }
+    .telescope-meta .domain-bullet {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--prussian);
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .telescope-body {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 22px;
+      line-height: 1.45;
+      letter-spacing: -0.18px;
+      color: var(--ink);
+      margin-bottom: 24px;
+    }
+    .telescope-aclaration-label {
+      font-family: var(--sans);
+      font-weight: 500;
+      font-size: 10px;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 14px;
+    }
+    .telescope-tese-label {
+      font-family: var(--sans);
+      font-weight: 500;
+      font-size: 9px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 4px;
+    }
+    .telescope-tese {
+      font-family: var(--serif);
+      font-size: 14.5px;
+      line-height: 1.5;
+      color: var(--ink);
+      margin-bottom: 14px;
+    }
+    .telescope-tipo {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 12.5px;
+      color: var(--bronze);
+      margin-top: 14px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .telescope-tipo-label {
+      font-family: var(--sans);
+      font-weight: 500;
+      font-size: 9px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--ink3);
+      font-style: normal;
+    }
+    .telescope-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: none;
+      border: none;
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 16px;
+      color: var(--ink3);
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+
+    /* ============ ENTRY OVERLAY ("entrando no atlas") ============ */
+    .entry-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--ink);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: entryFade 1400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+      pointer-events: none;
+    }
+    .entry-glyph {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 64px;
+      color: var(--bronze);
+      animation: entryGlyph 1400ms cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* ============ HINT ============ */
+    .hint {
+      position: fixed;
+      bottom: 22px;
+      right: 28px;
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 11px;
+      color: var(--ink3);
+      opacity: 0.7;
+      animation: fadeIn 1200ms ease-out 5000ms backwards;
+      z-index: 60;
+    }
+
+    /* ============ ANIMATIONS ============ */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes starAppear {
+      from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    @keyframes starBreathe {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.06); }
+    }
+    @keyframes drawLine {
+      from { stroke-dashoffset: 600; opacity: 0; }
+      to { stroke-dashoffset: 0; opacity: 1; }
+    }
+    @keyframes entryFade {
+      0% { opacity: 1; }
+      70% { opacity: 1; }
+      100% { opacity: 0; pointer-events: none; }
+    }
+    @keyframes entryGlyph {
+      0% { opacity: 0; transform: scale(0.6); }
+      30% { opacity: 1; transform: scale(1); }
+      80% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.2); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Entry ritual: marfim desce, ✦ bronze cresce, fade pra céu -->
+  <div class="entry-overlay">
+    <div class="entry-glyph">✦</div>
+  </div>
+
+  <!-- Cartografia sussurrada · meridianos + paralelos sutis (P12 literal) -->
+  <svg class="cartog-bg" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1200 1200">
+    <!-- meridianos verticais curvos -->
+    <path d="M 200 -50 Q 280 600 200 1250 Q 120 1850 200 2450" stroke="rgba(26,22,18,0.4)" stroke-width="0.6" fill="none"/>
+    <path d="M 1000 -50 Q 920 600 1000 1250 Q 1080 1850 1000 2450" stroke="rgba(26,22,18,0.4)" stroke-width="0.6" fill="none"/>
+    <path d="M 600 -50 Q 600 1250 600 2450" stroke="rgba(26,22,18,0.3)" stroke-width="0.5" fill="none"/>
+    <!-- paralelos -->
+    <path d="M -50 300 Q 600 350 1250 300" stroke="rgba(26,22,18,0.3)" stroke-width="0.5" fill="none"/>
+    <path d="M -50 900 Q 600 950 1250 900" stroke="rgba(26,22,18,0.3)" stroke-width="0.5" fill="none"/>
+  </svg>
+
+  <!-- HEADER · masthead editorial -->
+  <header class="header">
+    <h1 class="header-title">Atlas</h1>
+    <div class="header-meta">céu pessoal · 06.MAI.2026</div>
+  </header>
+
+  <!-- CARDINAIS · 4 domínios -->
+  <div class="cardinal cardinal-N"><span class="cardinal-bullet"></span>ATLAS</div>
+  <div class="cardinal cardinal-S"><span class="cardinal-bullet"></span>PESSOAL</div>
+  <div class="cardinal cardinal-E"><span class="cardinal-bullet"></span>FILOSOFIA</div>
+  <div class="cardinal cardinal-W"><span class="cardinal-bullet"></span>BLACKINK</div>
+
+  <!-- CONSTELLATION SVG (drawn by JS based on stars data) -->
+  <svg class="constellation-svg" id="constellations"></svg>
+
+  <!-- READING PANEL · "leitura do céu" · AI compose -->
+  <footer class="reading">
+    <div class="reading-label">leitura do céu</div>
+    <p class="reading-text">
+      esta semana foi dominada por um aglomerado em <em>BlackInk</em> · sete capturas em órbita do mesmo pensamento sobre módulo Stripe. há tensão entre <em>cliente João</em> e <em>roadmap separado</em> · esses dois pontos formam um par binário. em <em>ATLAS</em>, três estrelas se alinham sobre a ideia de céu pessoal · constelação ainda inominada.
+    </p>
+    <div class="reading-rule"></div>
+  </footer>
+
+  <!-- HINT -->
+  <div class="hint">tap em qualquer ✦ para abrir o telescópio</div>
+
+  <!-- TELESCOPE ZOOM modal -->
+  <div class="telescope-backdrop" id="telescopeBackdrop"></div>
+  <article class="telescope-card" id="telescopeCard">
+    <button class="telescope-close" id="telescopeClose">fechar</button>
+    <div class="telescope-meta">
+      <span class="time" id="tMeta-time">14:09</span>
+      <span class="kind" id="tMeta-kind">áudio</span>
+      <span class="domain"><span class="domain-bullet" id="tMeta-bullet"></span><span id="tMeta-domain">BLACKINK</span></span>
+    </div>
+    <div class="telescope-body" id="tBody">corpo da captura aqui</div>
+    <div class="telescope-aclaration-label">aclarado por atlas</div>
+    <div class="telescope-tese-label">tese principal</div>
+    <div class="telescope-tese" id="tTese">tese aqui</div>
+    <div class="telescope-tipo">
+      <span class="telescope-tipo-label">tipo sugerido</span>
+      <span>✦</span>
+      <span id="tTipo">hipótese de receita</span>
+    </div>
+  </article>
+
+  <script>
+    // ============================================================
+    // STARS DATA · 12 capturas distribuídas pelos 4 quadrantes
+    // pos: { x, y } em viewport % (50,50 = centro).
+    // age: 'recent' | 'mid' | 'old' afeta brilho/tamanho.
+    // domain: norteamento cardinal · cada domain tem cor própria.
+    // ============================================================
+
+    const stars = [
+      // BlackInk (W · esquerda)
+      { id: 's1', pos: {x: 18, y: 38}, age: 'recent', domain: 'BLACKINK', time: '14:09', kind: 'áudio', body: 'Stripe módulo upsell · receita recorrente sem requerer roadmap separado.', tese: 'Empacotar o módulo Stripe como produto pode gerar receita recorrente.', tipo: 'hipótese de receita' },
+      { id: 's2', pos: {x: 12, y: 52}, age: 'mid', domain: 'BLACKINK', time: 'ontem 18:30', kind: 'texto', body: 'Cliente João já pagaria · demanda validada.', tese: 'Há demanda concreta por um produto Stripe-as-a-service.', tipo: 'sinal de mercado' },
+      { id: 's3', pos: {x: 22, y: 48}, age: 'mid', domain: 'BLACKINK', time: 'ontem 16:55', kind: 'áudio', body: 'Vale como módulo separado ou como feature plan superior?', tese: 'Tensão estratégica entre módulo standalone e premium tier.', tipo: 'pergunta de roadmap' },
+      { id: 's4', pos: {x: 14, y: 64}, age: 'old', domain: 'BLACKINK', time: '3 dias', kind: 'texto', body: 'Reusa código existente · custo marginal baixo.', tese: 'Implementação tem custo de oportunidade mínimo.', tipo: 'observação técnica' },
+
+      // ATLAS (N · topo)
+      { id: 's5', pos: {x: 48, y: 20}, age: 'recent', domain: 'ATLAS', time: 'hoje 14:30', kind: 'texto', body: 'Atlas precisa virar atlas literal · mapa celestial pessoal · cada captura é uma estrela.', tese: 'A etimologia da palavra atlas pede que o app seja um céu pessoal.', tipo: 'redirecionamento de produto' },
+      { id: 's6', pos: {x: 38, y: 26}, age: 'recent', domain: 'ATLAS', time: 'hoje 11:30', kind: 'áudio', body: 'Captura sub-10s sagrado · qualquer fricção mata o sistema.', tese: 'Velocidade de captura é a invariante crítica do Atlas.', tipo: 'principio operacional' },
+      { id: 's7', pos: {x: 56, y: 28}, age: 'mid', domain: 'ATLAS', time: 'hoje 09:15', kind: 'texto', body: 'Atlas tem que ser obra de arte · não software produtividade.', tese: 'Diferenciação categórica · arte vs ferramenta.', tipo: 'norte estético' },
+      { id: 's8', pos: {x: 50, y: 34}, age: 'mid', domain: 'ATLAS', time: 'ontem 22:00', kind: 'texto', body: 'P12 cartografia sussurrada literalmente · não metáfora.', tese: 'Trazer cartografia visual real pra app · não só inspiração.', tipo: 'principio visual' },
+
+      // FILOSOFIA (E · direita)
+      { id: 's9', pos: {x: 78, y: 44}, age: 'mid', domain: 'FILOSOFIA', time: 'ontem 15:00', kind: 'texto', body: 'Wittgenstein · os limites da linguagem são os limites do meu mundo.', tese: 'Captura amplia o mundo expandindo os limites da linguagem usada.', tipo: 'fundamento epistêmico' },
+      { id: 's10', pos: {x: 84, y: 36}, age: 'recent', domain: 'FILOSOFIA', time: 'hoje 09:00', kind: 'áudio', body: 'Atlas grego · titan que sustenta os céus · etimologia revisitada.', tese: 'A palavra Atlas carrega o céu literalmente · usar isso.', tipo: 'recuperação etimológica' },
+
+      // PESSOAL (S · base)
+      { id: 's11', pos: {x: 44, y: 70}, age: 'mid', domain: 'PESSOAL', time: 'ontem 23:00', kind: 'texto', body: 'Dormir mais cedo melhora foco no dia seguinte.', tese: 'Padrão de sono direta correlaciona com qualidade de captura matinal.', tipo: 'observação pessoal' },
+      { id: 's12', pos: {x: 56, y: 74}, age: 'old', domain: 'PESSOAL', time: '3 dias', kind: 'texto', body: 'Respirar antes de capturar · gestão de afobação.', tese: 'Microritual pre-captura aumenta clareza do registro.', tipo: 'práxis cotidiana' },
+    ];
+
+    // Constellations · linhas que Atlas DESENHA conectando ideias relacionadas.
+    const constellations = [
+      { stars: ['s1', 's2', 's3'], name: 'Hipótese Stripe' },
+      { stars: ['s5', 's6', 's7', 's8'], name: 'Soul of Atlas' },
+      { stars: ['s10', 's5'], name: null }, // conexão filosofia ↔ atlas (etimologia)
+    ];
+
+    // Domain colors · estrelas levemente tingidas por domain
+    const domainAccent = {
+      BLACKINK: '#1F2D44',  // prussian
+      ATLAS: '#5C3D8A',     // violet (matching ATLAS prussian-violet do app)
+      FILOSOFIA: '#5C4A38', // ink2
+      PESSOAL: '#7A5E2F',   // bronze deep
+    };
+
+    // ============================================================
+    // RENDER STARS
+    // ============================================================
+    const body = document.body;
+    stars.forEach((s, i) => {
+      const el = document.createElement('button');
+      el.className = `star star-${s.age}`;
+      el.style.left = `${s.pos.x}%`;
+      el.style.top = `${s.pos.y}%`;
+      el.style.animationDelay = `${1500 + i * 80}ms`;
+      el.dataset.starId = s.id;
+      el.setAttribute('aria-label', `captura · ${s.time} · ${s.domain.toLowerCase()}`);
+      el.style.background = 'transparent';
+      el.style.border = 'none';
+      el.style.padding = '0';
+      el.innerHTML = `
+        <span class="star-glyph">✦</span>
+        <span class="star-tooltip">${escapeHTML(truncate(s.body, 38))}</span>
+      `;
+      el.addEventListener('click', () => openTelescope(s));
+      body.appendChild(el);
+    });
+
+    // ============================================================
+    // RENDER CONSTELLATIONS · linhas SVG entre stars
+    // ============================================================
+    const svg = document.getElementById('constellations');
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    svg.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    constellations.forEach((c, idx) => {
+      const points = c.stars.map(id => {
+        const s = stars.find(st => st.id === id);
+        return { x: (s.pos.x / 100) * vw, y: (s.pos.y / 100) * vh };
+      });
+      // path between points
+      const d = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'constellation-line');
+      path.style.animationDelay = `${1800 + idx * 300}ms`;
+      svg.appendChild(path);
+
+      // label at centroid
+      if (c.name) {
+        const cx = points.reduce((a, p) => a + p.x, 0) / points.length;
+        const cy = points.reduce((a, p) => a + p.y, 0) / points.length;
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', cx);
+        text.setAttribute('y', cy + 30);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('class', 'constellation-label');
+        text.textContent = c.name;
+        text.style.animationDelay = `${3500 + idx * 200}ms`;
+        svg.appendChild(text);
+      }
+    });
+
+    // ============================================================
+    // TELESCOPE OPEN/CLOSE
+    // ============================================================
+    const tBackdrop = document.getElementById('telescopeBackdrop');
+    const tCard = document.getElementById('telescopeCard');
+    const tClose = document.getElementById('telescopeClose');
+
+    function openTelescope(star) {
+      document.getElementById('tMeta-time').textContent = star.time;
+      document.getElementById('tMeta-kind').textContent = star.kind;
+      document.getElementById('tMeta-domain').textContent = star.domain;
+      document.getElementById('tMeta-bullet').style.background = domainAccent[star.domain] || '#9B7A3F';
+      document.getElementById('tBody').textContent = star.body;
+      document.getElementById('tTese').textContent = star.tese;
+      document.getElementById('tTipo').textContent = star.tipo;
+      tBackdrop.classList.add('active');
+      tCard.classList.add('active');
+    }
+
+    function closeTelescope() {
+      tBackdrop.classList.remove('active');
+      tCard.classList.remove('active');
+    }
+
+    tBackdrop.addEventListener('click', closeTelescope);
+    tClose.addEventListener('click', closeTelescope);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeTelescope();
+    });
+
+    // ============================================================
+    // UTILS
+    // ============================================================
+    function truncate(s, n) {
+      return s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
+    }
+    function escapeHTML(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

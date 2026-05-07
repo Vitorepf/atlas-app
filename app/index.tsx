@@ -1,7 +1,18 @@
-import { Pressable, StyleSheet, TextInput, View } from 'react-native'
-import { useEffect, useMemo, useState } from 'react'
+import { Pressable, StyleSheet, TextInput, View, type PressableProps, type ViewStyle, type StyleProp } from 'react-native'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useRouter } from 'expo-router'
 import * as Location from 'expo-location'
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  interpolateColor,
+  LinearTransition,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
 import { Frau, Label, Mono, Sans } from '../design/Type'
@@ -72,6 +83,104 @@ const ENERGY_CHOICES: Array<{ key: TaskEditDraft['energyRequired']; label: strin
   { key: 'medium', label: 'Média' },
   { key: 'high', label: 'Alta' },
 ]
+
+// =====================================================================
+// CINEMA LAYER · animações contemplativas para a home
+// =====================================================================
+// Vocabulário: Apple Books page-turn, não SaaS snap-back.
+// Durações longas (480-560ms), easing exhale (cubic-bezier 0.16, 1, 0.3, 1),
+// release sempre mais lento que press (sensação de cera oxidada).
+// Stagger 80ms entre blocos de tier · 50ms entre itens de lista.
+// =====================================================================
+
+const MOUNT_DURATION = 520
+// Easing factories (chamados a cada uso · withTiming exige easing fresh)
+const exhaleEase = () => Easing.bezier(0.16, 1, 0.3, 1)
+const pressInEase = () => Easing.bezier(0.32, 0, 0.67, 0)
+
+// Components animados pra interpolar color em texto · createAnimatedComponent
+// faz Sans/Mono receberem useAnimatedStyle no style prop sem hack.
+const AnimatedSans = Animated.createAnimatedComponent(Sans)
+const AnimatedMono = Animated.createAnimatedComponent(Mono)
+
+/**
+ * CodexEnter · wrapper de seção com fade-in cinemático.
+ * Cada bloco da home revela com delay incremental — ritmo de manuscrito
+ * sendo descortinado.
+ */
+function CodexEnter({
+  children,
+  delay = 0,
+  duration = MOUNT_DURATION,
+  style,
+}: {
+  children: ReactNode
+  delay?: number
+  duration?: number
+  style?: StyleProp<ViewStyle>
+}) {
+  return (
+    <Animated.View
+      entering={FadeIn.duration(duration).delay(delay)}
+      style={style}
+    >
+      {children}
+    </Animated.View>
+  )
+}
+
+/**
+ * CodexPressable · Pressable com transição animada de press state.
+ * Opacity 1→0.55 (220ms in · 360ms out) + scale 1→0.985.
+ * Release mais lento que press = sensação de cera, não de botão.
+ */
+function CodexPressable({
+  onPress,
+  onLongPress,
+  hitSlop,
+  accessibilityRole,
+  accessibilityLabel,
+  style,
+  children,
+}: {
+  onPress?: () => void
+  onLongPress?: () => void
+  hitSlop?: PressableProps['hitSlop']
+  accessibilityRole?: PressableProps['accessibilityRole']
+  accessibilityLabel?: string
+  style?: StyleProp<ViewStyle>
+  children: ReactNode
+}) {
+  const opacity = useSharedValue(1)
+  const scale = useSharedValue(1)
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }))
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      hitSlop={hitSlop}
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={accessibilityLabel}
+      onPressIn={() => {
+        opacity.value = withTiming(0.55, { duration: 220, easing: pressInEase() })
+        scale.value = withTiming(0.985, { duration: 220, easing: pressInEase() })
+      }}
+      onPressOut={() => {
+        opacity.value = withTiming(1, { duration: 360, easing: exhaleEase() })
+        scale.value = withTiming(1, { duration: 360, easing: exhaleEase() })
+      }}
+    >
+      <Animated.View style={[style, animatedStyle]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  )
+}
 
 export default function HomeScreen() {
   const c = usePalette()
@@ -584,65 +693,182 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <View style={styles.greetRow}>
-        <View style={{ flex: 1 }}>
-          <Frau size={38} lineHeight={40} letterSpacing={-0.95} color={c.ink}>
-            Bom dia,{'\n'}Vitor
-          </Frau>
-          <Mono size={11} lineHeight={14} letterSpacing={0.44} color={c.ink2} style={{ marginTop: 6, textTransform: 'uppercase' }}>
-            {todayLine()}{locationLabel ? ` · ${locationLabel}` : ''}
-          </Mono>
+      <CodexEnter delay={0} duration={560}>
+        <View style={styles.greetRow}>
+          <View style={{ flex: 1 }}>
+            <Frau size={38} lineHeight={40} letterSpacing={-0.95} color={c.ink}>
+              Bom dia,{'\n'}Vitor
+            </Frau>
+            <Mono size={11} lineHeight={14} letterSpacing={0.44} color={c.ink2} style={{ marginTop: 6, textTransform: 'uppercase' }}>
+              {todayLine()}{locationLabel ? ` · ${locationLabel}` : ''}
+            </Mono>
+          </View>
+          <CodexPressable
+            onPress={openSettings}
+            accessibilityLabel="Configurações"
+            hitSlop={10}
+            style={styles.headerMark}
+          >
+            <BronzeDiamond size={20} opacity={0.85} />
+          </CodexPressable>
         </View>
+      </CodexEnter>
+
+      <CodexEnter delay={120} duration={480}>
+        <View style={styles.statusLine}>
+          <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
+            {bodyStatusLine({ sleep, hrv, energy: currentLevelState?.energy_level ?? null, readiness: readiness.base.display })}
+          </Frau>
+        </View>
+      </CodexEnter>
+
+      <CodexEnter delay={200} duration={380}>
+        <View style={[styles.divider, { backgroundColor: c.ink2, opacity: 0.5 }]} />
+      </CodexEnter>
+
+      <CodexEnter delay={320}>
+        <TierMark ordinal="i" label="hoje" settleDelay={320} />
+      </CodexEnter>
+
+      {/* Estado · TDAH ergonomic move · how-you-are before what-you-do.
+          Compact pill when state is fresh; full panel when stale or absent. */}
+      <CodexEnter delay={420}>
+      {currentLevelState && !checkinEditing && !(checkinState || energyLevel || moodLevel) ? (
+        <Animated.View
+          entering={FadeIn.duration(420)}
+          exiting={FadeOut.duration(220)}
+        >
+          <Pressable
+            onPress={() => {
+              setCheckinState(null)
+              setEnergyLevel(null)
+              setMoodLevel(null)
+              setCheckinEditing(true)
+            }}
+            hitSlop={8}
+            style={({ pressed }) => [styles.checkinDone, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.55 }}>
+              ✓ check-in registrado · refazer
+            </Frau>
+          </Pressable>
+        </Animated.View>
+      ) : (
+        <Animated.View
+          entering={FadeIn.duration(420)}
+          exiting={FadeOut.duration(220)}
+          style={styles.estadoInline}
+          layout={LinearTransition.duration(360).easing(exhaleEase())}
+        >
+          <Label>Estado</Label>
+          <View style={styles.choiceRow}>
+            {CHECKIN_STATES.map((state) => (
+              <CheckinPill
+                key={state.key}
+                label={state.label}
+                active={checkinState === state.key}
+                onPress={() => setCheckinState(state.key)}
+              />
+            ))}
+          </View>
+
+          {checkinState ? (
+            <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
+              <Label style={{ marginTop: 16 }}>Energia</Label>
+              <View style={styles.levelRow}>
+                {[1, 2, 3, 4, 5].map((level) => (
+                  <LevelPill
+                    key={level}
+                    level={level}
+                    active={energyLevel === level}
+                    onPress={() => setEnergyLevel(level)}
+                  />
+                ))}
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {energyLevel ? (
+            <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
+              <Label style={{ marginTop: 16 }}>Humor</Label>
+              <View style={styles.choiceRow}>
+                {MOOD_LEVELS.map((level) => (
+                  <CheckinPill
+                    key={level.value}
+                    label={level.label}
+                    active={moodLevel === level.value}
+                    onPress={() => setMoodLevel(level.value)}
+                  />
+                ))}
+              </View>
+            </Animated.View>
+          ) : null}
+
+          {canSaveCheckin ? (
+            <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
+              <CodexPressable
+                onPress={() => { void saveCheckin() }}
+                accessibilityLabel="Registrar check-in"
+                style={styles.saveCheckin}
+              >
+                <View style={styles.saveCheckinSignature}>
+                  <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.82 }}>
+                    — registrar
+                  </Frau>
+                </View>
+              </CodexPressable>
+            </Animated.View>
+          ) : null}
+        </Animated.View>
+      )}
+      </CodexEnter>
+
+      <CodexEnter delay={520}>
+        <View style={styles.promptInTier}>
+          <Frau italic size={18} lineHeight={26} color={c.ink2}>
+            {question ? `“${question}”` : '— Nenhuma pergunta registrada para hoje.'}
+          </Frau>
+        </View>
+      </CodexEnter>
+
+      <CodexEnter delay={620}>
+      {mission ? (
         <Pressable
-          onPress={openSettings}
-          accessibilityLabel="Configurações"
-          hitSlop={10}
+          onPress={() => router.push('/ritual')}
           style={({ pressed }) => [
-            styles.headerMark,
-            { opacity: pressed ? 0.55 : 1 },
+            styles.mission,
+            styles.tierBlock,
+            {
+              backgroundColor: pressed ? c.premium : c.surface,
+              borderColor: c.border,
+            },
           ]}
         >
-          <BronzeDiamond size={20} opacity={0.85} />
+          <Frau italic size={19} lineHeight={26} color={c.ink} style={{ marginBottom: 4 }}>
+            {mission.title}
+          </Frau>
+          {mission.detail ? (
+            <Mono size={11} lineHeight={15} letterSpacing={0.22} color={c.ink2}>
+              {mission.detail}
+            </Mono>
+          ) : null}
         </Pressable>
-      </View>
+      ) : (
+        <Pressable
+          onPress={() => router.push('/ritual')}
+          hitSlop={6}
+          style={({ pressed }) => [styles.marginNote, styles.tierBlock, { opacity: pressed ? 0.55 : 1 }]}
+        >
+          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
+            — Nenhuma missão definida. Abrir ritual matinal.
+          </Frau>
+        </Pressable>
+      )}
+      </CodexEnter>
 
-      <View style={styles.statusLine}>
-        <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
-          {bodyStatusLine({ sleep, hrv, energy: currentLevelState?.energy_level ?? null, readiness: readiness.base.display })}
-        </Frau>
-      </View>
-
-      <View style={[styles.divider, { backgroundColor: c.ink2, opacity: 0.5 }]} />
-
-      <View style={[styles.prompt, { borderLeftColor: c.bronze }]}>
-        <Frau italic size={18} lineHeight={26} color={c.ink2}>
-          {question ? `“${question}”` : 'Nenhuma pergunta registrada para hoje.'}
-        </Frau>
-      </View>
-
-      <SectionHeader label="Missão de hoje" />
-      <Pressable
-        onPress={() => router.push('/ritual')}
-        style={({ pressed }) => [
-          styles.mission,
-          {
-            backgroundColor: pressed ? c.premium : c.surface,
-            borderColor: c.border,
-            borderLeftColor: c.bronze,
-          },
-        ]}
-      >
-        <Sans weight="sb" size={16} lineHeight={20} color={c.ink} style={{ marginBottom: 4 }}>
-          {mission?.title ?? 'Nenhuma missão definida'}
-        </Sans>
-        <Mono size={11} lineHeight={14} letterSpacing={0.22} color={c.ink2}>
-          {mission?.detail ?? 'Abra o ritual para revisar o dia'}
-        </Mono>
-      </Pressable>
-
-      <SectionHeader label="Próxima ação" />
-      <View style={[styles.agendaPanel, { backgroundColor: c.surface, borderColor: c.border }]}>
-        {agenda && agenda.tasks.length > 0 ? (
+      <CodexEnter delay={720}>
+      {agenda && agenda.tasks.length > 0 ? (
+        <View style={[styles.agendaPanel, styles.tierBlock, { backgroundColor: c.surface, borderColor: c.border }]}>
           <>
             {(agendaExpanded ? agenda.tasks.slice(0, 3) : agenda.tasks.slice(0, 1)).map((task, index) => (
               <View
@@ -823,298 +1049,180 @@ export default function HomeScreen() {
               </View>
             ) : null}
           </>
-        ) : agendaLoading ? (
-          <>
-            <Sans weight="sb" size={14} lineHeight={18} color={c.ink}>
-              Montando agenda
-            </Sans>
-            <Sans size={11.5} lineHeight={16} color={c.ink2}>
-              Calculando prioridade, energia, blocos e esforço.
-            </Sans>
-          </>
-        ) : (
-          <>
-            <Sans weight="sb" size={14} lineHeight={18} color={c.ink}>
-              Nenhuma tarefa ativa para hoje
-            </Sans>
-            <Sans size={11.5} lineHeight={16} color={c.ink2}>
-              Quando uma captura virar tarefa, o Atlas calcula prioridade, esforço e lugar na agenda.
-            </Sans>
-          </>
-        )}
-        {agendaExpanded ? (
-          <View style={[styles.blockEditor, { borderTopColor: c.border }]}>
-            <Pressable onPress={() => setBlockEditorOpen((open) => !open)} style={styles.blockHeader}>
-              <Sans weight="sb" size={12.5} lineHeight={16} color={c.ink}>
-                Bloquear horário
-              </Sans>
-              <Mono size={10.5} lineHeight={14} letterSpacing={0.2} color={c.ink2}>
-                {blockEditorOpen ? 'fechar' : 'abrir'}
-              </Mono>
-            </Pressable>
-            {blockEditorOpen ? (
-              <>
-                <TextInput
-                  value={blockDraft.title}
-                  onChangeText={(title) => setBlockDraft((draft) => ({ ...draft, title }))}
-                  placeholder="compromisso"
-                  placeholderTextColor={c.ink2}
-                  style={[styles.input, { borderColor: c.border, color: c.ink }]}
-                />
-                <View style={styles.formRow}>
+          {agendaExpanded ? (
+            <View style={[styles.blockEditor, { borderTopColor: c.border }]}>
+              <Pressable onPress={() => setBlockEditorOpen((open) => !open)} style={styles.blockHeader}>
+                <Sans weight="sb" size={12.5} lineHeight={16} color={c.ink}>
+                  Bloquear horário
+                </Sans>
+                <Mono size={10.5} lineHeight={14} letterSpacing={0.2} color={c.ink2}>
+                  {blockEditorOpen ? 'fechar' : 'abrir'}
+                </Mono>
+              </Pressable>
+              {blockEditorOpen ? (
+                <>
                   <TextInput
-                    value={blockDraft.startTime}
-                    onChangeText={(startTime) => setBlockDraft((draft) => ({ ...draft, startTime }))}
-                    placeholder="início"
+                    value={blockDraft.title}
+                    onChangeText={(title) => setBlockDraft((draft) => ({ ...draft, title }))}
+                    placeholder="compromisso"
                     placeholderTextColor={c.ink2}
-                    style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
+                    style={[styles.input, { borderColor: c.border, color: c.ink }]}
                   />
-                  <TextInput
-                    value={blockDraft.endTime}
-                    onChangeText={(endTime) => setBlockDraft((draft) => ({ ...draft, endTime }))}
-                    placeholder="fim"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
-                  />
-                  <Pressable
-                    onPress={() => { void createAgendaBlock() }}
-                    style={({ pressed }) => [
-                      styles.blockSave,
-                      { backgroundColor: c.prussian, opacity: pressed ? 0.88 : 1 },
-                    ]}
-                  >
-                    <Sans weight="sb" size={12.5} color={c.bg}>Salvar</Sans>
-                  </Pressable>
-                </View>
-              </>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
-
-      <Pressable
-        onPress={() => router.push('/memory')}
-        accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}. ${memoryHome.detail}.`}
-        style={({ pressed }) => [
-          styles.engineeringEntry,
-          {
-            backgroundColor: pressed ? c.premium : c.surface,
-            borderColor: c.border,
-            borderLeftColor: c.bronze,
-          },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Memory</Label>
-          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
-            {memoryHome.title}
-          </Sans>
-          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
-            {memoryHome.detail}
-          </Mono>
+                  <View style={styles.formRow}>
+                    <TextInput
+                      value={blockDraft.startTime}
+                      onChangeText={(startTime) => setBlockDraft((draft) => ({ ...draft, startTime }))}
+                      placeholder="início"
+                      placeholderTextColor={c.ink2}
+                      style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
+                    />
+                    <TextInput
+                      value={blockDraft.endTime}
+                      onChangeText={(endTime) => setBlockDraft((draft) => ({ ...draft, endTime }))}
+                      placeholder="fim"
+                      placeholderTextColor={c.ink2}
+                      style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
+                    />
+                    <Pressable
+                      onPress={() => { void createAgendaBlock() }}
+                      style={({ pressed }) => [
+                        styles.blockSave,
+                        { backgroundColor: c.prussian, opacity: pressed ? 0.88 : 1 },
+                      ]}
+                    >
+                      <Sans weight="sb" size={12.5} color={c.bg}>Salvar</Sans>
+                    </Pressable>
+                  </View>
+                </>
+              ) : null}
+            </View>
+          ) : null}
         </View>
-        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
-          abrir
-        </Mono>
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.push('/open-brain')}
-        accessibilityLabel="Abrir Atlas Open Brain. Recall, context pack, auditorias e manutenção."
-        style={({ pressed }) => [
-          styles.engineeringEntry,
-          {
-            backgroundColor: pressed ? c.premium : c.surface,
-            borderColor: c.border,
-            borderLeftColor: c.moss,
-          },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Open Brain</Label>
-          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
-            Recall e context pack
-          </Sans>
-          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
-            memória · auditorias · maintain · MCP
-          </Mono>
-        </View>
-        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
-          abrir
-        </Mono>
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.push('/engineering')}
-        style={({ pressed }) => [
-          styles.engineeringEntry,
-          {
-            backgroundColor: pressed ? c.premium : c.surface,
-            borderColor: c.border,
-            borderLeftColor: c.prussian,
-          },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Engineering</Label>
-          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
-            Harness Runner e Atlas-Bench
-          </Sans>
-          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
-            suites · pass rate · últimos runs · resultados por case
-          </Mono>
-        </View>
-        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
-          abrir
-        </Mono>
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.push('/rivals')}
-        style={({ pressed }) => [
-          styles.engineeringEntry,
-          {
-            backgroundColor: pressed ? c.premium : c.surface,
-            borderColor: c.border,
-            borderLeftColor: c.bronze,
-          },
-        ]}
-      >
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Rivals</Label>
-          <Sans weight="sb" size={15} lineHeight={21} color={c.ink} numberOfLines={1}>
-            Relatório Fair Claude
-          </Sans>
-          <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2} numberOfLines={2}>
-            scorecard · integridade · histórico · replay
-          </Mono>
-        </View>
-        <Mono size={10.5} lineHeight={14} letterSpacing={0.18} color={c.prussian}>
-          abrir
-        </Mono>
-      </Pressable>
-
-      <SectionHeader label="Como você está agora" />
-      {currentLevelState && !checkinEditing && !(checkinState || energyLevel || moodLevel) ? (
-        <Pressable
-          onPress={() => {
-            setCheckinState(null)
-            setEnergyLevel(null)
-            setMoodLevel(null)
-            setCheckinEditing(true)
-          }}
-          hitSlop={8}
-          style={({ pressed }) => [styles.checkinDone, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.55 }}>
-            ✓ check-in registrado · refazer
+      ) : agendaLoading ? (
+        <View style={[styles.marginNote, styles.tierBlock]}>
+          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
+            Montando agenda — calculando prioridade, energia e blocos.
           </Frau>
-        </Pressable>
+        </View>
       ) : (
-        <View style={[styles.checkinPanel, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Label>Estado</Label>
-          <View style={styles.choiceRow}>
-            {CHECKIN_STATES.map((state) => (
-              <CheckinPill
-                key={state.key}
-                label={state.label}
-                active={checkinState === state.key}
-                onPress={() => setCheckinState(state.key)}
-              />
-            ))}
-          </View>
-
-          {checkinState ? (
-            <>
-              <Label style={{ marginTop: 16 }}>Energia</Label>
-              <View style={styles.levelRow}>
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <LevelPill
-                    key={level}
-                    level={level}
-                    active={energyLevel === level}
-                    onPress={() => setEnergyLevel(level)}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
-
-          {energyLevel ? (
-            <>
-              <Label style={{ marginTop: 16 }}>Humor</Label>
-              <View style={styles.choiceRow}>
-                {MOOD_LEVELS.map((level) => (
-                  <CheckinPill
-                    key={level.value}
-                    label={level.label}
-                    active={moodLevel === level.value}
-                    onPress={() => setMoodLevel(level.value)}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
-
-          {canSaveCheckin ? (
-            <Pressable
-              onPress={() => {
-                void saveCheckin()
-              }}
-              style={({ pressed }) => [
-                styles.saveCheckin,
-                { backgroundColor: c.ink, opacity: pressed ? 0.9 : 1 },
-              ]}
-            >
-              <Sans weight="sb" size={14} color={c.bg} align="center">
-                Registrar
-              </Sans>
-            </Pressable>
-          ) : null}
+        <View style={[styles.marginNote, styles.tierBlock]}>
+          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
+            — Nenhuma tarefa ativa. Capturas viram tarefas com prioridade calculada.
+          </Frau>
         </View>
       )}
+      </CodexEnter>
 
-      <View style={styles.portas}>
-        <Doorway
-          label="ritual"
-          value="briefing matinal"
-          onPress={() => router.push('/ritual')}
-        />
-        <Doorway
-          label="revisão"
-          value="weekly"
-          onPress={() => router.push('/review')}
-        />
-        <Doorway
-          label="inbox"
-          value={inboxValue(captureCountToday)}
-          onPress={() => router.push('/inbox')}
-        />
-        <Doorway
-          label="bitácula"
-          value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
-          onPress={() => router.push('/bitacula')}
-        />
-        <Doorway
-          label="memória"
-          value={memoryHome.doorwayValue}
+      <CodexEnter delay={880}>
+        <TierMark ordinal="ii" label="operação atlas" settleDelay={880} />
+      </CodexEnter>
+
+      {/* Codex austero · 10/10 sussurro · sem box, sem subtitle, sem CTA.
+          Título Frau italic com ponto terminal (pontuação de tratado) +
+          classification em caps tiny right-aligned + hairline entre.
+          Vocabulário Penguin Classics / Hermès Le Carré / Cucinelli Solomeo. */}
+      <CodexEnter delay={940}>
+        <View style={[styles.codexListTopRule, { backgroundColor: c.bronze, opacity: 0.12 }]} />
+      </CodexEnter>
+
+      <CodexEnter delay={1000}>
+        <CodexPressable
           onPress={() => router.push('/memory')}
-        />
-        <Doorway
-          label="saúde"
-          value={healthValue(sleep, hrv)}
-          onPress={() => router.push('/health')}
-        />
-        <Doorway
-          label="plano"
-          value="abrir"
-          onPress={() => router.push('/projects')}
-        />
-        <Doorway
-          label="rotinas"
-          value="montar dia"
-          onPress={() => router.push('/routines')}
-        />
+          accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}.`}
+          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
+        >
+          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Memory</Label>
+          <Frau italic size={20} lineHeight={28} color={c.ink}>
+            {`${memoryHome.title.replace(/[.!?]+$/, '')}.`}
+          </Frau>
+        </CodexPressable>
+      </CodexEnter>
+
+      <CodexEnter delay={1060}>
+        <CodexPressable
+          onPress={() => router.push('/open-brain')}
+          accessibilityLabel="Abrir Atlas Open Brain · recall e context pack."
+          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
+        >
+          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Open Brain</Label>
+          <Frau italic size={20} lineHeight={28} color={c.ink}>
+            Recall e context pack.
+          </Frau>
+        </CodexPressable>
+      </CodexEnter>
+
+      <CodexEnter delay={1120}>
+        <CodexPressable
+          onPress={() => router.push('/engineering')}
+          accessibilityLabel="Abrir Atlas Engineering · harness runner e bench."
+          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
+        >
+          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Engineering</Label>
+          <Frau italic size={20} lineHeight={28} color={c.ink}>
+            Harness Runner e Atlas-Bench.
+          </Frau>
+        </CodexPressable>
+      </CodexEnter>
+
+      <CodexEnter delay={1180}>
+        <CodexPressable
+          onPress={() => router.push('/rivals')}
+          accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
+          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
+        >
+          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Rivals</Label>
+          <Frau italic size={20} lineHeight={28} color={c.ink}>
+            Relatório Fair Claude.
+          </Frau>
+        </CodexPressable>
+      </CodexEnter>
+
+      <CodexEnter delay={1320}>
+        <TierMark ordinal="iii" label="tecido" settleDelay={1320} />
+      </CodexEnter>
+
+      <CodexEnter delay={1400}>
+        <ConstelacaoWhisper onPress={() => router.push('/celestial')} />
+      </CodexEnter>
+
+      <CodexEnter delay={1540}>
+        <TierMark ordinal="iv" label="rituais" settleDelay={1540} />
+      </CodexEnter>
+
+      {/* Portas · só destinos NÃO duplicados pelo dock ou pelos 4 cards Atlas.
+          Ritual + Review vivem no dock (botões à direita). Inbox vive no dock.
+          Memória vive no card Atlas Memory. Tier iv mostra só superfícies sem
+          outro ponto de entrada na home — destinos verdadeiramente únicos.
+          Stagger interno 50ms entre portas pra ritmo de manuscrito. */}
+      <View style={styles.portas}>
+        <CodexEnter delay={1620}>
+          <Doorway
+            label="bitácula"
+            value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
+            onPress={() => router.push('/bitacula')}
+          />
+        </CodexEnter>
+        <CodexEnter delay={1680}>
+          <Doorway
+            label="saúde"
+            value={healthValue(sleep, hrv)}
+            onPress={() => router.push('/health')}
+          />
+        </CodexEnter>
+        <CodexEnter delay={1740}>
+          <Doorway
+            label="plano"
+            value="abrir"
+            onPress={() => router.push('/projects')}
+          />
+        </CodexEnter>
+        <CodexEnter delay={1800}>
+          <Doorway
+            label="rotinas"
+            value="montar dia"
+            onPress={() => router.push('/routines')}
+          />
+        </CodexEnter>
       </View>
     </Screen>
   )
@@ -1135,13 +1243,10 @@ function Doorway({
 }) {
   const c = usePalette()
   return (
-    <Pressable
+    <CodexPressable
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [
-        styles.doorway,
-        { borderBottomColor: c.border, opacity: pressed ? 0.55 : 1 },
-      ]}
+      style={[styles.doorway, { borderBottomColor: c.border }]}
     >
       <Frau italic size={15} lineHeight={22} color={c.ink} style={{ opacity: 0.75 }}>
         {label}
@@ -1150,7 +1255,7 @@ function Doorway({
       <Frau italic size={13.5} lineHeight={22} color={c.ink} style={{ opacity: 0.45 }}>
         {value}
       </Frau>
-    </Pressable>
+    </CodexPressable>
   )
 }
 
@@ -1164,22 +1269,57 @@ function CheckinPill({
   onPress: () => void
 }) {
   const c = usePalette()
+  // Cinema · transition smooth entre active/inactive states (380ms exhale)
+  // + press feedback animado (220ms in / 360ms out). interpolateColor faz
+  // o background prussian e o text color fluírem em vez de snap.
+  const activeProgress = useSharedValue(active ? 1 : 0)
+  const pressProgress = useSharedValue(0)
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 380,
+      easing: exhaleEase(),
+    })
+  }, [active, activeProgress])
+
+  const animatedPillStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', c.prussian],
+    ),
+    borderColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.border, c.prussian],
+    ),
+    opacity: 1 - pressProgress.value * 0.45,
+    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
+  }))
+
+  const animatedTextStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.ink2, c.bg],
+    ),
+  }))
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.choicePill,
-        {
-          backgroundColor: active ? c.prussian : 'transparent',
-          borderColor: active ? c.prussian : c.border,
-          opacity: pressed ? 0.86 : 1,
-        },
-      ]}
+      onPressIn={() => {
+        pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
+      }}
     >
-      <Sans weight="med" size={12} color={active ? c.bg : c.ink2}>
-        {label}
-      </Sans>
+      <Animated.View style={[styles.choicePill, animatedPillStyle]}>
+        <AnimatedSans weight="med" size={12} style={animatedTextStyle}>
+          {label}
+        </AnimatedSans>
+      </Animated.View>
     </Pressable>
   )
 }
@@ -1194,22 +1334,56 @@ function LevelPill({
   onPress: () => void
 }) {
   const c = usePalette()
+  // Mesmo pattern cinema do CheckinPill · interpolateColor smooth entre
+  // estados, press cinemático. Energia/Humor falam a mesma vocabulary.
+  const activeProgress = useSharedValue(active ? 1 : 0)
+  const pressProgress = useSharedValue(0)
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 380,
+      easing: exhaleEase(),
+    })
+  }, [active, activeProgress])
+
+  const animatedPillStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', c.prussian],
+    ),
+    borderColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.border, c.prussian],
+    ),
+    opacity: 1 - pressProgress.value * 0.45,
+    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
+  }))
+
+  const animatedTextStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.ink2, c.bg],
+    ),
+  }))
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.levelPill,
-        {
-          backgroundColor: active ? c.bronze : 'transparent',
-          borderColor: active ? c.bronze : c.border,
-          opacity: pressed ? 0.86 : 1,
-        },
-      ]}
+      onPressIn={() => {
+        pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
+      }}
     >
-      <Mono size={13} color={active ? c.bg : c.ink2}>
-        {level}
-      </Mono>
+      <Animated.View style={[styles.levelPill, animatedPillStyle]}>
+        <AnimatedMono size={13} style={animatedTextStyle}>
+          {level}
+        </AnimatedMono>
+      </Animated.View>
     </Pressable>
   )
 }
@@ -1224,22 +1398,55 @@ function TaskChip({
   onPress: () => void
 }) {
   const c = usePalette()
+  // Cinema unificado · mesma vocabulary CheckinPill/LevelPill.
+  const activeProgress = useSharedValue(active ? 1 : 0)
+  const pressProgress = useSharedValue(0)
+
+  useEffect(() => {
+    activeProgress.value = withTiming(active ? 1 : 0, {
+      duration: 380,
+      easing: exhaleEase(),
+    })
+  }, [active, activeProgress])
+
+  const animatedChipStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      ['rgba(0,0,0,0)', c.prussian],
+    ),
+    borderColor: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.border, c.prussian],
+    ),
+    opacity: 1 - pressProgress.value * 0.45,
+    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
+  }))
+
+  const animatedTextStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      activeProgress.value,
+      [0, 1],
+      [c.ink2, c.bg],
+    ),
+  }))
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.taskChip,
-        {
-          backgroundColor: active ? c.prussian : 'transparent',
-          borderColor: active ? c.prussian : c.border,
-          opacity: pressed ? 0.86 : 1,
-        },
-      ]}
+      onPressIn={() => {
+        pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
+      }}
+      onPressOut={() => {
+        pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
+      }}
     >
-      <Sans weight="med" size={11.5} color={active ? c.bg : c.ink2}>
-        {label}
-      </Sans>
+      <Animated.View style={[styles.taskChip, animatedChipStyle]}>
+        <AnimatedSans weight="med" size={11.5} style={animatedTextStyle}>
+          {label}
+        </AnimatedSans>
+      </Animated.View>
     </Pressable>
   )
 }
@@ -1268,6 +1475,86 @@ function MiniAction({
         {label}
       </Sans>
     </Pressable>
+  )
+}
+
+// Codex tier mark · illuminated initial + italic label + bronze hairline
+// + Atlas mark ✦ at the end. References Codex Atlanticus (Leonardo) and
+// medieval manuscript chapter openers — ancient hierarchy, modern execution.
+// The roman numeral is a drop cap (Frau, big), label is italic Renaissance,
+// rule is bronze 22%, ✦ closes the line as Atlas signature (same glyph as
+// masthead and the inline card marks — visual coherence across the home).
+//
+// Drop cap settle · scale 1.04 → 1.0 com delay alinhado ao CodexEnter parent.
+// Como joalheria sendo posta no lugar com pequeno tap de assentamento.
+// settleDelay = mesmo valor do CodexEnter delay externo · settle começa
+// logo depois da fade-in completar.
+function TierMark({
+  ordinal,
+  label,
+  settleDelay = 0,
+}: {
+  ordinal: string
+  label: string
+  settleDelay?: number
+}) {
+  const c = usePalette()
+  const settleScale = useSharedValue(1.04)
+
+  useEffect(() => {
+    settleScale.value = withDelay(
+      settleDelay + 280,
+      withTiming(1.0, { duration: 640, easing: exhaleEase() }),
+    )
+  }, [settleDelay, settleScale])
+
+  const dropCapStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: settleScale.value }],
+  }))
+
+  return (
+    <View style={styles.tierMark}>
+      <Animated.View style={dropCapStyle}>
+        <Frau
+          size={30}
+          lineHeight={32}
+          color={c.bronzeDeep}
+          style={[styles.tierOrdinal, { opacity: 0.78 }]}
+        >
+          {ordinal.toUpperCase()}
+        </Frau>
+      </Animated.View>
+      <Frau italic size={17} lineHeight={22} color={c.ink} style={{ opacity: 0.55 }}>
+        {label}
+      </Frau>
+      <View style={[styles.tierRule, { backgroundColor: c.bronze, opacity: 0.16 }]} />
+      <Frau size={11} lineHeight={22} color={c.bronze} style={{ opacity: 0.5 }}>
+        ✦
+      </Frau>
+    </View>
+  )
+}
+
+// Constelação whisper · polymath signature on the home, sussurrada (not card).
+// Triple-tap on Inbox dock still works as Easter egg; this is the editorial
+// surface that says "Bilderatlas exists, the céu is the tank, look up".
+function ConstelacaoWhisper({ onPress }: { onPress: () => void }) {
+  const c = usePalette()
+  return (
+    <CodexPressable
+      onPress={onPress}
+      hitSlop={6}
+      accessibilityLabel="Abrir constelação · o céu de Atlas"
+      style={styles.whisper}
+    >
+      <Frau italic size={17} lineHeight={24} color={c.ink} style={{ opacity: 0.82 }}>
+        constelação
+      </Frau>
+      <View style={{ flex: 1 }} />
+      <Frau italic size={13} lineHeight={24} color={c.ink} style={{ opacity: 0.45 }}>
+        o céu de atlas
+      </Frau>
+    </CodexPressable>
   )
 }
 
@@ -1332,6 +1619,10 @@ function missionQuestion(metadata?: Record<string, unknown>): string | null {
   return typeof question === 'string' && question.trim() ? question.trim() : null
 }
 
+// Status line · prosa poética quando dados estão ausentes, lista quando há
+// leituras reais. Filtra explicitamente 'sem dado' e 'baseline' (defaults sem
+// substância) — só fala quando tem o que dizer. Codex regra: silêncio elegante
+// > dashboard com placeholders.
 function bodyStatusLine({
   sleep,
   hrv,
@@ -1343,14 +1634,22 @@ function bodyStatusLine({
   energy: number | null
   readiness: string
 }): string {
-  const segments: string[] = []
   const sleepLabel = formatPassiveSignal(sleep)
-  if (sleepLabel && sleepLabel !== '—') segments.push(`sono ${sleepLabel.toLowerCase()}`)
-  if (energy != null) segments.push(`energia ${energy}/5`)
-  if (readiness) segments.push(`prontidão ${readiness.toLowerCase()}`)
   const hrvLabel = formatPassiveSignal(hrv)
-  if (hrvLabel && hrvLabel !== '—' && segments.length < 3) segments.push(`hrv ${hrvLabel.toLowerCase()}`)
-  return segments.length > 0 ? segments.join(' · ') : 'corpo sem leitura ainda'
+
+  const hasSleep = !!sleepLabel && sleepLabel !== '—' && !sleepLabel.toLowerCase().includes('sem dado')
+  const hasHrv = !!hrvLabel && hrvLabel !== '—' && !hrvLabel.toLowerCase().includes('sem dado')
+  const hasEnergy = energy != null
+  const hasReadiness = !!readiness && readiness.toLowerCase() !== 'baseline'
+
+  const segments: string[] = []
+  if (hasSleep) segments.push(`sono ${sleepLabel.toLowerCase()}`)
+  if (hasEnergy) segments.push(`energia ${energy}/5`)
+  if (hasReadiness) segments.push(`prontidão ${readiness.toLowerCase()}`)
+  if (hasHrv && segments.length < 3) segments.push(`hrv ${hrvLabel.toLowerCase()}`)
+
+  if (segments.length === 0) return 'ainda em silêncio corporal'
+  return segments.join(' · ')
 }
 
 function inboxValue(count: number): string {
@@ -1577,7 +1876,7 @@ const styles = StyleSheet.create({
   divider: { width: 28, height: 1, marginTop: 22, marginBottom: 22 },
   statusLine: { marginTop: 14 },
   portas: {
-    marginTop: 24,
+    marginTop: 12,
   },
   doorway: {
     flexDirection: 'row',
@@ -1585,36 +1884,113 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // Codex tier mark · illuminated initial baseline-aligned with italic label
+  // + bronze hairline + ✦ at end. Manuscript chapter opener feel.
+  // Spacing calibrado: marginTop 30 (abertura do tier) + marginBottom 12.
+  tierMark: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    marginTop: 30,
+    marginBottom: 12,
+  },
+  tierOrdinal: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    paddingBottom: 2,
+  },
+  tierRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    marginBottom: 8,
+  },
+  // Universal gap between content blocks within a tier · 24px.
+  // Aplicado em: mission, agendaPanel, marginNote (próxima ação empty),
+  // qualquer bloco que vem depois de outro dentro de um tier.
+  tierBlock: {
+    marginTop: 24,
+  },
+  // Codex card · replaces SaaS-pattern left-stripe with inline ✦ glyph.
+  // Border radius 4 (manuscript pages have minimal rounding).
+  // No borderLeftWidth — that was Material/Tailwind tells.
+  eyebrowRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  // Margin note · used for empty states. No card, no border, just italic
+  // text. Aligned com pergunta-norte na borda esquerda — sem inset que cria
+  // L-shape com pergunta. Marginalia vem do tom italic faded, não da margem.
+  marginNote: {
+    paddingVertical: 8,
+  },
+  // 10/10 austere codex entry · index of treatise.
+  // Penguin Great Ideas / Hermès Le Carré / Cucinelli Solomeo vocabulary:
+  // title italic + classification tiny caps right-aligned + hairline between.
+  // No box, no border, no CTA, no subtitle.
+  codexEntry: {
+    paddingVertical: 22,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  codexClassification: {
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    opacity: 0.42,
+  },
+  codexListTopRule: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 4,
+  },
+  // Constelação whisper · slightly more weight than a doorway (italic 17 vs 15)
+  // to signal "this is the polymath antessala", not just another module.
+  whisper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(155,122,63,0.12)',
+  },
   prompt: {
     paddingLeft: 14,
     borderLeftWidth: 2,
     marginBottom: 8,
   },
+  // Pergunta-norte placement inside tier i (after estado).
+  // Sem stripe lateral · italic flow puro · 24px gap padronizado.
+  promptInTier: {
+    marginTop: 24,
+  },
+  // Mission card · codex page · radius 4, hairline border, no SaaS stripe.
   mission: {
-    borderRadius: 12,
+    borderRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     marginBottom: 4,
   },
+  // Codex card · was engineeringEntry with SaaS left-stripe; now manuscript
+  // page with hairline border, minimal radius, glyph ✦ inline marks identity.
   engineeringEntry: {
-    borderRadius: 12,
+    borderRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
+  // Agenda panel · same codex card vocabulary as engineeringEntry/mission.
+  // Radius 4 (manuscript page), hairline border, generous breath.
   agendaPanel: {
-    borderRadius: 12,
+    borderRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     gap: 10,
   },
   agendaHeader: {
@@ -1734,6 +2110,11 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
   },
+  // Estado inline · no card box, no surface, no border.
+  // Codex whisper · label + chips no mesmo nível do papel.
+  estadoInline: {
+    paddingVertical: 8,
+  },
   checkinDone: {
     paddingVertical: 14,
   },
@@ -1753,11 +2134,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Registrar · stamp signature de tratado.
+  // Italic Frau "— registrar" + UMA hairline bronze 32% largura-da-palavra
+  // embaixo (como assinatura em documento). Em-dash rima com margin notes.
+  // Não é botão · não é frame · é o gesto de autenticar uma linha.
   saveCheckin: {
-    marginTop: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    marginTop: 32,
+    alignItems: 'center',
+  },
+  // Hairline em prussian (não bronze) · sela a cadeia de comprometimentos
+  // ativos (Estado → Energia → Humor são todos prussian chips). Bronze é
+  // canon estrutural (drop caps, codex rules) · prussian é commitment ·
+  // a linha que sela 3 commits ativos tem que rimar com eles.
+  saveCheckinSignature: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(27,58,87,0.32)',
+    paddingBottom: 4,
+    paddingHorizontal: 2,
   },
 })
