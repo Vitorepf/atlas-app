@@ -393,9 +393,16 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
   // Opacity 1→0.70 (dim 0.30) · scale 1→0.94 (dim 0.06) · perceptíveis.
   // Timing cinematic preservado (180/420 in/out). A diferença SaaS vs codex
   // é o TIMING + EASING, não a magnitude — magnitude precisa ser visível.
+  //
+  // + Active lift · item selecionado sobe 2px relativo aos outros (animado
+  // via activeProgress, 380ms exhale) · sensação de "escolhido" sem halo/dome.
+  // Compõe com press scale no mesmo transform — ambos coexistem.
   const animatedContentStyle = useAnimatedStyle(() => ({
     opacity: 1 - pressProgress.value * 0.30,
-    transform: [{ scale: 1 - pressProgress.value * 0.06 }],
+    transform: [
+      { translateY: -2 * activeProgress.value },
+      { scale: 1 - pressProgress.value * 0.06 },
+    ],
   }))
 
   // v19 · Active depression layer · simula item afundado no papel.
@@ -435,38 +442,8 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
       }}
       style={styles.btn}
     >
-      {/* Active DEPRESSION layer · luz vinda de CIMA cai na depressão.
-          5 specialists convergiram: o gradient não pode estar centrado (halo
-          omnidirecional) · precisa ter cy=0% (origin top) e fy=-10% (focal
-          point acima do botão) · cria DOMO de luz top-down em vez de circle.
-          - WarmGlow: bronze radial top-down (light entering depression from above)
-          - InsetTop: ink linear (sombra do edge superior projetada na cavidade)
-          - InsetBottom: marfim linear (luz catching back wall na metade inferior) */}
-      <Animated.View pointerEvents="none" style={[styles.btnActiveLayer, animatedActiveLayerStyle]}>
-        <Svg width="100%" height="100%">
-          <Defs>
-            <RadialGradient id="btnWarmGlow" cx="50%" cy="0%" r="85%" fx="50%" fy="-10%">
-              <Stop offset="0%" stopColor="#9B7A3F" stopOpacity="0.16" />
-              <Stop offset="85%" stopColor="#9B7A3F" stopOpacity="0" />
-            </RadialGradient>
-            <LinearGradient id="btnInsetTop" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#1A1612" stopOpacity="0.05" />
-              <Stop offset="55%" stopColor="#1A1612" stopOpacity="0" />
-            </LinearGradient>
-            <LinearGradient id="btnInsetBottom" x1="0%" y1="100%" x2="0%" y2="0%">
-              <Stop offset="0%" stopColor="#F4EFE6" stopOpacity="0.05" />
-              <Stop offset="55%" stopColor="#F4EFE6" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          <Rect width="100%" height="100%" fill="url(#btnWarmGlow)" />
-          <Rect width="100%" height="100%" fill="url(#btnInsetTop)" />
-          <Rect width="100%" height="100%" fill="url(#btnInsetBottom)" />
-        </Svg>
-      </Animated.View>
-
       <Animated.View style={[styles.btnContent, animatedContentStyle]}>
-        <DockIcon icon={item.icon} color={iconColor} active={active} />
-        <Frau italic size={11} lineHeight={14} color={labelColor} style={{ marginTop: 3, opacity: active ? 0.85 : 0.55 }}>
+        <Frau italic weight={active ? 'med' : 'reg'} size={13} lineHeight={13} color={labelColor} style={{ opacity: active ? 0.95 : 0.55 }}>
           {item.label.toLowerCase()}
         </Frau>
         <Animated.View
@@ -655,7 +632,7 @@ const styles = StyleSheet.create({
   btnActiveMark: {
     width: 14,
     height: 1,
-    marginTop: 4,
+    marginTop: 2,
     borderRadius: 0.5,
     shadowColor: '#9B7A3F',
     shadowOpacity: 0.5,

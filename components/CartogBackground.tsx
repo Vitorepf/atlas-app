@@ -6,10 +6,28 @@ interface Props {
   opacity?: number
   style?: StyleProp<ViewStyle>
   count?: number
+  /** Eixos a renderizar.
+   *  - 'both' (default): grid completo — verticais + horizontais.
+   *  - 'vertical': apenas colunas (verticais). Vocabulário Aldine — bg fixo
+   *    com colunas como trilhos, horizontais saem dos próprios componentes
+   *    (hairlines deliberadas). Sem doubling bg↔componente. */
+  axis?: 'both' | 'vertical'
 }
 
 // Cartography grid — sussurro de fundo. 36px cells, ~2.5% opacity, ink-tinted.
-export function CartogBackground({ cell = 36, opacity = 0.025, style, count = 26 }: Props) {
+//
+// Variant Aldine (axis='vertical'): só colunas verticais. Modelo editorial
+// de jornal de registro impresso — colunas fixas como trilhos, horizontais
+// nascem dos próprios componentes (masthead bottom border, hr-section, toc
+// borders, folio top). Cada hairline visível é decisão deliberada do designer,
+// não régua automática.
+export function CartogBackground({
+  cell = 36,
+  opacity = 0.025,
+  style,
+  count = 26,
+  axis = 'both',
+}: Props) {
   const c = usePalette()
   const lines: number[] = []
   for (let i = 0; i < count; i++) lines.push(i * cell)
@@ -22,14 +40,16 @@ export function CartogBackground({ cell = 36, opacity = 0.025, style, count = 26
         style,
       ]}
     >
-      {lines.map((y) => (
-        <View
-          key={`h${y}`}
-          style={{
-            position: 'absolute', left: 0, right: 0, top: y, height: 1, backgroundColor: c.ink,
-          }}
-        />
-      ))}
+      {axis === 'both'
+        ? lines.map((y) => (
+            <View
+              key={`h${y}`}
+              style={{
+                position: 'absolute', left: 0, right: 0, top: y, height: 1, backgroundColor: c.ink,
+              }}
+            />
+          ))
+        : null}
       {lines.map((x) => (
         <View
           key={`v${x}`}

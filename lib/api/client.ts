@@ -5253,11 +5253,8 @@ export async function recoverMobileDeviceSession(): Promise<MobileDeviceSession 
 
     return recoveredSession
   } catch (error) {
-    if (error instanceof AtlasApiError && error.status === 401) {
-      await clearMobileDeviceSession()
-      return null
-    }
-
+    // 401 já limpou a sessão dentro de mobileApiRequest — apenas absorve.
+    if (error instanceof AtlasApiError && error.status === 401) return null
     throw error
   }
 }
@@ -8003,6 +8000,15 @@ async function mobileApiRequest<T>(
 
   if (!response.ok) {
     const message = errorMessage(path, response.status, payload)
+    // Single source of truth for "server doesn't accept our mobile bearer":
+    // any 401 on a mobile-bearer endpoint means the device record is gone
+    // (revoked, deleted, banco resetado, build apontando pra outro server).
+    // Clear local session atomically so callers never observe a "pareado
+    // localmente mas rejeitado pelo servidor" estado fantasma. Idempotent —
+    // safe to invoke from anywhere.
+    if (response.status === 401) {
+      await clearMobileDeviceSession()
+    }
     throw new AtlasApiError(message, response.status, path, payload)
   }
 

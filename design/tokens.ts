@@ -133,6 +133,7 @@ export const fonts = {
   serif:  'Fraunces_400Regular',
   serifItalic: 'Fraunces_400Regular_Italic',
   serifMd: 'Fraunces_500Medium',
+  serifItalicMd: 'Fraunces_500Medium_Italic',
   sans:   'Inter_400Regular',
   sansMd: 'Inter_500Medium',
   sansSb: 'Inter_600SemiBold',

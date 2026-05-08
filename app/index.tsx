@@ -15,7 +15,14 @@ import Animated, {
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
 import { Frau, Label, Mono, Sans } from '../design/Type'
-import { BronzeDiamond } from '../components/console/BronzeDiamond'
+import {
+  Masthead,
+  EditorialDateline,
+  SectionHead,
+  TocRow,
+  EditorialPullQuote,
+  FolioFooter,
+} from '../components/editorial'
 import { usePalette } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 import { useShell } from '../components/AtlasShell'
@@ -91,9 +98,21 @@ const exhaleEase = () => Easing.bezier(0.16, 1, 0.3, 1)
 const pressInEase = () => Easing.bezier(0.32, 0, 0.67, 0)
 
 // Components animados pra interpolar color em texto · createAnimatedComponent
-// faz Sans/Mono receberem useAnimatedStyle no style prop sem hack.
+// faz Sans/Mono/Frau receberem useAnimatedStyle no style prop sem hack.
 const AnimatedSans = Animated.createAnimatedComponent(Sans)
 const AnimatedMono = Animated.createAnimatedComponent(Mono)
+const AnimatedFrau = Animated.createAnimatedComponent(Frau)
+
+// Separador inline entre pills/levels editoriais · ponto centralizado.
+// Usado entre Estado/Humor (4-5 opções) e Energia (1-5) pra dar ritmo
+// tipográfico de TOC de revista premium em vez de pill row SaaS.
+function DotSep() {
+  const c = usePalette()
+  return (
+    <Frau italic size={14} lineHeight={20} color={c.ink3} style={dotSepStyle}>·</Frau>
+  )
+}
+const dotSepStyle = { opacity: 0.5 } as const
 
 /**
  * CodexPressable · Pressable com transição animada de press state.
@@ -657,36 +676,35 @@ export default function HomeScreen() {
     }
   }
 
+  // Folio editorial · day-of-year como número do exemplar do dia.
+  const folio = dailyFolio()
+
   return (
     <Screen>
-        <View style={styles.greetRow}>
-          <View style={{ flex: 1 }}>
-            <Frau size={38} lineHeight={40} letterSpacing={-0.95} color={c.ink}>
-              Bom dia,{'\n'}Vitor
-            </Frau>
-            <Mono size={11} lineHeight={14} letterSpacing={0.44} color={c.ink2} style={{ marginTop: 6, textTransform: 'uppercase' }}>
-              {todayLine()}{locationLabel ? ` · ${locationLabel}` : ''}
-            </Mono>
-          </View>
-          <CodexPressable
-            onPress={openSettings}
-            accessibilityLabel="Configurações"
-            hitSlop={10}
-            style={styles.headerMark}
-          >
-            <BronzeDiamond size={20} opacity={0.85} />
-          </CodexPressable>
-        </View>
+        {/* Masthead editorial · ATLAS centralizado + folio mono caps · hairline.
+            Long-press na masthead abre Configurações (Atlas não cumprimenta,
+            settings é gesto descoberto pelo leitor). */}
+        <Pressable
+          onLongPress={openSettings}
+          accessibilityLabel="Atlas masthead · long-press para configurações"
+        >
+          <Masthead folio={folio.full} />
+        </Pressable>
 
-        <View style={styles.statusLine}>
-          <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.55 }}>
-            {bodyStatusLine({ sleep, hrv, energy: currentLevelState?.energy_level ?? null, readiness: readiness.base.display })}
-          </Frau>
-        </View>
+        {/* Dateline · cidade · data por extenso · edição do dia. */}
+        <EditorialDateline
+          date={editorialDateLine()}
+          location={locationLabel}
+          edition={currentEdition()}
+        />
 
-        <View style={[styles.divider, { backgroundColor: c.ink2, opacity: 0.5 }]} />
+        {/* Status corporal removido · F mockup não tem essa linha.
+            "Ainda em silêncio corporal" era prosa apologética (viola F philosophy
+            de empty state). Quando houver dados reais (HRV/sono), reaproveitar
+            como marginalia em mono caps · não em italic Frau apologético. */}
 
-        <TierMark label="hoje" />
+        {/* i. AGENDA · diário de intenção. */}
+        <SectionHead numeral="i" title="Agenda" deck={standfirstAgenda()} />
 
       {/* Estado · TDAH ergonomic move · how-you-are before what-you-do.
           Compact pill when state is fresh; full panel when stale or absent. */}
@@ -719,28 +737,30 @@ export default function HomeScreen() {
         >
           <Label>Estado</Label>
           <View style={styles.choiceRow}>
-            {CHECKIN_STATES.map((state) => (
+            {CHECKIN_STATES.flatMap((state, idx) => [
+              idx > 0 ? <DotSep key={`sep-${state.key}`} /> : null,
               <CheckinPill
                 key={state.key}
                 label={state.label}
                 active={checkinState === state.key}
                 onPress={() => setCheckinState(state.key)}
-              />
-            ))}
+              />,
+            ]).filter(Boolean)}
           </View>
 
           {checkinState ? (
             <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
               <Label style={{ marginTop: 16 }}>Energia</Label>
               <View style={styles.levelRow}>
-                {[1, 2, 3, 4, 5].map((level) => (
+                {[1, 2, 3, 4, 5].flatMap((level, idx) => [
+                  idx > 0 ? <DotSep key={`sep-${level}`} /> : null,
                   <LevelPill
                     key={level}
                     level={level}
                     active={energyLevel === level}
                     onPress={() => setEnergyLevel(level)}
-                  />
-                ))}
+                  />,
+                ]).filter(Boolean)}
               </View>
             </Animated.View>
           ) : null}
@@ -749,14 +769,15 @@ export default function HomeScreen() {
             <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
               <Label style={{ marginTop: 16 }}>Humor</Label>
               <View style={styles.choiceRow}>
-                {MOOD_LEVELS.map((level) => (
+                {MOOD_LEVELS.flatMap((level, idx) => [
+                  idx > 0 ? <DotSep key={`sep-${level.value}`} /> : null,
                   <CheckinPill
                     key={level.value}
                     label={level.label}
                     active={moodLevel === level.value}
                     onPress={() => setMoodLevel(level.value)}
-                  />
-                ))}
+                  />,
+                ]).filter(Boolean)}
               </View>
             </Animated.View>
           ) : null}
@@ -779,29 +800,22 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
-        <View style={styles.promptInTier}>
-          <Frau italic size={18} lineHeight={26} color={c.ink2}>
-            {question ? `“${question}”` : '— Nenhuma pergunta registrada para hoje.'}
-          </Frau>
-        </View>
+        {question ? (
+          <EditorialPullQuote quote={question} attribution="pergunta de hoje" />
+        ) : null}
 
+      {/* MISSÃO · vocabulário editorial F.
+          Estado preenchido: label "MISSÃO" + título italic 19 + detail mono.
+          Estado vazio: imperativo seco "Definir missão →" — F philosophy
+          (silêncio ou comando, NUNCA "— Nenhuma X" apologético). */}
       {mission ? (
-        <Pressable
-          onPress={() => router.push('/ritual')}
-          style={({ pressed }) => [
-            styles.mission,
-            styles.tierBlock,
-            {
-              backgroundColor: pressed ? c.premium : c.surface,
-              borderColor: c.border,
-            },
-          ]}
-        >
-          <Frau italic size={19} lineHeight={26} color={c.ink} style={{ marginBottom: 4 }}>
+        <Pressable onPress={() => router.push('/ritual')} hitSlop={6} style={styles.missionEditorial}>
+          <Label>Missão</Label>
+          <Frau italic size={17} lineHeight={24} color={c.ink} style={{ marginTop: 6 }}>
             {mission.title}
           </Frau>
           {mission.detail ? (
-            <Mono size={11} lineHeight={15} letterSpacing={0.22} color={c.ink2}>
+            <Mono size={11} lineHeight={15} letterSpacing={0.22} color={c.ink2} style={{ marginTop: 6 }}>
               {mission.detail}
             </Mono>
           ) : null}
@@ -810,11 +824,12 @@ export default function HomeScreen() {
         <Pressable
           onPress={() => router.push('/ritual')}
           hitSlop={6}
-          style={({ pressed }) => [styles.marginNote, styles.tierBlock, { opacity: pressed ? 0.55 : 1 }]}
+          style={({ pressed }) => [styles.missionEditorial, { opacity: pressed ? 0.55 : 1 }]}
         >
-          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
-            — Nenhuma missão definida. Abrir ritual matinal.
-          </Frau>
+          <Label>Missão</Label>
+          <Sans weight="med" size={15} lineHeight={22} color={c.ink} style={{ marginTop: 4 }}>
+            Definir missão  →
+          </Sans>
         </Pressable>
       )}
 
@@ -829,6 +844,7 @@ export default function HomeScreen() {
                   { borderColor: c.border, marginTop: index === 0 ? 0 : 12 },
                 ]}
               >
+                {/* Meta row · F vocabulary: time prussian + priority BRONZE caps + min mono + intent mono. */}
                 <Pressable onPress={() => { void openTaskEditor(task) }} style={styles.nextActionMeta}>
                   <Mono size={11} lineHeight={15} letterSpacing={0.32} color={c.prussian}>
                     {formatAgendaTime(task.recommended_start_at)}
@@ -838,7 +854,7 @@ export default function HomeScreen() {
                     size={10.5}
                     lineHeight={14}
                     letterSpacing={1.05}
-                    color={c.ink2}
+                    color={c.bronze}
                     style={styles.uppercase}
                   >
                     {priorityLabel(task.priority)}
@@ -850,20 +866,39 @@ export default function HomeScreen() {
                     {agendaIntentLabel(task)}
                   </Mono>
                 </Pressable>
-                <Sans
-                  weight="sb"
-                  size={15}
-                  lineHeight={22}
-                  color={c.ink}
-                  numberOfLines={3}
-                  style={styles.nextActionTitle}
-                >
-                  {task.title}
-                </Sans>
-                <View style={styles.agendaActions}>
-                  <MiniAction label="Feita" onPress={() => { void markTaskDone(task) }} />
-                  <MiniAction label="Adiar" onPress={() => { void deferAgendaTask(task) }} />
-                  <MiniAction label="Editar" onPress={() => { void openTaskEditor(task) }} />
+
+                {/* Título · F vocabulary: drop cap bronze (Frau display 36px) na primeira
+                    letra + Sans sb 14 no resto. Layout flex-row align-baseline · letra
+                    grande puxa o "eye" do leitor pro item destacado do dia. */}
+                <View style={styles.taskTitleRow}>
+                  <Frau weight="med" size={36} lineHeight={32} color={c.bronze} style={styles.taskDropCap}>
+                    {task.title.charAt(0)}
+                  </Frau>
+                  <Sans
+                    weight="sb"
+                    size={14}
+                    lineHeight={20}
+                    color={c.ink}
+                    numberOfLines={3}
+                    style={styles.taskTitleBody}
+                  >
+                    {task.title.slice(1)}
+                  </Sans>
+                </View>
+
+                {/* Actions · F vocabulary: mono caps com separadores · (não buttons). */}
+                <View style={styles.taskActionsRow}>
+                  <Pressable onPress={() => { void markTaskDone(task) }} hitSlop={6}>
+                    <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Feita</Mono>
+                  </Pressable>
+                  <Mono size={10.5} color={c.ink3}>·</Mono>
+                  <Pressable onPress={() => { void deferAgendaTask(task) }} hitSlop={6}>
+                    <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Adiar</Mono>
+                  </Pressable>
+                  <Mono size={10.5} color={c.ink3}>·</Mono>
+                  <Pressable onPress={() => { void openTaskEditor(task) }} hitSlop={6}>
+                    <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Editar</Mono>
+                  </Pressable>
                 </View>
               </View>
             ))}
@@ -1050,138 +1085,106 @@ export default function HomeScreen() {
           ) : null}
         </View>
       ) : agendaLoading ? (
-        <View style={[styles.marginNote, styles.tierBlock]}>
-          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
-            Montando agenda — calculando prioridade, energia e blocos.
-          </Frau>
+        // Loading state · mono caps tenso, sem em-dash apologético.
+        <View style={styles.tierBlock}>
+          <Mono size={11} letterSpacing={1.4} color={c.ink3} style={{ textTransform: 'uppercase' }}>
+            montando agenda · prioridade · energia · blocos
+          </Mono>
         </View>
       ) : (
-        <View style={[styles.marginNote, styles.tierBlock]}>
-          <Frau italic size={16} lineHeight={24} color={c.ink} style={{ opacity: 0.55 }}>
-            — Nenhuma tarefa ativa. Capturas viram tarefas com prioridade calculada.
-          </Frau>
-        </View>
+        // Empty state F philosophy · imperativo seco, não "— Nenhuma".
+        <Pressable
+          onPress={() => router.push('/capture')}
+          hitSlop={6}
+          style={({ pressed }) => [styles.tierBlock, { opacity: pressed ? 0.55 : 1 }]}
+        >
+          <Sans weight="med" size={15} lineHeight={22} color={c.ink}>
+            Capturar primeira tarefa  →
+          </Sans>
+        </Pressable>
       )}
 
-        <TierMark label="operação atlas" />
+        <SectionHead numeral="ii" title="Operação Atlas" deck="dossiês abertos · arquivo vivo" />
 
       {/* Codex austero · 10/10 sussurro · sem box, sem subtitle, sem CTA.
           Título Frau italic com ponto terminal (pontuação de tratado) +
           classification em caps tiny right-aligned + hairline entre.
           Vocabulário Penguin Classics / Hermès Le Carré / Cucinelli Solomeo. */}
-        <View style={[styles.codexListTopRule, { backgroundColor: c.bronze, opacity: 0.12 }]} />
-
-        <CodexPressable
+        {/* TOC editorial · cada dossiê é uma linha label · dot leader · descrição.
+            Vocabulário de TOC de livro encadernado / Monocle daily briefing. */}
+        <TocRow
+          label="Memory"
+          value={memoryHome.title.replace(/[.!?]+$/, '').toLowerCase()}
           onPress={() => router.push('/memory')}
           accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}.`}
-          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
-        >
-          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Memory</Label>
-          <Frau italic size={20} lineHeight={28} color={c.ink}>
-            {`${memoryHome.title.replace(/[.!?]+$/, '')}.`}
-          </Frau>
-        </CodexPressable>
-
-        <CodexPressable
+          variant="codex"
+        />
+        <TocRow
+          label="Open Brain"
+          value="recall e context pack"
           onPress={() => router.push('/open-brain')}
           accessibilityLabel="Abrir Atlas Open Brain · recall e context pack."
-          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
-        >
-          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Open Brain</Label>
-          <Frau italic size={20} lineHeight={28} color={c.ink}>
-            Recall e context pack.
-          </Frau>
-        </CodexPressable>
-
-        <CodexPressable
+          variant="codex"
+        />
+        <TocRow
+          label="Engineering"
+          value="harness runner e atlas-bench"
           onPress={() => router.push('/engineering')}
           accessibilityLabel="Abrir Atlas Engineering · harness runner e bench."
-          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
-        >
-          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Engineering</Label>
-          <Frau italic size={20} lineHeight={28} color={c.ink}>
-            Harness Runner e Atlas-Bench.
-          </Frau>
-        </CodexPressable>
-
-        <CodexPressable
+          variant="codex"
+        />
+        <TocRow
+          label="Rivals"
+          value="relatório fair claude"
           onPress={() => router.push('/rivals')}
           accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
-          style={[styles.codexEntry, { borderBottomColor: 'rgba(155,122,63,0.12)' }]}
-        >
-          <Label style={[styles.codexClassification, { color: c.ink2 }]}>Rivals</Label>
-          <Frau italic size={20} lineHeight={28} color={c.ink}>
-            Relatório Fair Claude.
-          </Frau>
-        </CodexPressable>
+          variant="codex"
+        />
 
-        <TierMark label="tecido" />
+        <SectionHead numeral="iii" title="Tecido" deck="constelações · fios soltos" />
 
         <ConstelacaoWhisper onPress={() => router.push('/celestial')} />
 
-        <TierMark label="rituais" />
+        <SectionHead numeral="iv" title="Portas" />
 
-      {/* Portas · só destinos NÃO duplicados pelo dock ou pelos 4 cards Atlas.
-          Ritual + Review vivem no dock (botões à direita). Inbox vive no dock.
-          Memória vive no card Atlas Memory. Tier iv mostra só superfícies sem
-          outro ponto de entrada na home — destinos verdadeiramente únicos.
-          Stagger interno 50ms entre portas pra ritmo de manuscrito. */}
-      <View style={styles.portas}>
-          <Doorway
-            label="bitácula"
-            value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
-            onPress={() => router.push('/bitacula')}
-          />
-          <Doorway
-            label="saúde"
-            value={healthValue(sleep, hrv)}
-            onPress={() => router.push('/health')}
-          />
-          <Doorway
-            label="plano"
-            value="abrir"
-            onPress={() => router.push('/projects')}
-          />
-          <Doorway
-            label="rotinas"
-            value="montar dia"
-            onPress={() => router.push('/routines')}
-          />
-      </View>
+      {/* Portas · destinos não duplicados pelo dock ou pelos 4 dossiês.
+          Vocabulário TOC editorial: cada porta é label · dot leader · estado.
+          Variante 'doorway' = label italic (vs codex weight medium). */}
+      <TocRow
+        label="bitácula"
+        value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
+        onPress={() => router.push('/bitacula')}
+        variant="doorway"
+      />
+      <TocRow
+        label="saúde"
+        value={healthValue(sleep, hrv)}
+        onPress={() => router.push('/health')}
+        variant="doorway"
+      />
+      <TocRow
+        label="plano"
+        value="abrir"
+        onPress={() => router.push('/projects')}
+        variant="doorway"
+      />
+      <TocRow
+        label="rotinas"
+        value="montar dia"
+        onPress={() => router.push('/routines')}
+        variant="doorway"
+      />
+
+      {/* Folio rodapé · "— FOLIO N —" mono caps centralizado · fecha a página
+          como rodapé de livro encadernado. Sem isso a home fica "aberta",
+          sem encerramento ritual. */}
+      <FolioFooter number={folio.number} />
     </Screen>
   )
 }
 
-// Editorial entry-point row. Italic Frau label on the left, italic dim
-// value on the right, hairline separator. Replaces the former dashboard
-// tiles (Estado físico / Capturas / Execução / Ritual) — same destinations,
-// 1/4 of the visual weight.
-function Doorway({
-  label,
-  value,
-  onPress,
-}: {
-  label: string
-  value: string
-  onPress: () => void
-}) {
-  const c = usePalette()
-  return (
-    <CodexPressable
-      onPress={onPress}
-      hitSlop={6}
-      style={[styles.doorway, { borderBottomColor: c.border }]}
-    >
-      <Frau italic size={15} lineHeight={22} color={c.ink} style={{ opacity: 0.75 }}>
-        {label}
-      </Frau>
-      <View style={{ flex: 1 }} />
-      <Frau italic size={13.5} lineHeight={22} color={c.ink} style={{ opacity: 0.45 }}>
-        {value}
-      </Frau>
-    </CodexPressable>
-  )
-}
+// (Removido) Doorway · substituído por TocRow (components/editorial/) na
+// variante F · vocabulário TOC de livro encadernado: label · dot leader · value.
 
 function CheckinPill({
   label,
@@ -1193,9 +1196,11 @@ function CheckinPill({
   onPress: () => void
 }) {
   const c = usePalette()
-  // Cinema · transition smooth entre active/inactive states (380ms exhale)
-  // + press feedback animado (220ms in / 360ms out). interpolateColor faz
-  // o background prussian e o text color fluírem em vez de snap.
+  // Variante F editorial · inline italic Frau, sem prussian background pill.
+  // Active = bronze + weight medium; inactive = ink3 + weight regular.
+  // Smooth 380ms exhale entre estados via interpolateColor no texto · sem
+  // mudança de layout (sem scale, sem border). Press feedback minimal:
+  // opacity 1→0.55 sem scale (evita shift em layout inline).
   const activeProgress = useSharedValue(active ? 1 : 0)
   const pressProgress = useSharedValue(0)
 
@@ -1206,32 +1211,19 @@ function CheckinPill({
     })
   }, [active, activeProgress])
 
-  const animatedPillStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      ['rgba(0,0,0,0)', c.prussian],
-    ),
-    borderColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      [c.border, c.prussian],
-    ),
-    opacity: 1 - pressProgress.value * 0.45,
-    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
-  }))
-
   const animatedTextStyle = useAnimatedStyle(() => ({
     color: interpolateColor(
       activeProgress.value,
       [0, 1],
-      [c.ink2, c.bg],
+      [c.ink3, c.bronze],
     ),
+    opacity: 1 - pressProgress.value * 0.45,
   }))
 
   return (
     <Pressable
       onPress={onPress}
+      hitSlop={6}
       onPressIn={() => {
         pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
       }}
@@ -1239,10 +1231,10 @@ function CheckinPill({
         pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
       }}
     >
-      <Animated.View style={[styles.choicePill, animatedPillStyle]}>
-        <AnimatedSans weight="med" size={12} style={animatedTextStyle}>
+      <Animated.View>
+        <AnimatedFrau italic weight={active ? 'med' : 'reg'} size={14} lineHeight={20} style={animatedTextStyle}>
           {label}
-        </AnimatedSans>
+        </AnimatedFrau>
       </Animated.View>
     </Pressable>
   )
@@ -1258,8 +1250,8 @@ function LevelPill({
   onPress: () => void
 }) {
   const c = usePalette()
-  // Mesmo pattern cinema do CheckinPill · interpolateColor smooth entre
-  // estados, press cinemático. Energia/Humor falam a mesma vocabulary.
+  // Variante F editorial · numeral inline em mono, sem prussian background.
+  // Active = bronze + weight medium; inactive = ink3 + weight regular.
   const activeProgress = useSharedValue(active ? 1 : 0)
   const pressProgress = useSharedValue(0)
 
@@ -1270,32 +1262,19 @@ function LevelPill({
     })
   }, [active, activeProgress])
 
-  const animatedPillStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      ['rgba(0,0,0,0)', c.prussian],
-    ),
-    borderColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      [c.border, c.prussian],
-    ),
-    opacity: 1 - pressProgress.value * 0.45,
-    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
-  }))
-
   const animatedTextStyle = useAnimatedStyle(() => ({
     color: interpolateColor(
       activeProgress.value,
       [0, 1],
-      [c.ink2, c.bg],
+      [c.ink3, c.bronze],
     ),
+    opacity: 1 - pressProgress.value * 0.45,
   }))
 
   return (
     <Pressable
       onPress={onPress}
+      hitSlop={6}
       onPressIn={() => {
         pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
       }}
@@ -1303,8 +1282,8 @@ function LevelPill({
         pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
       }}
     >
-      <Animated.View style={[styles.levelPill, animatedPillStyle]}>
-        <AnimatedMono size={13} style={animatedTextStyle}>
+      <Animated.View>
+        <AnimatedMono weight={active ? 'med' : 'reg'} size={14} lineHeight={20} style={animatedTextStyle}>
           {level}
         </AnimatedMono>
       </Animated.View>
@@ -1402,31 +1381,17 @@ function MiniAction({
   )
 }
 
-// Codex tier mark · italic label + bronze hairline + Atlas mark ✦.
-// Refinamento Aldine (Aldus Manutius 1500, italic pra leitura, sem ornamento
-// medieval iluminado). Drop caps removidos · personagem do codex vem da
-// vocabulary tipográfica geral (Frau italic, em-dashes, paper bg), não de
-// enfeite de chapter opener. Label apenas + régua + ✦ Atlas signature ao fim.
-function TierMark({ label }: { label: string }) {
-  const c = usePalette()
-  return (
-    <View style={styles.tierMark}>
-      <Frau italic size={17} lineHeight={22} color={c.ink} style={{ opacity: 0.55 }}>
-        {label}
-      </Frau>
-      <View style={[styles.tierRule, { backgroundColor: c.bronze, opacity: 0.16 }]} />
-      <Frau size={11} lineHeight={22} color={c.bronze} style={{ opacity: 0.5 }}>
-        ✦
-      </Frau>
-    </View>
-  )
-}
+// (Removido) TierMark · substituído por SectionHead (components/editorial/) na
+// variante F · numeral romano + caps title + standfirst + hairline. Vocabulário
+// de chapter opener de livro encadernado em vez de italic + ✦ wishlist marker.
 
 // Constelação whisper · polymath signature on the home, sussurrada (not card).
 // Triple-tap on Inbox dock still works as Easter egg; this is the editorial
 // surface that says "Bilderatlas exists, the céu is the tank, look up".
 function ConstelacaoWhisper({ onPress }: { onPress: () => void }) {
   const c = usePalette()
+  // F mockup tecido vocabulary · italic Frau corpo + Mono caps inline pra
+  // estatística/destino · texto editorial corrido (não label+value lateral).
   return (
     <CodexPressable
       onPress={onPress}
@@ -1434,12 +1399,10 @@ function ConstelacaoWhisper({ onPress }: { onPress: () => void }) {
       accessibilityLabel="Abrir constelação · o céu de Atlas"
       style={styles.whisper}
     >
-      <Frau italic size={17} lineHeight={24} color={c.ink} style={{ opacity: 0.82 }}>
-        constelação
-      </Frau>
-      <View style={{ flex: 1 }} />
-      <Frau italic size={13} lineHeight={24} color={c.ink} style={{ opacity: 0.45 }}>
-        o céu de atlas
+      <Frau italic size={14} lineHeight={21} color={c.ink2}>
+        veias do tecido ·{' '}
+        <Mono size={11} lineHeight={21} letterSpacing={1.0} color={c.ink}>O CÉU DE ATLAS</Mono>
+        {' '}· constelação aberta.
       </Frau>
     </CodexPressable>
   )
@@ -1459,6 +1422,46 @@ function todayLine(): string {
   const year = new Intl.DateTimeFormat('pt-BR', { year: 'numeric' }).format(date)
 
   return `${weekday} · ${day}.${month}.${year}`
+}
+
+// Dateline editorial · "Quinta · 7 de Maio de 2026" (full names, no leading
+// zero, italic-ready). Vocabulário de cabeçalho de jornal impresso (Le Monde
+// "Vendredi 8 mars", NYT "Friday, March 8, 2024"). Uso na variante F home.
+function editorialDateLine(): string {
+  const date = new Date()
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+  // weekday 'long' em pt-BR retorna "quinta-feira" · cortamos "-feira" pra
+  // match F mockup que usa só "Quinta" (forma curta sem sufixo).
+  const weekdayLong = new Intl.DateTimeFormat('pt-BR', { weekday: 'long' }).format(date)
+  const weekday = cap(weekdayLong.split('-')[0]!)
+  const day = date.getDate()
+  const month = cap(new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(date))
+  const year = date.getFullYear()
+  return `${weekday} · ${day} de ${month} de ${year}`
+}
+
+// Standfirst longo do deck da seção · "diário de intenção · sete de maio".
+// Día por extenso em pt-BR pra evocar manuscrito (não data técnica numérica).
+function standfirstAgenda(): string {
+  const date = new Date()
+  const dayWord = ['zero','primeiro','dois','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove','vinte','vinte e um','vinte e dois','vinte e três','vinte e quatro','vinte e cinco','vinte e seis','vinte e sete','vinte e oito','vinte e nove','trinta','trinta e um'][date.getDate()] ?? `dia ${date.getDate()}`
+  const month = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(date)
+  return `diário de intenção · ${dayWord} de ${month}`
+}
+
+// Folio · numeração diária do "exemplar" do Atlas · day-of-year é o no.
+// vol. (volume) hardcoded em "iii" — pode evoluir pra ano-base no futuro.
+function dailyFolio(): { full: string; number: number } {
+  const date = new Date()
+  const start = new Date(date.getFullYear(), 0, 0)
+  const oneDay = 1000 * 60 * 60 * 24
+  const dayOfYear = Math.floor((date.getTime() - start.getTime()) / oneDay)
+  return { full: `vol. iii · no. ${dayOfYear}`, number: dayOfYear }
+}
+
+// Edition · matinal antes de 12, vespertina depois.
+function currentEdition(): string {
+  return new Date().getHours() < 12 ? 'edição matinal' : 'edição vespertina'
 }
 
 async function resolveCurrentCity(): Promise<string | null> {
@@ -1786,11 +1789,18 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     marginBottom: 8,
   },
+  // Mission editorial · padding apenas, sem card surface · F vocabulary.
+  // marginBottom 26 dá ritmo descendente entre missão e bloco de tarefa.
+  // marginLeft:32 + marginRight:32 = trilhos internos simétricos (x=64..329).
+  missionEditorial: { marginTop: 18, marginBottom: 26, marginLeft: 32, marginRight: 32 },
   // Universal gap between content blocks within a tier · 24px.
   // Aplicado em: mission, agendaPanel, marginNote (próxima ação empty),
   // qualquer bloco que vem depois de outro dentro de um tier.
+  // marginLeft:32 + marginRight:32 = trilhos internos simétricos (x=64..329).
   tierBlock: {
     marginTop: 24,
+    marginLeft: 32,
+    marginRight: 32,
   },
   // Codex card · replaces SaaS-pattern left-stripe with inline ✦ glyph.
   // Border radius 4 (manuscript pages have minimal rounding).
@@ -1828,12 +1838,12 @@ const styles = StyleSheet.create({
   },
   // Constelação whisper · slightly more weight than a doorway (italic 17 vs 15)
   // to signal "this is the polymath antessala", not just another module.
+  // marginLeft:32 + marginRight:32 = trilhos internos simétricos (x=64..329).
   whisper: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(155,122,63,0.12)',
+    paddingLeft: 0,
+    marginLeft: 32,
+    marginRight: 32,
   },
   prompt: {
     paddingLeft: 14,
@@ -1885,10 +1895,32 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 10,
   },
+  // F mockup task block · sem border (editorial puro), spacing maior entre meta+title+actions.
   agendaTaskShell: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 10,
+    paddingBottom: 14,
     gap: 8,
+  },
+  // Drop cap row · primeira letra grande bronze + resto do título inline.
+  taskTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  taskDropCap: {
+    // Drop cap baseline-aligned · pequeno offset top pra puxar a letra
+    // pra dentro do bloco visual (compensa ascender do glyph).
+    marginTop: 4,
+  },
+  taskTitleBody: {
+    flex: 1,
+    paddingTop: 4,
+  },
+  // Actions inline · mono caps com · separadores, não buttons.
+  taskActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    marginTop: 4,
   },
   nextActionMeta: {
     flexDirection: 'row',
@@ -1994,20 +2026,28 @@ const styles = StyleSheet.create({
   },
   // Estado inline · no card box, no surface, no border.
   // Codex whisper · label + chips no mesmo nível do papel.
+  // marginLeft:32 = trilho interno editorial esquerdo (x=64).
+  // marginRight:32 = trilho interno editorial direito (x=329) — SIMETRIA com o
+  //   esquerdo. Sem isso, palavras à direita encostam 32px do canto, enquanto
+  //   à esquerda ficam 64px do canto — assimetria visível, quebra de rigor.
   estadoInline: {
     paddingVertical: 8,
+    marginLeft: 32,
+    marginRight: 32,
   },
   checkinDone: {
     paddingVertical: 14,
+    marginLeft: 32,
+    marginRight: 32,
   },
-  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 6, marginTop: 6 },
   choicePill: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  levelRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  levelRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 },
   levelPill: {
     width: 36,
     height: 32,

@@ -3,6 +3,7 @@ import {
   Fraunces_400Regular,
   Fraunces_400Regular_Italic,
   Fraunces_500Medium,
+  Fraunces_500Medium_Italic,
 } from '@expo-google-fonts/fraunces'
 import {
   Inter_400Regular,
@@ -20,6 +21,7 @@ export function useAtlasFonts(): boolean {
     Fraunces_400Regular,
     Fraunces_400Regular_Italic,
     Fraunces_500Medium,
+    Fraunces_500Medium_Italic,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,

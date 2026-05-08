@@ -49,7 +49,8 @@ interface FrauProps extends BaseProps {
   weight?: 'reg' | 'med'
 }
 
-// italic + med has no font in tokens — italic wins (oralidade rule).
+// italic + med agora suportado · serifItalicMd carregado em fonts.ts
+// (necessário pra ativos do Dock matchearem F's font-weight: 500 italic).
 export function Frau({
   children,
   italic,
@@ -60,7 +61,9 @@ export function Frau({
 }: FrauProps) {
   const c = usePalette()
   const family = italic
-    ? fonts.serifItalic
+    ? weight === 'med'
+      ? fonts.serifItalicMd
+      : fonts.serifItalic
     : weight === 'med'
       ? fonts.serifMd
       : fonts.serif

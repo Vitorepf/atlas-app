@@ -3,6 +3,7 @@ import { type ReactNode } from 'react'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, { Easing, Keyframe } from 'react-native-reanimated'
 import { CartogBackground } from './CartogBackground'
+import { HorizontalGrid } from './editorial/HorizontalGrid'
 import { usePalette } from '../design/theme'
 
 // Atlas weighted settle · scale 1.008→1.0, sem opacity, sem translateY.
@@ -26,6 +27,10 @@ interface Props extends ScrollViewProps {
   // the dock. Pass 0 for full-bleed flows that mount the dock themselves.
   bottomPad?: number
   containerStyle?: ViewStyle
+  /** Eixos do CartogBackground · default 'both' (V+H grid completo).
+   *  'vertical' = apenas colunas (vocabulário Aldine · variante F · home
+   *  editorial premium · horizontais saem dos próprios componentes). */
+  bgAxis?: 'both' | 'vertical'
 }
 
 // Dock geometry — kept in sync with components/Dock.tsx:
@@ -53,6 +58,7 @@ export function Screen({
   topExtra = 24,
   bottomPad = 24,
   containerStyle,
+  bgAxis = 'both',
   ...rest
 }: Props) {
   const c = usePalette()
@@ -60,13 +66,29 @@ export function Screen({
   const totalBottom = DOCK_BASELINE + insets.bottom + bottomPad
   return (
     <View style={[styles.fill, { backgroundColor: c.bg }, containerStyle]}>
-      {!bare && <CartogBackground />}
+      {!bare && <CartogBackground axis={bgAxis} />}
       <Animated.View entering={atlasSettle} style={styles.fill}>
         <SafeAreaView edges={['top']} style={styles.fill}>
           <ScrollView
             contentContainerStyle={{
               paddingTop: topExtra,
-              paddingHorizontal: 28,
+              // F mockup canon · `.content { padding: 0 32px }`. Trilho borda
+              // em x=32 (esq) e x=361 (dir, 393-32). Trilho interno em x=64
+              // surge dos blocos com marginLeft:32. Layout simétrico, fiel ao
+              // mockup F.
+              //
+              // A maioria dos values do TOC termina ANTES da penúltima coluna
+              // (x=324) NATURALMENTE porque o texto é mais curto que a row —
+              // "memória em dia" para em ~285, "recall e context pack" em ~320,
+              // "relatório fair claude" em ~310. Só "harness runner e atlas-
+              // bench" se estende até a última coluna (~358), tocando o limite
+              // sem cruzar — exatamente como no mockup F renderizado em browser.
+              //
+              // Tentativa anterior de paddingRight:69 (recuar trilho até x=324
+              // pra forçar TODOS os values antes da penúltima) deixou 2 colunas
+              // inteiras vazias à direita — quebrou o equilíbrio editorial.
+              // Reversão: voltamos a 32 simétrico, fiel ao mockup F.
+              paddingHorizontal: 32,
               paddingBottom: totalBottom,
             }}
             showsVerticalScrollIndicator={false}
@@ -80,7 +102,17 @@ export function Screen({
             scrollIndicatorInsets={Platform.OS === 'ios' ? KEYBOARD_BREATH_INSET : undefined}
             {...rest}
           >
-            {children}
+            {bgAxis === 'vertical' ? (
+              // Variante F · wrapper relativo dentro do ScrollView abriga o
+              // HorizontalGrid (absolute fill) que rola junto com o conteúdo
+              // formando quadrados 36×36 com as colunas verticais fixas do bg.
+              <View style={styles.scrollWrap}>
+                <HorizontalGrid />
+                {children}
+              </View>
+            ) : (
+              children
+            )}
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
@@ -90,4 +122,7 @@ export function Screen({
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  // wrapper relativo · ancora HorizontalGrid (absolute fill) ao conteúdo
+  // scrollable. Sem altura fixa · sized pelos children in-flow.
+  scrollWrap: { position: 'relative' },
 })

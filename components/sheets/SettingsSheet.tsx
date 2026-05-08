@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Constants from 'expo-constants'
 import { SideSheet } from './SideSheet'
@@ -43,6 +43,7 @@ import {
   updateAiFlowProfile,
   updateAiProviderSettings,
 } from '../../lib/api/client'
+import { copyToClipboard } from '../../lib/clipboard'
 import { formatRelativeSync, localQueueCounts, useAtlasStore } from '../../lib/atlasStore'
 import {
   SCREEN_TIME_BUCKETS,
@@ -122,6 +123,10 @@ export function SettingsSheet() {
   const [macAction, setMacAction] = useState<string | null>(null)
   const [macError, setMacError] = useState<string | null>(null)
   const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
+  const [apiAutoSave, setApiAutoSave] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const apiDraftsRef = useRef({ hostDraft: '', portDraft: '', tokenDraft: '' })
+  apiDraftsRef.current = { hostDraft, portDraft, tokenDraft }
+  const apiBaselineRef = useRef<{ host: string; port: string; token: string } | null>(null)
 
   useEffect(() => {
     if (visible) return
@@ -132,13 +137,47 @@ export function SettingsSheet() {
     if (!visible) return
 
     setApiConfigLoaded(false)
+    setApiAutoSave('idle')
+    apiBaselineRef.current = null
     void hydrateApiConfig().then(() => {
       const config = getApiConfig()
+      const portStr = String(config.apiPort)
       setHostDraft(config.apiHost)
-      setPortDraft(String(config.apiPort))
+      setPortDraft(portStr)
       setTokenDraft(config.apiToken)
+      apiBaselineRef.current = { host: config.apiHost, port: portStr, token: config.apiToken }
       setApiConfigLoaded(true)
     })
+  }, [visible])
+
+  useEffect(() => {
+    if (!apiConfigLoaded) return
+    const baseline = apiBaselineRef.current
+    if (!baseline) return
+    if (hostDraft === baseline.host && portDraft === baseline.port && tokenDraft === baseline.token) return
+
+    setApiAutoSave('saving')
+    const handle = setTimeout(() => {
+      void persistApiDrafts(hostDraft, portDraft, tokenDraft).then((wrote) => {
+        if (wrote) {
+          apiBaselineRef.current = { host: hostDraft, port: portDraft, token: tokenDraft }
+          setApiAutoSave('saved')
+        } else {
+          setApiAutoSave('idle')
+        }
+      })
+    }, 500)
+
+    return () => clearTimeout(handle)
+  }, [apiConfigLoaded, hostDraft, portDraft, tokenDraft])
+
+  useEffect(() => {
+    if (visible) return
+    const baseline = apiBaselineRef.current
+    if (!baseline) return
+    const { hostDraft: h, portDraft: p, tokenDraft: t } = apiDraftsRef.current
+    if (h === baseline.host && p === baseline.port && t === baseline.token) return
+    void persistApiDrafts(h, p, t)
   }, [visible])
 
   useEffect(() => {
@@ -668,11 +707,10 @@ export function SettingsSheet() {
             />
           </Row>
           <Row name="Token" desc="Header X-Atlas-Token">
-            <ApiTextInput
+            <SecretApiInput
               value={tokenDraft}
               onChangeText={setTokenDraft}
               placeholder="token"
-              secureTextEntry
             />
           </Row>
           <Row name="Status" desc={statusDescription}>
@@ -687,6 +725,7 @@ export function SettingsSheet() {
                 void syncNow(saveApiConfig, sync, setApiStatus)
               }}
             />
+            <ApiAutoSaveBadge state={apiAutoSave} />
           </View>
         </Section>
 
@@ -1354,6 +1393,29 @@ export function SettingsSheet() {
     />
     </>
   )
+}
+
+// Best-effort autosave: writes any field that has a valid value, skips
+// blanks/invalid (so clearing one input doesn't wipe the persisted token).
+// Throws nothing — used by the typing/closing autosave path.
+async function persistApiDrafts(hostDraft: string, portDraft: string, tokenDraft: string): Promise<boolean> {
+  const host = hostDraft.trim().replace(/\/+$/, '')
+  const portN = Number(portDraft)
+  const portValid = Number.isInteger(portN) && portN >= 1 && portN <= 65535
+  const token = tokenDraft.trim()
+
+  const writes: Promise<unknown>[] = []
+  if (host) writes.push(setBackendHost(host))
+  if (portValid) writes.push(setBackendPort(portN))
+  if (token) writes.push(setBackendToken(token))
+
+  if (writes.length === 0) return false
+  try {
+    await Promise.all(writes)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function normalizeApiDrafts(hostDraft: string, portDraft: string, tokenDraft: string) {
@@ -3154,6 +3216,87 @@ function ApiTextInput({
   )
 }
 
+function SecretApiInput({
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  value: string
+  onChangeText: (value: string) => void
+  placeholder: string
+}) {
+  const { c } = useTheme()
+  const { showToast } = useShell()
+  const [revealed, setRevealed] = useState(false)
+  const canCopy = value.trim().length > 0
+
+  const handleCopy = () => {
+    if (!canCopy) return
+    void copyToClipboard(value, () => showToast('token copiado', { durationMs: 1600 }))
+  }
+
+  return (
+    <View style={styles.secretInputRow}>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={c.ink3}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        textContentType="none"
+        importantForAutofill="no"
+        secureTextEntry={!revealed}
+        selectionColor={c.prussian}
+        style={[styles.apiInput, styles.secretInputField, { color: c.ink, borderColor: c.border, backgroundColor: c.surface }]}
+      />
+      <Pressable
+        onPress={() => setRevealed((v) => !v)}
+        hitSlop={6}
+        style={({ pressed }) => [
+          styles.secretInputAction,
+          { borderColor: c.border, backgroundColor: pressed ? c.premium : c.surface },
+        ]}
+      >
+        <Mono size={10} letterSpacing={0.4} color={c.ink2}>
+          {revealed ? 'ocultar' : 'ver'}
+        </Mono>
+      </Pressable>
+      <Pressable
+        onPress={handleCopy}
+        disabled={!canCopy}
+        hitSlop={6}
+        style={({ pressed }) => [
+          styles.secretInputAction,
+          {
+            borderColor: c.border,
+            backgroundColor: pressed && canCopy ? c.premium : c.surface,
+            opacity: canCopy ? 1 : 0.4,
+          },
+        ]}
+      >
+        <Mono size={10} letterSpacing={0.4} color={c.ink2}>
+          copiar
+        </Mono>
+      </Pressable>
+    </View>
+  )
+}
+
+function ApiAutoSaveBadge({ state }: { state: 'idle' | 'saving' | 'saved' }) {
+  const { c } = useTheme()
+  if (state === 'idle') return null
+  return (
+    <View style={styles.autoSaveBadge}>
+      <Mono size={10} letterSpacing={0.4} color={c.ink2}>
+        {state === 'saving' ? 'salvando…' : 'salvo'}
+      </Mono>
+    </View>
+  )
+}
+
 function StatusBadge({ status }: { status: ConnectionStatusKind }) {
   const { c } = useTheme()
   const isOnline = status === 'online'
@@ -3523,6 +3666,28 @@ const styles = StyleSheet.create({
   apiInputNarrow: {
     width: 82,
     textAlign: 'center',
+  },
+  secretInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  secretInputField: {
+    width: 96,
+  },
+  secretInputAction: {
+    minHeight: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  autoSaveBadge: {
+    alignSelf: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
   apiActions: {
     paddingHorizontal: 22,

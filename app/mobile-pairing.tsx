@@ -59,8 +59,20 @@ export default function MobilePairingScreen() {
         return
       }
 
-      const response = await listMobileDevices()
-      setDevice(currentDeviceFromResponse(response, currentSession.deviceId))
+      try {
+        const response = await listMobileDevices()
+        setDevice(currentDeviceFromResponse(response, currentSession.deviceId))
+      } catch (err) {
+        // 401 já foi neutralizado em mobileApiRequest (sessão local limpa).
+        // Aqui só ressincroniza o React state e cai pro form de re-pareamento.
+        if (err instanceof AtlasApiError && err.status === 401) {
+          setSession(null)
+          setDevice(null)
+          setPushResult(null)
+          return
+        }
+        throw err
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar pareamento mobile.')
     } finally {
@@ -137,8 +149,9 @@ export default function MobilePairingScreen() {
       setPushResult(null)
       showToast(currentSession ? 'device revogado' : 'pareamento local removido')
     } catch (err) {
+      // 401 = servidor já não conhece esse device; mobileApiRequest limpou a
+      // sessão local. Apenas ressincroniza o React state.
       if (err instanceof AtlasApiError && err.status === 401) {
-        await clearMobileDeviceSession()
         setSession(null)
         setDevice(null)
         setPushResult(null)
@@ -150,6 +163,17 @@ export default function MobilePairingScreen() {
     } finally {
       setBusy(null)
     }
+  }
+
+  const startRepair = async () => {
+    if (busy) return
+    setError(null)
+    await clearMobileDeviceSession()
+    setSession(null)
+    setDevice(null)
+    setPushResult(null)
+    setCode('')
+    showToast('pronto para parear de novo')
   }
 
   const updatePreferences = async (patch: Partial<AtlasNotificationPreferences>) => {
@@ -271,6 +295,11 @@ export default function MobilePairingScreen() {
                   label={busy === 'push' ? 'Registrando push...' : 'Registrar push novamente'}
                   variant="secondary"
                   onPress={busy ? undefined : () => void registerPush()}
+                />
+                <PrimaryButton
+                  label="Refazer pareamento"
+                  variant="ghost"
+                  onPress={busy ? undefined : () => void startRepair()}
                 />
                 <PrimaryButton
                   label={busy === 'revoke' ? 'Revogando...' : 'Revogar este device'}

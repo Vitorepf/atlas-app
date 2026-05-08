@@ -1,0 +1,2137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas — Home Editorial Premium · 3 variantes</title>
+
+<!--
+  Atlas Home · Editorial Premium · Mockup conceitual
+  ==================================================
+  Three-up comparison de variantes editoriais. Mesmo conteúdo,
+  três vozes tipográficas diferentes.
+
+  Variant A · Penguin Classics Austero
+    Frontispiece de livro encadernado. Restrição máxima. Hairlines.
+    Numeral romano em margem esquerda como folio. Tudo em ink, zero
+    acentos cromáticos. Drop cap em primeira tarefa.
+
+  Variant B · Monocle Contemporâneo
+    Briefing matinal estruturado. Mais densidade, bronze como spot.
+    Standfirsts mais explícitos. Pull quote com atribuição right-aligned.
+
+  Variant C · WSJ Op-Ed Denso
+    Página de jornal. Densidade máxima. Body 14, hairlines duplas
+    em algumas separações, masthead com peso de jornal de registro.
+
+  Tokens reais do Atlas usados em todas as variantes:
+    bg #F4EFE6, ink #1A1612, ink2 #6B6358, bronze #9B7A3F,
+    prussian #1B3A57, border #D4CCBC.
+    Tipografia: Fraunces (frau), Inter (sans), JetBrains Mono (mono).
+    Background: grid cartográfico 36px @ 2.5% opacity (sussurro).
+
+  Anti-slop: zero gradiente, zero emoji, zero ícones decorativos,
+  zero pílulas-com-borda-suave, zero sparkle/diamond. Hairlines reais,
+  hierarquia tipográfica pura.
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* =====================================================================
+   TOKENS · espelho fiel de design/tokens.ts do app
+   ===================================================================== */
+:root {
+  --bg:           #F4EFE6;
+  --bg-recessed:  #EFE8DA;
+  --bg-raised:    #F8F2E9;
+  --bg-deep:      #E8E0CC;
+  --surface:      #EAE3D6;
+  --premium:      #E0D8C9;
+  --ink:          #1A1612;
+  --ink2:         #6B6358;
+  --ink3:         #A89F90;
+  --border:       #D4CCBC;
+  --border-soft:  #DCD3C0;
+  --prussian:     #1B3A57;
+  --bronze:       #9B7A3F;
+  --bronze-deep:  #7A5E2F;
+  --bronze-light: #C9A663;
+  --moss:         #4A5D3A;
+  --rec-red:      #8B2635;
+
+  --frau: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* =====================================================================
+   PAGE SHELL · dark neutral pra cream das telas saltar
+   ===================================================================== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; }
+
+body {
+  font-family: var(--sans);
+  background: #221E18;
+  color: #B8AFA0;
+  min-height: 100vh;
+  padding: 56px 32px 96px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =====================================================================
+   BRIEF EDITORIAL · manual de identidade auto-contido
+   Tudo necessário pra replicar o Atlas perfeitamente sem contexto externo.
+   Eat its own dog food: o brief usa a mesma DNA que descreve.
+   ===================================================================== */
+.brief {
+  max-width: 1280px;
+  margin: 0 auto 72px;
+  color: #B8AFA0;
+}
+
+/* masthead do brief — espelha variante A com letterspacing largo */
+.brief-masthead {
+  text-align: center;
+  padding: 12px 0 22px;
+  border-bottom: 1px solid rgba(232,223,208,0.22);
+  margin-bottom: 18px;
+}
+.brief-masthead .title {
+  font-family: var(--frau);
+  font-weight: 500;
+  font-size: 38px;
+  letter-spacing: 7px;
+  color: #E8DFD0;
+  margin-bottom: 10px;
+  font-feature-settings: 'lnum' 1;
+}
+.brief-masthead .folio {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: #8C8273;
+}
+
+.brief-dateline {
+  text-align: center;
+  margin-bottom: 48px;
+}
+.brief-dateline .what {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 16px;
+  color: #C9BFAA;
+  letter-spacing: 0.3px;
+}
+.brief-dateline .when {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: #8C8273;
+  margin-top: 6px;
+}
+
+/* lead — pull quote em hero size */
+.brief-lead {
+  max-width: 920px;
+  margin: 0 auto 56px;
+  text-align: center;
+  padding: 0 32px;
+}
+.brief-lead .em-rule {
+  width: 36px;
+  height: 1px;
+  background: #C9A663;
+  margin: 0 auto 18px;
+}
+.brief-lead q {
+  display: block;
+  font-family: var(--frau);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1.3;
+  letter-spacing: -0.4px;
+  color: #E8DFD0;
+  text-wrap: balance;
+  quotes: "\201C" "\201D";
+}
+.brief-lead .attr {
+  display: block;
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: #8C8273;
+}
+
+/* grid de seções do brief */
+.brief-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 36px;
+  padding: 0 8px;
+  margin-bottom: 48px;
+}
+@media (max-width: 1100px) {
+  .brief-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .brief-grid { grid-template-columns: 1fr; }
+}
+
+.brief-section {
+  border-top: 1px solid rgba(232,223,208,0.18);
+  padding-top: 16px;
+}
+
+.brief-section .head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.brief-section .num {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  color: #C9A663;
+  text-transform: lowercase;
+  min-width: 16px;
+}
+.brief-section .name {
+  font-family: var(--frau);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #E8DFD0;
+}
+.brief-section .deck {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #8C8273;
+  margin-bottom: 14px;
+  margin-left: 24px;
+}
+.brief-section .body {
+  margin-left: 24px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.55;
+  color: #B8AFA0;
+}
+.brief-section .body ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.brief-section .body li {
+  padding: 3px 0;
+  font-family: var(--frau);
+  font-size: 14px;
+  line-height: 1.45;
+  color: #C9BFAA;
+}
+.brief-section .body li.no {
+  color: #8C8273;
+  text-decoration: line-through;
+  text-decoration-color: rgba(139,38,53,0.6);
+  text-decoration-thickness: 1px;
+}
+.brief-section .body strong {
+  color: #E8DFD0;
+  font-weight: 500;
+  font-style: normal;
+  font-family: var(--sans);
+}
+.brief-section .body em {
+  color: #C9A663;
+  font-style: italic;
+  font-family: var(--frau);
+}
+
+/* tabela dot-leader pra paleta e tipografia */
+.brief-table .row {
+  display: flex;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(232,223,208,0.06);
+}
+.brief-table .row:first-child {
+  border-top: 1px solid rgba(232,223,208,0.06);
+}
+.brief-table .row .l {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+  color: #C9BFAA;
+  text-transform: lowercase;
+}
+.brief-table .row .leader {
+  flex: 1;
+  margin: 0 8px;
+  border-bottom: 1px dotted #6B6358;
+  position: relative;
+  bottom: 4px;
+  opacity: 0.45;
+}
+.brief-table .row .v {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #8C8273;
+  letter-spacing: 0.4px;
+}
+.brief-table .row .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 1px solid rgba(232,223,208,0.18);
+}
+
+/* full-width sections (motion, voz) ocupam linha inteira */
+.brief-section.wide {
+  grid-column: span 2;
+}
+
+/* signature */
+.brief-signature {
+  text-align: center;
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid rgba(232,223,208,0.22);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6B6358;
+}
+.brief-signature em {
+  color: #C9A663;
+  font-style: italic;
+  font-family: var(--frau);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.chosen-mark {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #1A1612;
+  background: #C9A663;
+  border-radius: 2px;
+}
+
+.variants {
+  max-width: 1720px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 393px);
+  gap: 28px;
+  justify-content: center;
+}
+
+@media (max-width: 850px) {
+  .variants { gap: 64px; }
+}
+
+.variant {
+  display: flex;
+  flex-direction: column;
+}
+
+.variant-meta {
+  margin-bottom: 16px;
+  /* min-height fixa pra que as duas viewports comecem no mesmo Y
+     mesmo com vdesc de comprimento diferente entre A e D */
+  min-height: 220px;
+}
+
+.variant-meta .vmid {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #C9A663;
+  margin-bottom: 6px;
+}
+
+.variant-meta .vname {
+  font-family: var(--frau);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #E8DFD0;
+  margin-bottom: 4px;
+}
+
+.variant-meta .vdesc {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8C8273;
+}
+
+/* =====================================================================
+   VIEWPORT · simulação iPhone sem chrome iOS (cantos + sombra apenas)
+   ===================================================================== */
+.viewport {
+  width: 393px;
+  height: 852px;
+  background: var(--bg);
+  border-radius: 44px;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 32px 64px rgba(0,0,0,0.45),
+    0 0 0 1px rgba(0,0,0,0.5);
+  /* grid cartográfico · sussurro 2.5% */
+  background-image:
+    linear-gradient(to right, rgba(26,22,18,0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26,22,18,0.025) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.viewport-inner {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.viewport-inner::-webkit-scrollbar { display: none; }
+
+/* faux status bar simbólico · só uma linha de respiro, sem chrome iOS */
+.status-bar-spacer {
+  height: 54px;
+  width: 100%;
+}
+
+/* =====================================================================
+   DOCK · compartilhado entre as três variantes
+   pílula clara com 5 itens, capture central em prussian
+   ===================================================================== */
+.dock {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 18px;
+  height: 64px;
+  background: rgba(248, 242, 233, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 36px;
+  border: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  box-shadow: 0 8px 24px rgba(26,22,18,0.05);
+}
+
+.dock-item {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  color: var(--ink2);
+  /* press feedback default · 420ms exhale Apple Books (out · release lento)
+     replica fiel de components/Dock.tsx:428-434 do app real */
+  transition:
+    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  flex: 0 0 auto;
+}
+/* press feedback ON press · 180ms cera prensada (in · rápido)
+   replica de components/Dock.tsx:420-426 · opacity 1→0.70, scale 1→0.94.
+   Magnitude visível (não micro-interação invisível) — a diferença SaaS vs codex
+   é o TIMING + EASING, não a magnitude. */
+/* press feedback via class .is-pressed (gerenciada por JS abaixo) ·
+   garante hold mínimo de 180ms mesmo em clicks rápidos · efeito visível.
+   Mantém :active também pra quando o usuário segura mais que 180ms. */
+.dock-item:active,
+.dock-item.is-pressed {
+  opacity: 0.70;
+  transform: scale(0.94);
+  transition:
+    opacity 180ms cubic-bezier(0.32, 0.72, 0.24, 1),
+    transform 180ms cubic-bezier(0.32, 0.72, 0.24, 1);
+}
+
+.dock-item.active { color: var(--ink); }
+.dock-item.active::after {
+  content: '';
+  width: 14px;
+  height: 1.5px;
+  background: var(--bronze);
+  border-radius: 1px;
+  margin-top: 2px;
+}
+
+.dock-glyph {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 14px;
+  color: inherit;
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+
+.dock-capture {
+  cursor: pointer;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--prussian);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--bg);
+  margin-top: -16px;
+  box-shadow: 0 8px 18px rgba(27,58,87,0.32);
+  /* press feedback default · mesma assinatura do dock-item */
+  transition:
+    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dock-capture:active,
+.dock-capture.is-pressed {
+  opacity: 0.70;
+  transform: scale(0.94);
+  transition:
+    opacity 180ms cubic-bezier(0.32, 0.72, 0.24, 1),
+    transform 180ms cubic-bezier(0.32, 0.72, 0.24, 1);
+}
+
+.dock-capture::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid #F4EFE6;
+  position: relative;
+}
+
+.dock-capture::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #F4EFE6;
+  position: absolute;
+}
+
+/* =====================================================================
+   VARIANT A · PENGUIN CLASSICS AUSTERO
+   ---------------------------------------------------------------------
+   Frontispiece de livro encadernado. Centro tudo. Hairline única
+   no topo. Numerais romanos servem de folio em margem esquerda.
+   Drop cap na primeira entrada da agenda. Pull quote indented.
+   ===================================================================== */
+.va .content {
+  padding: 0 32px;
+}
+
+.va .masthead {
+  text-align: center;
+  margin-top: 12px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(26,22,18,0.18);
+}
+
+.va .masthead .title {
+  font-family: var(--frau);
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: 5.5px;
+  color: var(--ink);
+  font-feature-settings: 'lnum' 1;
+  margin-bottom: 8px;
+}
+
+.va .masthead .folio {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+
+.va .dateline {
+  text-align: center;
+  margin-top: 14px;
+  margin-bottom: 36px;
+}
+
+.va .dateline .date {
+  font-family: var(--frau);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0.4px;
+}
+
+.va .dateline .edition {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin-top: 4px;
+}
+
+/* sections */
+.va .section {
+  margin-bottom: 44px;
+  position: relative;
+}
+
+.va .section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.va .numeral {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  color: var(--bronze);
+  font-variant: small-caps;
+  min-width: 22px;
+}
+
+.va .section-title {
+  font-family: var(--frau);
+  font-weight: 500;
+  font-size: 17px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.va .deck {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink2);
+  margin-left: 32px;
+  margin-bottom: 14px;
+}
+
+.va .hr-section {
+  height: 1px;
+  background: rgba(26,22,18,0.12);
+  margin-left: 32px;
+  margin-bottom: 18px;
+}
+
+/* agenda content */
+.va .estado-row {
+  margin-left: 32px;
+  margin-bottom: 28px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  color: var(--ink2);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.va .estado-label {
+  text-transform: uppercase;
+  letter-spacing: 1.3px;
+  color: var(--ink2);
+}
+.va .estado-options {
+  font-family: var(--frau);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--ink3);
+  text-transform: none;
+}
+.va .estado-options .active {
+  color: var(--bronze-deep);
+  font-style: italic;
+}
+
+.va .pullquote {
+  margin-left: 32px;
+  margin-right: 8px;
+  margin-bottom: 28px;
+  padding-left: 14px;
+  border-left: 2px solid var(--bronze);
+}
+.va .pullquote q {
+  display: block;
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: -0.3px;
+  color: var(--ink);
+  quotes: "\201C" "\201D";
+  text-wrap: pretty;
+}
+.va .pullquote .attr {
+  display: block;
+  text-align: right;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.va .pullquote .attr::before {
+  content: '— ';
+  letter-spacing: 0;
+}
+
+.va .mission {
+  margin-left: 32px;
+  margin-bottom: 26px;
+}
+.va .mission .label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin-bottom: 6px;
+}
+.va .mission .body {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.va .task {
+  margin-left: 32px;
+}
+.va .task .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: var(--ink2);
+  margin-bottom: 6px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.va .task .meta .time { color: var(--prussian); font-weight: 500; }
+.va .task .meta .pri {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.va .task .title-line {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.4;
+  letter-spacing: -0.1px;
+  color: var(--ink);
+}
+.va .task .title-line::first-letter {
+  font-family: var(--frau);
+  font-weight: 500;
+  font-size: 36px;
+  line-height: 0.85;
+  float: left;
+  margin-right: 4px;
+  margin-top: 4px;
+  color: var(--bronze);
+  font-feature-settings: 'lnum' 1;
+}
+.va .task .actions {
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+
+/* TOC list (operação atlas + portas) */
+.va .toc {
+  margin-left: 32px;
+  margin-right: 0;
+}
+.va .toc-row {
+  display: flex;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(26,22,18,0.06);
+}
+/* primeiro .toc-row sem border-top — o hr-section acima já cumpre essa função.
+   antes ficava duas linhas coladas (hr-section + border-top do first-child),
+   poluição visual sem propósito. */
+.va .toc-row .l {
+  font-family: var(--frau);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+.va .toc-row .leader {
+  flex: 1;
+  margin: 0 8px;
+  border-bottom: 1.5px dotted var(--ink3);
+  position: relative;
+  bottom: 4px;
+  opacity: 0.55;
+}
+.va .toc-row .v {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink2);
+  letter-spacing: 0;
+}
+
+/* tecido whisper */
+.va .tecido {
+  margin-left: 32px;
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink2);
+}
+.va .tecido strong {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+/* folio rodapé */
+.va .folio-footer {
+  text-align: center;
+  margin-top: 42px;
+  margin-bottom: 110px;
+  padding-top: 26px;
+  border-top: 1px solid rgba(26,22,18,0.18);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+/* =====================================================================
+   VARIANT D · ALDINE · híbrido coluna-pautas
+   ---------------------------------------------------------------------
+   Background guarda APENAS as linhas verticais (colunas fixas, sempre
+   presentes como trilhos). As HORIZONTAIS saem dos próprios componentes
+   — cada hairline (masthead bottom, hr-section, toc-row borders, folio
+   footer top) é decisão deliberada do designer.
+
+   Resultado · sem doubling: o bg não sobrepõe mais horizontais por
+   cima das do componente. Cada linha horizontal visível é proposital,
+   não automática. Mais limpo, mais editorial, mais Atlas.
+
+   Modelo de referência:
+   · WSJ / FT / NYT impressos — colunas fixas, rules entre matérias
+     fazem parte do conteúdo (não do papel)
+   · Caderno contábil antigo — pauta vertical impressa, linhas entre
+     entradas desenhadas pelo escrivão
+   · Aldus Manutius · Veneza 1494 · margens da página fixas, ritmo
+     decidido pelo texto. Penguin Classics descende dele literalmente.
+
+   D usa class compound: <div class="viewport va vd"> — herda tudo
+   de .va e overrida só o background-image do .viewport pra verticals-only.
+   ===================================================================== */
+.viewport.vd {
+  /* verticais fixas · ancoradas ao iPhone, não rolam */
+  background-image: linear-gradient(
+    to right,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 36px 100%;
+}
+
+/* horizontais que rolam com o conteúdo · idênticas em estilo às verticais
+   (1px, ink 2.5%) · espaçadas a cada 36px pra formar quadrados perfeitos
+   quando se cruzam com as verticais do bg.
+   background-attachment: local faz o bg viajar com o scroll do .viewport-inner. */
+.viewport.vd .viewport-inner {
+  background-image: linear-gradient(
+    to bottom,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 100% 36px;
+  background-attachment: local;
+}
+
+/* componentes em D ficam idênticos a A · masthead bottom, hr-section,
+   toc borders, folio top — todas as hairlines deliberadas dos componentes
+   permanecem como editorial structure por cima da grade base. */
+
+/* =====================================================================
+   VARIANT F · ALDINE DERIVADA
+   ---------------------------------------------------------------------
+   Clone exato de D. Mesma régua, mesmas hairlines, mesma typography.
+   Existe como ponto de partida pra iterações sem mexer na referência
+   aprovada (D fica intocada). Quando essa iteração ficar boa, F vira
+   D-v2 ou um irmão definitivo.
+   ===================================================================== */
+.viewport.vf {
+  background-image: linear-gradient(
+    to right,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 36px 100%;
+}
+
+.viewport.vf .viewport-inner {
+  background-image: linear-gradient(
+    to bottom,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 100% 36px;
+  background-attachment: local;
+}
+
+/* dock em F · words italic Frau, sem numerais romanos.
+   Numerais saem (eram redundantes com o conteúdo, que já usa i. ii. iii. iv.).
+   O dock vira mais uma linha editorial da página, não um elemento de UI à parte.
+   Active state mantém underline bronze + cor ink + weight medium. */
+.viewport.vf .dock-glyph { display: none; }
+.viewport.vf .dock-item {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+.viewport.vf .dock-item.active {
+  font-weight: 500;
+}
+
+/* Bronze diamond mark · ✦ Atlas signature na cell ao lado direito do "S" do
+   masthead, pulando 1 cell vazia. S ocupa col 7 (252-288). Pulamos col 8
+   (288-324) e colocamos o ícone em col 9 (324-360), mesma row do título.
+   Mark editorial · vocabulário de colofon de impressor / sigilo de página. */
+.viewport.vf .middle-mark {
+  position: absolute;
+  top: 72px;
+  left: 324px;
+  width: 36px;
+  height: 36px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* =====================================================================
+   VARIANT G · ALDINE + PROFUNDIDADE
+   ---------------------------------------------------------------------
+   Idêntica a F (palavras italic Frau, sem ícones) + tile com
+   profundidade no item ativo: highlight cream mais claro + shadow
+   sutil + lift de 2px. Active vira pequena "ficha que pousou
+   no dock" — vocabulário tátil sem virar UI de app.
+   ===================================================================== */
+.viewport.vg {
+  background-image: linear-gradient(
+    to right,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 36px 100%;
+}
+
+.viewport.vg .viewport-inner {
+  background-image: linear-gradient(
+    to bottom,
+    rgba(26,22,18,0.025) 1px,
+    transparent 1px
+  );
+  background-size: 100% 36px;
+  background-attachment: local;
+}
+
+.viewport.vg .dock-glyph { display: none; }
+.viewport.vg .dock-item {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+  position: relative;
+  z-index: 0;
+}
+.viewport.vg .dock-item.active {
+  font-weight: 500;
+  /* só lift 2px · zero pílula, zero retângulo, zero forma envolvente */
+  transform: translateY(-2px);
+  /* drop-shadow filter segue o CONTORNO da palavra (não retângulo) ·
+     dá sensação de "palavra um pouco alto, projetando sombra sutil" */
+  filter: drop-shadow(0 2px 3px rgba(26,22,18,0.18));
+}
+/* compor translateY de active com scale do press · preserva o lift
+   enquanto adiciona o aperto de cera prensada. */
+.viewport.vg .dock-item.active:active,
+.viewport.vg .dock-item.active.is-pressed {
+  transform: translateY(-2px) scale(0.94);
+}
+
+/* capture button como esfera 3D · radial gradient pra dar volume,
+   inset highlights pra simular luz refletindo numa esfera polida.
+   Vocabulário de bronze marker bola, não disco flat. */
+.viewport.vg .dock-capture {
+  background: radial-gradient(
+    circle at 32% 28%,
+    rgba(78, 115, 155, 1) 0%,
+    rgba(27, 58, 87, 1) 55%,
+    rgba(12, 28, 45, 1) 100%
+  );
+  box-shadow:
+    /* drop shadow mais peso */
+    0 8px 20px rgba(27,58,87,0.48),
+    /* inset highlight forte no top · luz refletida */
+    inset 0 3px 5px rgba(255,255,255,0.22),
+    /* inset shadow no bottom · contorno escuro */
+    inset 0 -4px 8px rgba(0,0,0,0.35);
+}
+
+/* shared utility */
+.dot { color: var(--ink3); font-weight: 400; padding: 0 2px; }
+.dot-bronze { color: var(--bronze); }
+</style>
+</head>
+<body>
+
+<div class="brief">
+
+  <header class="brief-masthead">
+    <div class="title">A T L A S</div>
+    <div class="folio">manual de identidade · vol. i · no. 1</div>
+  </header>
+
+  <div class="brief-dateline">
+    <div class="what">Concept brief · pegada editorial premium</div>
+    <div class="when">v. 1 · maio 2026 · auto-contido</div>
+  </div>
+
+  <div class="brief-lead">
+    <div class="em-rule"></div>
+    <q>Atlas é luxo patriarcal masculino. Don Corleone com WSJ na mão, Patek Philippe no pulso, Penguin Classics na estante. Antigo como ouro, provado pelo tempo, ainda moderno. Poder não-performado.</q>
+    <span class="attr">manifesto · primeira pessoa</span>
+  </div>
+
+  <div class="brief-grid">
+
+    <!-- i. SANGUE · DNA / family of origin -->
+    <section class="brief-section">
+      <div class="head">
+        <span class="num">i.</span>
+        <span class="name">Sangue</span>
+      </div>
+      <div class="deck">de onde Atlas vem · família de origem</div>
+      <div class="body">
+        <ul>
+          <li>Patek Philippe · Genebra 1839</li>
+          <li>WSJ · FT · NYT · Le Monde</li>
+          <li>Monocle · The Economist</li>
+          <li>Penguin Classics · Phaidon · Taschen</li>
+          <li>The Macallan · Pappy Van Winkle</li>
+          <li>Cohiba Behike · Padron 1964</li>
+          <li>Brioni · Kiton · Cifonelli</li>
+          <li>Dunhill 1893 · Smythson · Berluti</li>
+          <li>Coutts (1692) · J.P. Morgan Private</li>
+          <li>White's · Boodle's · RAC</li>
+          <li><em>Vito Corleone</em> · Logan Roy · De Niro velho · Connery Bond · Tony Soprano calado</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ii. NEGAÇÃO · anti-references -->
+    <section class="brief-section">
+      <div class="head">
+        <span class="num">ii.</span>
+        <span class="name">Negação</span>
+      </div>
+      <div class="deck">o que Atlas nunca é · família a evitar</div>
+      <div class="body">
+        <ul>
+          <li class="no">Aesop · Hermès <em>(filho de rico, frágil)</em></li>
+          <li class="no">Saint Laurent skinny · Parisian fashion</li>
+          <li class="no">Apple "tech-luxury" performado</li>
+          <li class="no">Linear · Notion · SaaS-premium</li>
+          <li class="no">Material · Duolingo · Tailwind defaults</li>
+          <li class="no">"lifestyle" · "wellness" · "minimalism"</li>
+          <li class="no">Sparkle · diamond · estrelinhas</li>
+          <li class="no">Pílulas com borda suave</li>
+          <li class="no">Gradientes · drop shadows softs</li>
+          <li class="no">Emoji como ícone</li>
+          <li class="no">"Bom dia, Vitor" servil</li>
+          <li class="no">Italic-de-tudo · em-dash apologético</li>
+          <li class="no">Opacity dimming generalizada</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- iii. VOCABULÁRIO · required editorial elements -->
+    <section class="brief-section">
+      <div class="head">
+        <span class="num">iii.</span>
+        <span class="name">Vocabulário</span>
+      </div>
+      <div class="deck">elementos editoriais obrigatórios</div>
+      <div class="body">
+        <ul>
+          <li><strong>Masthead</strong> com folio (vol·no)</li>
+          <li><strong>Dateline</strong> · numeral romano pro mês <em>(07.V.2026)</em></li>
+          <li><strong>Numeral romano + ponto</strong> · capítulos <em>(i. ii. iii.)</em></li>
+          <li><strong>Standfirst / deck</strong> · italic Frau sob título</li>
+          <li><strong>Em-rule</strong> · linha curta horizontal · uso ceremonial (lead, abertura)</li>
+          <li><strong>Pull quote</strong> · barra vertical bronze 2px à esquerda · italic Frau + atribuição mono caps right-aligned com prefix <em>—</em></li>
+          <li><strong>Dot leaders</strong> · TOC-style label .... value</li>
+          <li><strong>Hairlines</strong> estruturais 1px ink @ 12-18%</li>
+          <li><strong>Régua Aldine</strong> · híbrido coluna-pautas · verticais 36px no bg fixo (trilhos) · horizontais nascem dos próprios componentes (hairlines deliberadas) · sem doubling bg↔componente</li>
+          <li><strong>Drop cap</strong> · raro, em primeira tarefa</li>
+          <li><strong>Marginalia</strong> · status em margem mono small</li>
+          <li><strong>Folio</strong> centralizado no rodapé</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- iv. VOZ · editorial voice rules -->
+    <section class="brief-section">
+      <div class="head">
+        <span class="num">iv.</span>
+        <span class="name">Voz</span>
+      </div>
+      <div class="deck">regras de tom · tipografia da personalidade</div>
+      <div class="body">
+        <p style="margin-bottom:10px;"><strong>Italic só pra:</strong> standfirst, pull quote, valor secundário, citação literal.</p>
+        <p style="margin-bottom:10px;"><strong>Italic NUNCA pra:</strong> título de seção, masthead, label caps, body principal.</p>
+        <p style="margin-bottom:10px;"><strong>Empty state:</strong> imperativo seco (<em>"Definir missão →"</em>) ou silêncio estrutural. NUNCA <span style="text-decoration: line-through; opacity:0.5;">"— Nenhuma missão definida."</span></p>
+        <p><strong>Opacity:</strong> ou full presença, ou não renderiza. Sem dimming generalizado.</p>
+      </div>
+    </section>
+
+    <!-- v. PALETA · color tokens -->
+    <section class="brief-section wide">
+      <div class="head">
+        <span class="num">v.</span>
+        <span class="name">Paleta</span>
+      </div>
+      <div class="deck">tokens de cor · paleta light · espelho fiel de design/tokens.ts</div>
+      <div class="body brief-table">
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#F4EFE6;"></span>bg</span>
+          <span class="leader"></span>
+          <span class="v">#F4EFE6 · papel envelhecido · base</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#1A1612;"></span>ink</span>
+          <span class="leader"></span>
+          <span class="v">#1A1612 · tinta · text primary</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#6B6358;"></span>ink2</span>
+          <span class="leader"></span>
+          <span class="v">#6B6358 · tinta secundária</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#A89F90;"></span>ink3</span>
+          <span class="leader"></span>
+          <span class="v">#A89F90 · tinta terciária · disabled</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#D4CCBC;"></span>border</span>
+          <span class="leader"></span>
+          <span class="v">#D4CCBC · fronteira</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#1B3A57;"></span>prussian</span>
+          <span class="leader"></span>
+          <span class="v">#1B3A57 · capture · time stamps</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#9B7A3F;"></span>bronze</span>
+          <span class="leader"></span>
+          <span class="v">#9B7A3F · numerais romanos · accent único</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#4A5D3A;"></span>moss</span>
+          <span class="leader"></span>
+          <span class="v">#4A5D3A · status positivo · raro</span>
+        </div>
+        <div class="row">
+          <span class="l"><span class="swatch" style="background:#8B2635;"></span>recRed</span>
+          <span class="leader"></span>
+          <span class="v">#8B2635 · alerta · recording · destrutivo</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- vi. TIPOGRAFIA · type stack -->
+    <section class="brief-section wide">
+      <div class="head">
+        <span class="num">vi.</span>
+        <span class="name">Tipografia</span>
+      </div>
+      <div class="deck">três famílias · cada uma com função distinta · nunca substituir</div>
+      <div class="body brief-table">
+        <div class="row">
+          <span class="l">Frau (Fraunces)</span>
+          <span class="leader"></span>
+          <span class="v">display · contemplativo · seções · pull quote · mission</span>
+        </div>
+        <div class="row">
+          <span class="l">Sans (Inter)</span>
+          <span class="leader"></span>
+          <span class="v">funcional · UI · titles tarefa · botões</span>
+        </div>
+        <div class="row">
+          <span class="l">Mono (JetBrains)</span>
+          <span class="leader"></span>
+          <span class="v">dados · labels caps · numerais · timestamps · folio</span>
+        </div>
+        <div class="row">
+          <span class="l">display lg</span>
+          <span class="leader"></span>
+          <span class="v">42 / 44 · letterSpacing -1.05 · masthead</span>
+        </div>
+        <div class="row">
+          <span class="l">greet</span>
+          <span class="leader"></span>
+          <span class="v">38 / 40 · letterSpacing -0.95</span>
+        </div>
+        <div class="row">
+          <span class="l">fraunces 22 / 20 / 18</span>
+          <span class="leader"></span>
+          <span class="v">section title · pull quote · standfirst grande</span>
+        </div>
+        <div class="row">
+          <span class="l">body 17 / 16 / 15 / 14</span>
+          <span class="leader"></span>
+          <span class="v">parágrafo · TOC · doorways</span>
+        </div>
+        <div class="row">
+          <span class="l">mono 14 / 13 / 12 / 11</span>
+          <span class="leader"></span>
+          <span class="v">timestamps · datas · folio · marginalia</span>
+        </div>
+        <div class="row">
+          <span class="l">label 11 caps</span>
+          <span class="leader"></span>
+          <span class="v">letterSpacing 1.1 · uppercase · ESTADO MISSÃO etc</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- vii. MOTION · settle com peso -->
+    <section class="brief-section wide">
+      <div class="head">
+        <span class="num">vii.</span>
+        <span class="name">Motion</span>
+      </div>
+      <div class="deck">peso silencioso · não sussurro · não cascata</div>
+      <div class="body">
+        <p style="margin-bottom: 12px;">Atlas <strong>não sussurra</strong> — Atlas tem <em>peso</em>. Metáfora física: copo de uísque pousando em balcão de carvalho. Don Corleone já está sentado quando você entra; ele não se levanta pra te receber. <strong>Você</strong> entrou.</p>
+        <div class="brief-table" style="margin-top: 14px;">
+          <div class="row">
+            <span class="l">screen settle</span>
+            <span class="leader"></span>
+            <span class="v">scale 1.008 → 1.000 · 280ms · sem opacity · sem translateY</span>
+          </div>
+          <div class="row">
+            <span class="l">easing</span>
+            <span class="leader"></span>
+            <span class="v">[0.4, 1, 0.2, 1] · deceleração agressiva · "thud" · não exhale</span>
+          </div>
+          <div class="row">
+            <span class="l">cascata top-down</span>
+            <span class="leader"></span>
+            <span class="v">PROIBIDA · zero stagger entre elementos da mesma screen</span>
+          </div>
+          <div class="row">
+            <span class="l">cross-fade Stack</span>
+            <span class="leader"></span>
+            <span class="v">400ms entre rotas · porta entre salas do clube</span>
+          </div>
+          <div class="row">
+            <span class="l">pressables</span>
+            <span class="leader"></span>
+            <span class="v">release mais lento que press · sensação de cera oxidada</span>
+          </div>
+          <div class="row">
+            <span class="l">duração tokens</span>
+            <span class="leader"></span>
+            <span class="v">instinct 180 · considered 320 · ceremonial 480 · sacred 620</span>
+          </div>
+          <div class="row">
+            <span class="l">choreography forte</span>
+            <span class="leader"></span>
+            <span class="v">só pra captura salva · recording start · state irreversível</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- viii. EMPTY STATE · philosophy -->
+    <section class="brief-section wide">
+      <div class="head">
+        <span class="num">viii.</span>
+        <span class="name">Empty States</span>
+      </div>
+      <div class="deck">filosofia da ausência · Atlas não pede licença</div>
+      <div class="body">
+        <p style="margin-bottom: 12px;">Don Corleone não tem post-its no escritório explicando que <em>"nenhum cliente está agendado"</em>. Ou tem conteúdo, ou tem silêncio estrutural, ou tem um comando. Apologia em prosa = filho de rico.</p>
+        <div class="brief-table" style="margin-top: 14px;">
+          <div class="row">
+            <span class="l">opção 1 · silêncio</span>
+            <span class="leader"></span>
+            <span class="v">deixa só o tier mark sozinho · sem corpo</span>
+          </div>
+          <div class="row">
+            <span class="l">opção 2 · comando</span>
+            <span class="leader"></span>
+            <span class="v">"Definir missão →" · sans · sem em-dash · ação direta</span>
+          </div>
+          <div class="row">
+            <span class="l">opção 3 · estrutura nua</span>
+            <span class="leader"></span>
+            <span class="v">grade vazia · página de caderno em branco</span>
+          </div>
+          <div class="row">
+            <span class="l">PROIBIDO</span>
+            <span class="leader"></span>
+            <span class="v">"— Nenhuma missão definida." · "— Sem capturas hoje." · qualquer prosa apologética em italic com em-dash</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="brief-signature">
+    <em>tudo aqui é replicável de cabeça</em><br>
+    se Atlas perdeu o caminho · este folio é a bússola
+  </div>
+
+</div>
+
+<div class="variants">
+
+  <!-- =================================================================
+       A · PENGUIN CLASSICS AUSTERO
+       ================================================================= -->
+  <div class="variant">
+    <div class="variant-meta">
+      <div class="vmid">A · Penguin Classics</div>
+      <div class="vname">Austero · frontispiece de livro encadernado</div>
+      <div class="vdesc">Hairlines, centro, drop cap. Ink puro, zero acento cromático. Máxima restrição.</div>
+    </div>
+
+    <div class="viewport va">
+      <div class="viewport-inner">
+        <div class="status-bar-spacer"></div>
+        <div class="content">
+
+          <!-- masthead -->
+          <header class="masthead">
+            <div class="title">A T L A S</div>
+            <div class="folio">vol. iii · no. 127</div>
+          </header>
+          <div class="dateline">
+            <div class="date">Quinta · 7 de Maio de 2026 · Goiânia</div>
+            <div class="edition">edição matinal</div>
+          </div>
+
+          <!-- i. AGENDA -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">i.</div>
+              <div class="section-title">Agenda</div>
+            </div>
+            <div class="deck">diário de intenção · sete de maio</div>
+            <div class="hr-section"></div>
+
+            <div class="estado-row">
+              <span class="estado-label">Estado</span>
+              <span class="estado-options">
+                <span class="active">Foco</span>
+                <span class="dot">·</span> Disperso
+                <span class="dot">·</span> Bloqueado
+                <span class="dot">·</span> Pausa
+              </span>
+            </div>
+
+            <div class="pullquote">
+              <q>O que você adiou na quarta-feira espera resposta hoje?</q>
+              <span class="attr">pergunta de hoje</span>
+            </div>
+
+            <div class="mission">
+              <div class="label">Missão</div>
+              <div class="body">Definir kernel pipeline v3 · testar com check-in matinal.</div>
+            </div>
+
+            <div class="task">
+              <div class="meta">
+                <span class="time">09.00</span>
+                <span class="pri">essencial</span>
+                <span>60min</span>
+                <span>foco profundo</span>
+              </div>
+              <div class="title-line">Reunião com Marcos · revisar arquitetura de embeddings.</div>
+              <div class="actions">Feita <span class="dot">·</span> Adiar <span class="dot">·</span> Editar</div>
+            </div>
+          </section>
+
+          <!-- ii. OPERAÇÃO ATLAS -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">ii.</div>
+              <div class="section-title">Operação Atlas</div>
+            </div>
+            <div class="deck">dossiês abertos · arquivo vivo</div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">Memory</span>
+                <span class="leader"></span>
+                <span class="v">memória em dia</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Open Brain</span>
+                <span class="leader"></span>
+                <span class="v">recall e context pack</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Engineering</span>
+                <span class="leader"></span>
+                <span class="v">harness runner e atlas-bench</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Rivals</span>
+                <span class="leader"></span>
+                <span class="v">relatório fair claude</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- iii. TECIDO -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iii.</div>
+              <div class="section-title">Tecido</div>
+            </div>
+            <div class="deck">constelações · fios soltos</div>
+            <div class="hr-section"></div>
+
+            <div class="tecido">
+              veias do tecido · <strong>12 NÓS ATIVOS</strong> · três rumam pra confluência.
+            </div>
+          </section>
+
+          <!-- iv. PORTAS -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iv.</div>
+              <div class="section-title">Portas</div>
+            </div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">bitácula</span>
+                <span class="leader"></span>
+                <span class="v">3 ativos</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">saúde</span>
+                <span class="leader"></span>
+                <span class="v">hrv 48 · sono 7h12</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">plano</span>
+                <span class="leader"></span>
+                <span class="v">abrir</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">rotinas</span>
+                <span class="leader"></span>
+                <span class="v">montar dia</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="folio-footer">— folio 127 —</div>
+
+        </div>
+      </div>
+
+      <!-- dock compartilhado -->
+      <div class="dock">
+        <div class="dock-item active">
+          <span class="dock-glyph">i.</span>
+          <span>home</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">ii.</span>
+          <span>inbox</span>
+        </div>
+        <div class="dock-capture"></div>
+        <div class="dock-item">
+          <span class="dock-glyph">iv.</span>
+          <span>review</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">v.</span>
+          <span>ritual</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================
+       D · ALDINE · híbrido coluna-pautas
+       Background guarda só as verticais (colunas fixas como trilhos).
+       Horizontais saem dos próprios componentes — cada hairline é
+       decisão do designer. Sem doubling background↔componente.
+       Modelo editorial: WSJ/FT impresso. Aldus Manutius (Veneza 1494):
+       margens fixas da página, ritmo decidido pelo texto.
+       ================================================================= -->
+  <div class="variant">
+    <div class="variant-meta">
+      <div class="vmid">D · Aldine <span class="chosen-mark">direção escolhida</span></div>
+      <div class="vname">Coluna fixa · pauta desenhada pelo escrivão</div>
+      <div class="vdesc">Variante de A. Background guarda apenas as colunas verticais (sempre lá, fixas como trilhos). As horizontais saem dos próprios componentes — cada hairline é decisão deliberada. Sem doubling bg↔componente. Modelo de jornal de registro impresso: colunas fixas, rules entre matérias parte do conteúdo.</div>
+    </div>
+
+    <div class="viewport va vd">
+      <div class="viewport-inner">
+        <div class="status-bar-spacer"></div>
+        <div class="content">
+
+          <!-- masthead -->
+          <header class="masthead">
+            <div class="title">A T L A S</div>
+            <div class="folio">vol. iii · no. 127</div>
+          </header>
+          <div class="dateline">
+            <div class="date">Quinta · 7 de Maio de 2026 · Goiânia</div>
+            <div class="edition">edição matinal</div>
+          </div>
+
+          <!-- i. AGENDA -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">i.</div>
+              <div class="section-title">Agenda</div>
+            </div>
+            <div class="deck">diário de intenção · sete de maio</div>
+            <div class="hr-section"></div>
+
+            <div class="estado-row">
+              <span class="estado-label">Estado</span>
+              <span class="estado-options">
+                <span class="active">Foco</span>
+                <span class="dot">·</span> Disperso
+                <span class="dot">·</span> Bloqueado
+                <span class="dot">·</span> Pausa
+              </span>
+            </div>
+
+            <div class="pullquote">
+              <q>O que você adiou na quarta-feira espera resposta hoje?</q>
+              <span class="attr">pergunta de hoje</span>
+            </div>
+
+            <div class="mission">
+              <div class="label">Missão</div>
+              <div class="body">Definir kernel pipeline v3 · testar com check-in matinal.</div>
+            </div>
+
+            <div class="task">
+              <div class="meta">
+                <span class="time">09.00</span>
+                <span class="pri">essencial</span>
+                <span>60min</span>
+                <span>foco profundo</span>
+              </div>
+              <div class="title-line">Reunião com Marcos · revisar arquitetura de embeddings.</div>
+              <div class="actions">Feita <span class="dot">·</span> Adiar <span class="dot">·</span> Editar</div>
+            </div>
+          </section>
+
+          <!-- ii. OPERAÇÃO ATLAS -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">ii.</div>
+              <div class="section-title">Operação Atlas</div>
+            </div>
+            <div class="deck">dossiês abertos · arquivo vivo</div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">Memory</span>
+                <span class="leader"></span>
+                <span class="v">memória em dia</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Open Brain</span>
+                <span class="leader"></span>
+                <span class="v">recall e context pack</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Engineering</span>
+                <span class="leader"></span>
+                <span class="v">harness runner e atlas-bench</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Rivals</span>
+                <span class="leader"></span>
+                <span class="v">relatório fair claude</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- iii. TECIDO -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iii.</div>
+              <div class="section-title">Tecido</div>
+            </div>
+            <div class="deck">constelações · fios soltos</div>
+            <div class="hr-section"></div>
+
+            <div class="tecido">
+              veias do tecido · <strong>12 NÓS ATIVOS</strong> · três rumam pra confluência.
+            </div>
+          </section>
+
+          <!-- iv. PORTAS -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iv.</div>
+              <div class="section-title">Portas</div>
+            </div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">bitácula</span>
+                <span class="leader"></span>
+                <span class="v">3 ativos</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">saúde</span>
+                <span class="leader"></span>
+                <span class="v">hrv 48 · sono 7h12</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">plano</span>
+                <span class="leader"></span>
+                <span class="v">abrir</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">rotinas</span>
+                <span class="leader"></span>
+                <span class="v">montar dia</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="folio-footer">— folio 127 —</div>
+
+        </div>
+      </div>
+
+      <!-- dock compartilhado -->
+      <div class="dock">
+        <div class="dock-item active">
+          <span class="dock-glyph">i.</span>
+          <span>home</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">ii.</span>
+          <span>inbox</span>
+        </div>
+        <div class="dock-capture"></div>
+        <div class="dock-item">
+          <span class="dock-glyph">iv.</span>
+          <span>review</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">v.</span>
+          <span>ritual</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================
+       F · ALDINE DERIVADA
+       Clone de D + dock com palavras italic Frau (sem numerais romanos).
+       ================================================================= -->
+  <div class="variant">
+    <div class="variant-meta">
+      <div class="vmid">F · Aldine · words only</div>
+      <div class="vname">Dock italic Frau · sem numerais</div>
+      <div class="vdesc">Variante F · clone de D com o dock em palavras italic Fraunces, sem numerais romanos. Active state: weight medium + underline bronze. Pureza editorial — o dock vira mais uma linha tipográfica da página.</div>
+    </div>
+
+    <div class="viewport va vf">
+      <!-- Bronze diamond ✦ · cell direita do S do masthead, pulando 1 cell.
+           col 9 (x=324-360), row 1 (y=36-72) · 36×36 absoluto fixo. -->
+      <svg class="middle-mark" viewBox="0 0 36 36">
+        <path d="M18 5 L21 15 L31 18 L21 21 L18 31 L15 21 L5 18 L15 15 Z" fill="#9B7A3F" />
+      </svg>
+
+      <div class="viewport-inner">
+        <div class="status-bar-spacer"></div>
+        <div class="content">
+
+          <header class="masthead">
+            <div class="title">A T L A S</div>
+            <div class="folio">vol. iii · no. 127</div>
+          </header>
+          <div class="dateline">
+            <div class="date">Quinta · 7 de Maio de 2026 · Goiânia</div>
+            <div class="edition">edição matinal</div>
+          </div>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">i.</div>
+              <div class="section-title">Agenda</div>
+            </div>
+            <div class="deck">diário de intenção · sete de maio</div>
+            <div class="hr-section"></div>
+
+            <div class="estado-row">
+              <span class="estado-label">Estado</span>
+              <span class="estado-options">
+                <span class="active">Foco</span>
+                <span class="dot">·</span> Disperso
+                <span class="dot">·</span> Bloqueado
+                <span class="dot">·</span> Pausa
+              </span>
+            </div>
+
+            <div class="pullquote">
+              <q>O que você adiou na quarta-feira espera resposta hoje?</q>
+              <span class="attr">pergunta de hoje</span>
+            </div>
+
+            <div class="mission">
+              <div class="label">Missão</div>
+              <div class="body">Definir kernel pipeline v3 · testar com check-in matinal.</div>
+            </div>
+
+            <div class="task">
+              <div class="meta">
+                <span class="time">09.00</span>
+                <span class="pri">essencial</span>
+                <span>60min</span>
+                <span>foco profundo</span>
+              </div>
+              <div class="title-line">Reunião com Marcos · revisar arquitetura de embeddings.</div>
+              <div class="actions">Feita <span class="dot">·</span> Adiar <span class="dot">·</span> Editar</div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">ii.</div>
+              <div class="section-title">Operação Atlas</div>
+            </div>
+            <div class="deck">dossiês abertos · arquivo vivo</div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">Memory</span>
+                <span class="leader"></span>
+                <span class="v">memória em dia</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Open Brain</span>
+                <span class="leader"></span>
+                <span class="v">recall e context pack</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Engineering</span>
+                <span class="leader"></span>
+                <span class="v">harness runner e atlas-bench</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Rivals</span>
+                <span class="leader"></span>
+                <span class="v">relatório fair claude</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iii.</div>
+              <div class="section-title">Tecido</div>
+            </div>
+            <div class="deck">constelações · fios soltos</div>
+            <div class="hr-section"></div>
+
+            <div class="tecido">
+              veias do tecido · <strong>12 NÓS ATIVOS</strong> · três rumam pra confluência.
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iv.</div>
+              <div class="section-title">Portas</div>
+            </div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">bitácula</span>
+                <span class="leader"></span>
+                <span class="v">3 ativos</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">saúde</span>
+                <span class="leader"></span>
+                <span class="v">hrv 48 · sono 7h12</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">plano</span>
+                <span class="leader"></span>
+                <span class="v">abrir</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">rotinas</span>
+                <span class="leader"></span>
+                <span class="v">montar dia</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="folio-footer">— folio 127 —</div>
+
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-item active">
+          <span class="dock-glyph">i.</span>
+          <span>home</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">ii.</span>
+          <span>inbox</span>
+        </div>
+        <div class="dock-capture"></div>
+        <div class="dock-item">
+          <span class="dock-glyph">iv.</span>
+          <span>review</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">v.</span>
+          <span>ritual</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================
+       G · ALDINE + PROFUNDIDADE
+       Idêntica a F (palavras italic Frau, sem ícones) + tile com
+       profundidade no item ativo. Cream mais claro + shadow sutil +
+       lift 2px. Vocabulário tátil sem virar UI de app.
+       ================================================================= -->
+  <div class="variant">
+    <div class="variant-meta">
+      <div class="vmid">G · Aldine + profundidade</div>
+      <div class="vname">Dock com tile elevado no ativo</div>
+      <div class="vdesc">Variante G · idêntica a F (palavras italic Fraunces, sem ícones) + efeito tátil no dock: o item ativo vira "ficha que pousou no dock" com cream lighter, shadow sutil, e lift de 2px. Mantém DNA editorial e ganha o feel premium-app que apareceu na referência.</div>
+    </div>
+
+    <div class="viewport va vg">
+      <div class="viewport-inner">
+        <div class="status-bar-spacer"></div>
+        <div class="content">
+
+          <header class="masthead">
+            <div class="title">A T L A S</div>
+            <div class="folio">vol. iii · no. 127</div>
+          </header>
+          <div class="dateline">
+            <div class="date">Quinta · 7 de Maio de 2026 · Goiânia</div>
+            <div class="edition">edição matinal</div>
+          </div>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">i.</div>
+              <div class="section-title">Agenda</div>
+            </div>
+            <div class="deck">diário de intenção · sete de maio</div>
+            <div class="hr-section"></div>
+
+            <div class="estado-row">
+              <span class="estado-label">Estado</span>
+              <span class="estado-options">
+                <span class="active">Foco</span>
+                <span class="dot">·</span> Disperso
+                <span class="dot">·</span> Bloqueado
+                <span class="dot">·</span> Pausa
+              </span>
+            </div>
+
+            <div class="pullquote">
+              <q>O que você adiou na quarta-feira espera resposta hoje?</q>
+              <span class="attr">pergunta de hoje</span>
+            </div>
+
+            <div class="mission">
+              <div class="label">Missão</div>
+              <div class="body">Definir kernel pipeline v3 · testar com check-in matinal.</div>
+            </div>
+
+            <div class="task">
+              <div class="meta">
+                <span class="time">09.00</span>
+                <span class="pri">essencial</span>
+                <span>60min</span>
+                <span>foco profundo</span>
+              </div>
+              <div class="title-line">Reunião com Marcos · revisar arquitetura de embeddings.</div>
+              <div class="actions">Feita <span class="dot">·</span> Adiar <span class="dot">·</span> Editar</div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">ii.</div>
+              <div class="section-title">Operação Atlas</div>
+            </div>
+            <div class="deck">dossiês abertos · arquivo vivo</div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">Memory</span>
+                <span class="leader"></span>
+                <span class="v">memória em dia</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Open Brain</span>
+                <span class="leader"></span>
+                <span class="v">recall e context pack</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Engineering</span>
+                <span class="leader"></span>
+                <span class="v">harness runner e atlas-bench</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">Rivals</span>
+                <span class="leader"></span>
+                <span class="v">relatório fair claude</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iii.</div>
+              <div class="section-title">Tecido</div>
+            </div>
+            <div class="deck">constelações · fios soltos</div>
+            <div class="hr-section"></div>
+
+            <div class="tecido">
+              veias do tecido · <strong>12 NÓS ATIVOS</strong> · três rumam pra confluência.
+            </div>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iv.</div>
+              <div class="section-title">Portas</div>
+            </div>
+            <div class="hr-section"></div>
+
+            <div class="toc">
+              <div class="toc-row">
+                <span class="l">bitácula</span>
+                <span class="leader"></span>
+                <span class="v">3 ativos</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">saúde</span>
+                <span class="leader"></span>
+                <span class="v">hrv 48 · sono 7h12</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">plano</span>
+                <span class="leader"></span>
+                <span class="v">abrir</span>
+              </div>
+              <div class="toc-row">
+                <span class="l">rotinas</span>
+                <span class="leader"></span>
+                <span class="v">montar dia</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="folio-footer">— folio 127 —</div>
+
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-item active">
+          <span class="dock-glyph">i.</span>
+          <span>home</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">ii.</span>
+          <span>inbox</span>
+        </div>
+        <div class="dock-capture"></div>
+        <div class="dock-item">
+          <span class="dock-glyph">iv.</span>
+          <span>review</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">v.</span>
+          <span>ritual</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="max-width: 1280px; margin: 64px auto 0; padding: 32px 0; border-top: 1px solid rgba(232,223,208,0.1); font-family: var(--frau); font-style: italic; font-size: 14px; line-height: 1.6; color: #8C8273;">
+  <p style="margin-bottom: 8px;">
+    <span style="font-family: var(--mono); font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: #C9A663; font-style: normal;">Notas</span>
+  </p>
+  <p>
+    Conteúdo idêntico nas quatro variantes — pull quote, missão, primeira tarefa,
+    operação, tecido, portas. <strong style="color: #B8AFA0; font-style: normal;">A, B
+    e C variam só a voz tipográfica</strong>. <strong style="color: #C9A663; font-style: normal;">D · Aldine</strong>
+    é refinamento estrutural de A: o background carrega <em>apenas as colunas verticais</em>
+    (fixas como trilhos), e as horizontais nascem dos próprios componentes — cada
+    hairline é decisão deliberada do designer, não régua automática. Resultado · sem
+    doubling bg↔componente, e cada linha visível tem peso composicional. Modelo
+    editorial de jornal de registro impresso: WSJ/FT colunas fixas, rules entre
+    matérias fazem parte do conteúdo.
+  </p>
+  <p style="margin-top: 16px;">
+    Tokens (paleta, fontes, régua 36px) reais do app. Dock compartilhado: pílula clara,
+    capture central em prussian. Sem chrome iOS, cantos arredondados representam o
+    phone. <em>Drop cap</em> em A e D (D herda de A). Hairlines duplas (1px ink + 0.5px
+    soft) só em C, vocabulário de jornal de registro.
+  </p>
+</div>
+
+<script>
+  // Press feedback com hold mínimo de 180ms · replica fiel da assinatura
+  // do app Atlas (components/Dock.tsx:420-434).
+  //
+  // Por que não usar só :active? Porque :active some no instante do mouseup —
+  // em clicks rápidos (< 50ms), o efeito é praticamente invisível. O app real
+  // usa withTiming(180ms) que bloqueia até completar a animação. Replicamos
+  // isso garantindo que .is-pressed fique no DOM por pelo menos 180ms.
+  //
+  // Press in: 180ms cera prensada · bezier(0.32, 0.72, 0.24, 1)
+  // Press out: 420ms exhale Apple Books · bezier(0.16, 1, 0.3, 1)
+  //   (release sempre 2.3× mais lento que press · sensação de cera oxidada)
+  document.addEventListener('DOMContentLoaded', () => {
+    const MIN_HOLD = 180; // ms — replica withTiming duration do app
+    const targets = document.querySelectorAll('.dock-item, .dock-capture');
+
+    targets.forEach((el) => {
+      let pressedAt = 0;
+      let releaseTimer = null;
+
+      const press = () => {
+        if (releaseTimer) {
+          clearTimeout(releaseTimer);
+          releaseTimer = null;
+        }
+        pressedAt = Date.now();
+        el.classList.add('is-pressed');
+      };
+
+      const release = () => {
+        const elapsed = Date.now() - pressedAt;
+        const remaining = Math.max(0, MIN_HOLD - elapsed);
+        releaseTimer = setTimeout(() => {
+          el.classList.remove('is-pressed');
+          releaseTimer = null;
+        }, remaining);
+      };
+
+      el.addEventListener('mousedown', press);
+      el.addEventListener('touchstart', press, { passive: true });
+      el.addEventListener('mouseup', release);
+      el.addEventListener('mouseleave', release);
+      el.addEventListener('touchend', release);
+      el.addEventListener('touchcancel', release);
+    });
+  });
+</script>
+
+</body>
+</html>
