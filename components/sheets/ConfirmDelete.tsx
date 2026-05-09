@@ -7,6 +7,7 @@ import { useOverlays } from '../../lib/overlays'
 export function ConfirmDelete() {
   const open = useOverlays((s) => s.open)
   const cb = useOverlays((s) => s.onConfirmDelete)
+  const copy = useOverlays((s) => s.confirmDeleteCopy)
   const close = useOverlays((s) => s.close)
   const visible = open === 'confirmDelete'
 
@@ -17,12 +18,30 @@ export function ConfirmDelete() {
 
   return (
     <CenterModal visible={visible} onClose={() => finish(false)} emphasised>
-      <Body onCancel={() => finish(false)} onConfirm={() => finish(true)} />
+      <Body
+        title={copy?.title ?? 'Excluir esta captura?'}
+        body={copy?.body ?? 'A captura sai da inbox e deixa de alimentar busca, contexto e memória operacional.'}
+        confirmLabel={copy?.confirmLabel ?? 'Excluir'}
+        onCancel={() => finish(false)}
+        onConfirm={() => finish(true)}
+      />
     </CenterModal>
   )
 }
 
-function Body({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+function Body({
+  title,
+  body,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  body: string
+  confirmLabel: string
+  onCancel: () => void
+  onConfirm: () => void
+}) {
   const { c } = useTheme()
   return (
     <View>
@@ -34,7 +53,7 @@ function Body({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => 
         color={c.ink}
         style={{ marginBottom: 10 }}
       >
-        Excluir esta captura?
+        {title}
       </Frau>
       <Sans
         size={14}
@@ -43,7 +62,7 @@ function Body({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => 
         color={c.ink2}
         style={{ marginBottom: 22 }}
       >
-        A captura sai da inbox, mas fica preservada no histórico do servidor.
+        {body}
       </Sans>
       <View style={styles.row}>
         <Pressable
@@ -72,7 +91,7 @@ function Body({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => 
           ]}
         >
           <Sans weight="med" size={14} align="center" color={c.bg}>
-            Excluir
+            {confirmLabel}
           </Sans>
         </Pressable>
       </View>

@@ -17,6 +17,12 @@ interface Props {
   withLeader?: boolean
   /** Variante "doorway" · label italic ao invés de upright (sub-screens). */
   variant?: 'codex' | 'doorway'
+  /**
+   * Mostrar hairline-bottom (default true) · canon home/edicao tem hairlines
+   * entre rows. ContinuityPanel canon NÃO tem hairlines entre toc-rows · só
+   * leader dotted separando label/value. Quando false, sem borderBottom.
+   */
+  withDivider?: boolean
   style?: StyleProp<ViewStyle>
 }
 
@@ -40,6 +46,7 @@ export function TocRow({
   accessibilityLabel,
   withLeader = true,
   variant = 'codex',
+  withDivider = true,
   style,
 }: Props) {
   const c = usePalette()
@@ -47,9 +54,13 @@ export function TocRow({
   const labelEl = (
     <Frau
       italic={variant === 'doorway'}
-      weight={variant === 'codex' ? 'med' : 'reg'}
-      size={15}
-      lineHeight={22}
+      // Weight medium nas duas variantes:
+      //   codex (upright) — peso natural do TOC editorial
+      //   doorway (italic) — italic regular lê mais leve que medium upright;
+      //     subir pra medium equilibra o peso visual entre as duas TOCs.
+      weight="med"
+      size={18}
+      lineHeight={26}
       color={c.ink}
       letterSpacing={0}
     >
@@ -73,7 +84,7 @@ export function TocRow({
   ) : null
 
   const valueEl = typeof value === 'string' ? (
-    <Frau italic size={13} lineHeight={22} color={c.ink2}>
+    <Frau italic size={15} lineHeight={26} color={c.ink2}>
       {value}
     </Frau>
   ) : (
@@ -84,7 +95,13 @@ export function TocRow({
   // rgba(26,22,18,0.06)). hairlineWidth desaparece em iOS retina, então usa
   // 1px sólido com opacidade controlada via cor rgba.
   const content = (
-    <View style={[styles.row, { borderBottomColor: TOC_DIVIDER, borderBottomWidth: 1 }, style]}>
+    <View
+      style={[
+        styles.row,
+        withDivider && { borderBottomColor: TOC_DIVIDER, borderBottomWidth: 1 },
+        style,
+      ]}
+    >
       {labelEl}
       {leaderEl}
       {valueEl}
@@ -117,12 +134,15 @@ const styles = StyleSheet.create({
   //   esquerda: 0 → 32 (padding) → 32 (margin) → 64 (M de Memory)
   //   direita:  329 (último char) → 32 (margin) → 32 (padding) → 393 (canto)
   // Espaço livre em volta da TOC é idêntico nos dois lados (64px do canto).
-  // Antes era só marginLeft, e o leader se estendia até o trilho borda x=361
-  // — palavras à direita ficavam só 32px do canto enquanto à esquerda 64px.
+  //
+  // paddingVertical:11 (era 7) — aumento simétrico topo/base mantém proporção
+  // interna intacta. Cada row sobe de ~36px pra ~44px, dando mais respiro
+  // entre as linhas de divisão. Aumento sutil mas perceptível, sem distorcer
+  // a relação tipografia/espaço.
   row: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    paddingVertical: 7,
+    paddingVertical: 11,
     gap: 8,
     marginLeft: 32,
     marginRight: 32,

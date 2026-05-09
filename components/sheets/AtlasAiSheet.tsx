@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AppState,
+  Alert,
   type AppStateStatus,
   FlatList,
   Image,
@@ -8,10 +9,12 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   TextInput,
   View,
+  type ListRenderItem,
 } from 'react-native'
 import { atlasStorage } from '../../lib/storage'
 import * as Clipboard from 'expo-clipboard'
@@ -19,6 +22,13 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio'
 import Animated, {
   Easing,
   FadeIn,
@@ -33,6 +43,10 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Sparkle } from '../Sparkle'
+import { SwipeableCard } from '../inbox/SwipeableCard'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRouter, usePathname } from 'expo-router'
 import { SideSheet } from './SideSheet'
 import { Frau, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
@@ -57,9 +71,11 @@ import {
   type AtlasAiSessionState,
   type AtlasAiThread,
   type AtlasAiTrace,
+  type AiThreadsResponse,
   cancelAiJob,
   compactAiThread,
   createAiInteraction,
+  deleteAiThread,
   feedbackAiInteraction,
   getAtlasAuthHeaders,
   getApiBase,
@@ -76,17 +92,35 @@ import {
   retryMobileInboxDiscussionBootstrap,
   retryAiJob,
   runAiQualityAction,
+  startMobileVoiceSession,
+  endMobileVoiceSession,
   switchAiThreadProvider,
   updateAiThread,
 } from '../../lib/api/client'
 import { BronzeDiamond } from '../console/BronzeDiamond'
+// v18 · Modo Gravar via long-press ✦ send do composer · canon Atlas radical.
+// Substitui Voice Mode no gesture (que perdeu trigger quando dock sumiu em /).
+// Captura silenciosa pro inbox · vocabulário "WhatsApp voice memo".
+import { RecordModeStrip } from '../inbox/RecordModeStrip'
+import { useAtlasStore } from '../../lib/atlasStore'
 import { CaptionWhisper } from '../console/CaptionWhisper'
 import { FieldInline } from '../console/FieldInline'
 import { AttachmentImageViewer } from '../console/AttachmentImageViewer'
 import { BottomSheet } from './BottomSheet'
 import { PageResponse } from '../console/PageResponse'
 import { QuoteCompact } from '../console/QuoteCompact'
-import { RoutingSheet } from '../console/RoutingSheet'
+// v18 · RoutingSheet substituído por AtlasDecideSheet (canon mockup com
+// 5 sections numeradas + destino-list editorial). Vocabulário 100% editorial:
+// pílulas azuis arredondadas (SaaS) deram lugar a lista vertical com ✦
+// no item ativo. Lógica funcional preservada (sanitize/applyAtlasMode/etc).
+import { AtlasDecideSheet } from './AtlasDecideSheet'
+// v18 · editorial atoms canon (SectionHead numeral romano, TocRow label+leader+value,
+// DestinoItem glyph+label+subtitle) usados em ContinuityPanel + outras telas
+// pra unificar vocabulário visual entre todas as sub-sheets do Atlas AI.
+import { SectionHead, TocRow, DestinoItem } from '../editorial'
+// v18 · Voice Mode (conversa por voz tempo real fullscreen) · canon mockup
+// atlas-home-editorial · acessado via long-press no ✦ send do composer.
+import { VoiceModeSheet, type VoiceModeState } from './VoiceModeSheet'
 import {
   ROUTING_DEFAULT,
   StatusRouting,
@@ -268,15 +302,58 @@ interface DisplayTurn {
 
 type FeedbackAction = 'useful' | 'wrong_context' | 'too_long' | 'weak'
 
-export function AtlasAiSheet() {
+interface AtlasAiSheetProps {
+  /**
+   * 'sheet' (default) · usa SideSheet wrapper, abre/fecha via overlay state
+   * (open === 'atlasAi'). Modo legacy preservado pra compat com chamadas
+   * de outros lugares (push notifications, ✦ dock em outras rotas).
+   * 'screen' · renderiza como tela fullscreen direto, sem overlay. Usado em
+   * app/index.tsx (Atlas AI vira "home" do app · canon v18). Sempre visible,
+   * "← Voltar" navega pra /edicao em vez de fechar overlay.
+   */
+  presentationMode?: 'sheet' | 'screen'
+}
+
+export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps = {}) {
   const open = useOverlays((s) => s.open)
   const requestedThreadId = useOverlays((s) => s.atlasAiThreadId)
   const close = useOverlays((s) => s.close)
-  const visible = open === 'atlasAi'
+  const openConfirmDelete = useOverlays((s) => s.openConfirmDelete)
+  // openDomain · canon Atlas · após captura de áudio do Modo Gravar, abre
+  // a Domain Sheet "Categorizar + Elaborar" pra user escolher domain (ou Pular).
+  const openDomain = useOverlays((s) => s.openDomain)
+  // Em screen mode, sempre visible · em sheet mode, controlado pelo overlay state.
+  const visible = presentationMode === 'screen' || open === 'atlasAi'
+  const isScreen = presentationMode === 'screen'
   const { c } = useTheme()
   const insets = useSafeAreaInsets()
   const { showToast } = useShell()
+  const router = useRouter()
+  const pathname = usePathname()
   const scrollRef = useRef<FlatList<DisplayTurn>>(null)
+
+  // v18 · Atlas AI vira a "home" navegacional (rota `/`).
+  // "← Voltar" precisa ter destino editorial — antes do refator, fechar o
+  // sheet revelava a home antiga (exemplar editorial) que estava por baixo.
+  //
+  // Comportamento context-aware:
+  //   • presentationMode === 'screen' → SEMPRE navega pra /edicao
+  //     (Atlas AI é tela primária, não há overlay pra fechar).
+  //   • Se estamos em `/` em sheet mode → fecha sheet + navega pra /edicao.
+  //   • Se estamos em outra rota (/inbox, /review, etc · sheet aberto via
+  //     ✦ central do dock como overlay sobre essa tela) → só fecha o sheet,
+  //     a tela por baixo reaparece naturalmente. Preserva UX "voltar pra
+  //     onde estava".
+  const closeAndGoBack = useCallback(() => {
+    if (isScreen) {
+      router.replace('/edicao')
+      return
+    }
+    close()
+    if (pathname === '/') {
+      router.replace('/edicao')
+    }
+  }, [close, isScreen, pathname, router])
 
   const [draft, setDraft] = useState('')
   const [traces, setTraces] = useState<AtlasAiTrace[]>([])
@@ -285,6 +362,50 @@ export function AtlasAiSheet() {
   const [error, setError] = useState<string | null>(null)
   const [routing, setRouting] = useState<RoutingState>(ROUTING_DEFAULT)
   const [routingOpen, setRoutingOpen] = useState(false)
+  // v18 · destinoOverride · canon Atlas Decide. Quando user tap em "trocar",
+  // rotaciona pelos 4 destinos (captura/conversa/tarefa/projeto). Quando null,
+  // usa o classifier auto baseado no texto. Reset quando draft esvazia.
+  const [destinoOverride, setDestinoOverride] = useState<DecideDestino | null>(null)
+
+  // v18 · Modo Gravar enterprise (v3) · refator final com 5 mutex/sync fixes:
+  //   · recordingActiveRef setado SÍNCRONO (race start fix)
+  //   · recordOpInFlightRef mutex pra Send vs Cancel (race stop fix)
+  //   · cleanup no unmount (unmount durante gravação)
+  //   · sync recordingPaused com recorder.isRecording (state desync fix)
+  //   · long-press respeita interactionLocked (lock fix)
+  const [recordingActive, setRecordingActive] = useState(false)
+  const [recordingPaused, setRecordingPaused] = useState(false)
+  const composerRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+  const composerRecorderState = useAudioRecorderState(composerRecorder, 150)
+  const recordingActiveRef = useRef(false)
+  // Mutex pra Send/Cancel · enterprise canon · evita ambos rodarem juntos
+  // se user tap em sequência rápida.
+  const recordOpInFlightRef = useRef(false)
+  // isMountedRef · evita setState em componente desmontado (React warning +
+  // memory leak). Ativo em mount, false em cleanup. Setters checam antes.
+  const isMountedRef = useRef(true)
+  const createAudioCapture = useAtlasStore((s) => s.createAudioCapture)
+  // createTextCapture · canon Atlas Decide · quando destino classificado é
+  // 'captura', tap ✦ send NÃO invoca Atlas AI · cria text capture pro inbox
+  // diretamente. Vocabulário: "captura passa por curadoria editorial via
+  // Domain Sheet · não vira conversa".
+  const createTextCapture = useAtlasStore((s) => s.createTextCapture)
+
+  // Mount tracking · setado true no mount, false no unmount.
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  // Helpers safe-setters · ignoram set quando unmounted.
+  const safeSetRecordingActive = useCallback((value: boolean) => {
+    if (isMountedRef.current) setRecordingActive(value)
+  }, [])
+  const safeSetRecordingPaused = useCallback((value: boolean) => {
+    if (isMountedRef.current) setRecordingPaused(value)
+  }, [])
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [pending, setPending] = useState<PendingTurn | null>(null)
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null)
@@ -292,6 +413,11 @@ export function AtlasAiSheet() {
   const [sessionState, setSessionState] = useState<AtlasAiSessionState | null>(null)
   const [threadList, setThreadList] = useState<AtlasAiThread[]>([])
   const [threadHistoryOpen, setThreadHistoryOpen] = useState(false)
+  // ROUND 3 · queryClient pra invalidar/popular cache de threads
+  // (substitui a soup de useEffects por uma única fonte de verdade
+  // react-query). Streaming ainda usa setThreadList local, mas
+  // queryClient mantém cache fresco para próximos opens.
+  const queryClient = useQueryClient()
   const [providerStatus, setProviderStatus] = useState<AiProvidersStatusResponse | null>(null)
   const [domainCatalog, setDomainCatalog] = useState<AtlasAiDomainCatalogResponse | null>(null)
   const [observability, setObservability] = useState<AiObservabilityResponse | null>(null)
@@ -309,6 +435,266 @@ export function AtlasAiSheet() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [sessionMapOpen, setSessionMapOpen] = useState(false)
   const [continuityExpanded, setContinuityExpanded] = useState(false)
+  // v18 · Reset destinoOverride quando draft esvazia · próxima conversa começa
+  // limpa, classifier auto retoma. Mantém override enquanto há texto pra que
+  // a escolha do user persista durante edição.
+  useEffect(() => {
+    if (draft.trim().length === 0 && destinoOverride !== null) {
+      setDestinoOverride(null)
+    }
+  }, [draft, destinoOverride])
+
+  // v18 · Modo Gravar handlers · enterprise tap-lock (v2).
+  // Race condition fix: recordingActiveRef.current = true SÍNCRONO antes
+  // de qualquer await · evita duplicate recordings se long-press disparar
+  // múltiplas vezes em sequência (ex: user nervoso). Subsequent calls são
+  // ignoradas pelo guard inicial.
+  const handleComposerRecordStart = useCallback(async () => {
+    if (recordingActiveRef.current) return
+    // ✅ FIX RACE CONDITION · marca como ativo IMEDIATAMENTE (síncrono)
+    // Próximas chamadas vão sair no guard acima · zero duplicação.
+    recordingActiveRef.current = true
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+
+    try {
+      const permission = await requestRecordingPermissionsAsync()
+      if (!permission.granted) {
+        recordingActiveRef.current = false  // rollback
+        showToast('Permissão de microfone necessária pra gravar')
+        return
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+      await composerRecorder.prepareToRecordAsync()
+      composerRecorder.record()
+      setRecordingActive(true)
+      setRecordingPaused(false)
+    } catch (err) {
+      recordingActiveRef.current = false  // rollback em caso de erro
+      const msg = err instanceof Error ? err.message : 'Falha ao iniciar gravação'
+      showToast(msg)
+      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+    }
+  }, [composerRecorder, showToast])
+
+  // Pause toggle · canon iOS Voice Memo · pausa/continua a gravação
+  // sem perder o que já foi gravado. Quando paused, recorder.pause();
+  // ao continuar, recorder.record() continua do mesmo arquivo.
+  const handleComposerRecordPauseToggle = useCallback(() => {
+    if (!recordingActiveRef.current) return
+    Haptics.selectionAsync().catch(() => {})
+    try {
+      if (composerRecorderState.isRecording) {
+        composerRecorder.pause()
+        setRecordingPaused(true)
+      } else {
+        composerRecorder.record()
+        setRecordingPaused(false)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao pausar/continuar'
+      showToast(msg)
+    }
+  }, [composerRecorder, composerRecorderState.isRecording, showToast])
+
+  const handleComposerRecordCancel = useCallback(async () => {
+    // ✅ FIX MUTEX · evita rodar concurrently com Send
+    if (recordOpInFlightRef.current) return
+    recordOpInFlightRef.current = true
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    safeSetRecordingActive(false)
+    safeSetRecordingPaused(false)
+    if (!recordingActiveRef.current) {
+      recordOpInFlightRef.current = false
+      return
+    }
+    recordingActiveRef.current = false
+    try {
+      if (composerRecorderState.isRecording) {
+        await composerRecorder.stop()
+      }
+    } catch {
+      // ignore — só queremos descartar
+    } finally {
+      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+      recordOpInFlightRef.current = false
+    }
+  }, [composerRecorder, composerRecorderState.isRecording, safeSetRecordingActive, safeSetRecordingPaused])
+
+  const handleComposerRecordSend = useCallback(async () => {
+    // ✅ FIX MUTEX · evita rodar concurrently com Cancel
+    if (recordOpInFlightRef.current) return
+    recordOpInFlightRef.current = true
+
+    if (!recordingActiveRef.current) {
+      safeSetRecordingActive(false)
+      safeSetRecordingPaused(false)
+      recordOpInFlightRef.current = false
+      return
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+    const durationMs = composerRecorderState.durationMillis
+    safeSetRecordingActive(false)
+    safeSetRecordingPaused(false)
+    recordingActiveRef.current = false
+
+    let fileUri: string | null = null
+    try {
+      if (composerRecorderState.isRecording || composerRecorderState.url) {
+        await composerRecorder.stop()
+      }
+      fileUri = (() => {
+        try { return composerRecorder.uri } catch { return null }
+      })() ?? composerRecorderState.url
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao parar gravação'
+      showToast(msg)
+    } finally {
+      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+      recordOpInFlightRef.current = false
+    }
+
+    if (!fileUri) {
+      showToast('Gravação não gerou arquivo')
+      return
+    }
+
+    // ✅ Canon mockup restaurado · Domain Sheet "Categorizar + Elaborar"
+    // (i. Sobre o quê é? + ii. O que fazer?). Áudio sempre vai pro inbox
+    // como captura — destino editorial é metadata pro Atlas Decide processar
+    // depois (estruturar como tarefa/projeto/conversa).
+    openDomain((picked, destino) => {
+      void (async () => {
+        const finalDomain = picked ?? 'outro'
+        const finalDestino = destino ?? 'salvar'
+        try {
+          await createAudioCapture({
+            domain: finalDomain,
+            fileUri: fileUri!,
+            durationMs,
+            metadata: {
+              captureMode: 'audio',
+              captureSurface: 'atlas_ai_composer_long_press',
+              source: 'modo_gravar_composer',
+              destino: finalDestino,
+            },
+          })
+          showToast('Áudio capturado')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Falha ao salvar captura'
+          showToast(msg)
+        }
+      })()
+    })
+  }, [composerRecorder, composerRecorderState, createAudioCapture, openDomain, showToast, safeSetRecordingActive, safeSetRecordingPaused])
+
+  // ✅ FIX 2 · Cleanup no unmount · garante que gravação ativa pare quando
+  // AtlasAi desmonta (user navega, app vai pra background, etc). Evita
+  // memory leak + libera audioMode global pra outros áudios funcionarem.
+  useEffect(() => {
+    return () => {
+      if (recordingActiveRef.current) {
+        recordingActiveRef.current = false
+        void (async () => {
+          try {
+            await composerRecorder.stop()
+          } catch {
+            // ignore
+          }
+          await setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+        })()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ✅ FIX 4 · Sync recordingPaused com recorder real · se recorder pausa
+  // por timeout interno do expo-audio sem que tenhamos chamado pause(),
+  // sincroniza React state (evita UI mostrar "gravando" quando está paused).
+  useEffect(() => {
+    if (!recordingActive) return
+    const realPaused = !composerRecorderState.isRecording
+    if (realPaused !== recordingPaused) {
+      safeSetRecordingPaused(realPaused)
+    }
+  }, [recordingActive, recordingPaused, composerRecorderState.isRecording, safeSetRecordingPaused])
+
+  // Voice Mode state machine. A sessão real começa no Kernel via mobile
+  // gateway; enquanto LiveKit/STT/TTS não estiverem ligados no app, o modal
+  // mantém o ciclo visual local como fallback seguro.
+  const [voiceModeOpen, setVoiceModeOpen] = useState(false)
+  const [voiceModeState, setVoiceModeState] = useState<VoiceModeState>('listening')
+  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
+  const [voiceSessionEnvelopeId, setVoiceSessionEnvelopeId] = useState<string | null>(null)
+  const [voiceSessionReceiptId, setVoiceSessionReceiptId] = useState<string | null>(null)
+
+  // Cycle demonstrativo · simula loop natural de conversa por voz.
+  // listening (4s · usuário fala) → thinking (2s · Atlas processa) →
+  // speaking (3s · Atlas responde) → loop. Quando integrar STT/TTS real,
+  // remover este useEffect e substituir por hooks de eventos do provider.
+  useEffect(() => {
+    if (!voiceModeOpen) {
+      setVoiceModeState('listening')
+      return
+    }
+    const cycle: Array<{ next: VoiceModeState; duration: number }> = [
+      { next: 'thinking', duration: 4000 },
+      { next: 'speaking', duration: 2000 },
+      { next: 'listening', duration: 3000 },
+    ]
+    let idx = 0
+    const tick = () => {
+      const step = cycle[idx % cycle.length]
+      setVoiceModeState(step.next)
+      idx += 1
+    }
+    const interval = setInterval(tick, 4000)
+    return () => clearInterval(interval)
+  }, [voiceModeOpen])
+
+  const openVoiceMode = useCallback(() => {
+    if (recordingActiveRef.current) {
+      return
+    }
+
+    const sessionId = `mobile_voice_${Date.now()}`
+    const envelopeId = `mobile_voice_env_${Date.now()}`
+    const receiptId = `mobile_voice_receipt_${Date.now()}`
+    setVoiceSessionId(sessionId)
+    setVoiceSessionEnvelopeId(envelopeId)
+    setVoiceSessionReceiptId(receiptId)
+    setVoiceModeState('listening')
+    setVoiceModeOpen(true)
+
+    void startMobileVoiceSession({
+      session_id: sessionId,
+      envelope_id: envelopeId,
+      receipt_id: receiptId,
+      participant_identity: 'mobile:vitor',
+    }).catch((error) => {
+      showToast(humanAiError(error, 'Voz local aberta; Atlas Server ainda nao iniciou a sessao.'))
+    })
+  }, [showToast])
+
+  const closeVoiceMode = useCallback(() => {
+    const sessionId = voiceSessionId
+    const envelopeId = voiceSessionEnvelopeId ?? undefined
+    const receiptId = voiceSessionReceiptId ?? undefined
+    setVoiceModeOpen(false)
+    setVoiceSessionId(null)
+    setVoiceSessionEnvelopeId(null)
+    setVoiceSessionReceiptId(null)
+
+    if (!sessionId) return
+
+    void endMobileVoiceSession({
+      session_id: sessionId,
+      envelope_id: envelopeId,
+      receipt_id: receiptId,
+      reason: 'operator_closed_mobile_voice',
+    }).catch(() => {
+      // O fechamento visual é local e deve continuar funcionando offline.
+    })
+  }, [voiceSessionEnvelopeId, voiceSessionId, voiceSessionReceiptId])
   const [turnFilter, setTurnFilter] = useState<AtlasAiTurnFilter>('all')
   const [copyToast, setCopyToast] = useState<string | null>(null)
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -490,6 +876,9 @@ export function AtlasAiSheet() {
               : listAiThreads({
                   status: 'active',
                   limit: 20,
+                  // light=true · só precisamos do array pra `find(thread.id)`,
+                  // sem relations pesadas. Cai de 1.2MB → 15KB no bootstrap.
+                  light: true,
                 }).catch((threadsError) => {
                   threadListError = threadsError
                   return null
@@ -594,6 +983,100 @@ export function AtlasAiSheet() {
     }
   }, [currentThread, currentThreadId, loadThreadData, showToast])
 
+  // ROUND 3 + REDESIGN · useQuery com paginação client-side.
+  // Carrega 10 inicial, "ver mais" incrementa +10 (cap em 100 = limit
+  // máximo do backend). Cada incremento refaz fetch com novo limit;
+  // placeholderData mantém data anterior visível durante refetch (UX
+  // fluida sem flash de loading entre 10→20→30).
+  //
+  // Quando backend implementar cursor pagination (TODO em
+  // AiThreadController.php), migrar pra useInfiniteQuery — fetch
+  // incremental real (só os novos 10) em vez de re-baixar todos.
+  const PAGE_SIZE = 10
+  const PAGE_MAX = 100  // backend max
+  const [pageLimit, setPageLimit] = useState(PAGE_SIZE)
+
+  const threadListEnabled = visible && !requestedThreadId
+  const threadListQueryKey = useMemo(
+    () => ['atlas-ai', 'threads', { status: 'active', limit: pageLimit, light: true }] as const,
+    [pageLimit],
+  )
+  const threadListQuery = useQuery({
+    queryKey: threadListQueryKey,
+    // light=true pede payload mínimo (~15KB pra 10 threads em vez de 1.2MB).
+    // Backend omite activeSession/activeState/latestCompaction/handoff/lastTrace.
+    // Histórico só precisa de id/title/metadata pra listar. Quando user abre
+    // uma thread específica, getAiThread() carrega o payload completo.
+    queryFn: () => listAiThreads({ status: 'active', limit: pageLimit, light: true }),
+    enabled: threadListEnabled || threadHistoryOpen,
+    // placeholderData: mantém resultado anterior visível enquanto novo
+    // fetch (com limit maior) está em flight. Sem isso o user vê flash
+    // de "skeleton/empty" cada vez que clica "ver mais".
+    placeholderData: (previous) => previous,
+    // Backoff exponencial: 1s · 2s · 4s. Total 7s no pior caso · honesto
+    // pra rede móvel intermitente sem hammering.
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    // staleTime aqui sobreescreve o default 30s do queryClient pra 60s ·
+    // lista de conversas muda devagar comparado a outras queries.
+    staleTime: 60_000,
+  })
+
+  // Detecta se backend tem mais threads disponíveis. Heurística: se
+  // backend devolveu EXATAMENTE pageLimit threads, presumimos que tem
+  // mais (ainda não chegou ao fim). Se devolveu menos, o histórico
+  // acabou. Cap em PAGE_MAX (limite hard do backend).
+  // Defensive: array com optional chain pra não crash se payload vier
+  // sem `.threads` por algum motivo (proxy/CDN/payload malformado).
+  const totalLoaded = Array.isArray(threadListQuery.data?.threads)
+    ? threadListQuery.data!.threads.length
+    : 0
+  const hasMore = totalLoaded >= pageLimit && pageLimit < PAGE_MAX
+
+  // "ver mais" callback · incrementa pageLimit em PAGE_SIZE,
+  // capeado em PAGE_MAX. Mudança em pageLimit muda queryKey,
+  // dispara refetch automático.
+  const loadMoreThreads = useCallback(() => {
+    setPageLimit((prev) => Math.min(prev + PAGE_SIZE, PAGE_MAX))
+  }, [])
+
+  // Sync query.data → threadList state. Mantém compat com streaming
+  // updates (ainda chamam setThreadList) e tudo que já consome threadList
+  // direto. Quando a query refetch, sincroniza; entre fetches, optimistic
+  // updates de stream ficam preservados localmente.
+  // Defensive: só sync se threads é array válido.
+  useEffect(() => {
+    const threads = threadListQuery.data?.threads
+    if (Array.isArray(threads)) {
+      setThreadList(threads)
+    }
+    // Diagnostic log · ajuda a achar problema quando user reporta "0 conversas"
+    // mas backend tem threads. Remover após estabilizar.
+    if (__DEV__ && threadListQuery.data) {
+      // eslint-disable-next-line no-console
+      console.log('[Histórico] query.data:', {
+        threads_count: Array.isArray(threads) ? threads.length : 'NOT_ARRAY',
+        pageLimit,
+        isFetching: threadListQuery.isFetching,
+        error: threadListQuery.error?.message ?? null,
+      })
+    }
+  }, [threadListQuery.data, threadListQuery.error, threadListQuery.isFetching, pageLimit])
+
+  // Error/refreshing derivados da query. humanAiError formata pra
+  // vocabulário canon (sem stack trace cru).
+  const threadListError = threadListQuery.error
+    ? humanAiError(threadListQuery.error, 'Falha ao carregar conversas.')
+    : null
+  const threadListRefreshing = threadListQuery.isFetching
+
+  // Retry callback estável · refetch pluga em pull-to-refresh + banner
+  // "tentar de novo". react-query cuida do dedupe (chamadas concorrentes
+  // viram uma só).
+  const retryThreadListFetch = useCallback(() => {
+    void threadListQuery.refetch()
+  }, [threadListQuery])
+
   useEffect(() => {
     if (!visible) return
     let cancelled = false
@@ -626,41 +1109,10 @@ export function AtlasAiSheet() {
 
     setLoading(false)
 
-    // Background fetch silencioso da lista de threads para que o botão
-    // "Conversas anteriores" tenha dados prontos. Falhas são silenciosas —
-    // lista vazia só esconde a affordance, não bloqueia o chat.
-    void listAiThreads({
-      status: 'active',
-      limit: 20,
-    })
-      .then((response) => {
-        if (cancelled) return
-        setThreadList(response?.threads ?? [])
-      })
-      .catch(() => {})
-
     return () => {
       cancelled = true
     }
   }, [loadThreadData, requestedThreadId, visible])
-
-  // Refresh silencioso da lista de threads quando o painel de histórico abre.
-  useEffect(() => {
-    if (!threadHistoryOpen) return
-    let cancelled = false
-    void listAiThreads({
-      status: 'active',
-      limit: 20,
-    })
-      .then((response) => {
-        if (cancelled) return
-        setThreadList(response?.threads ?? [])
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [threadHistoryOpen])
 
   useEffect(() => {
     if (!visible) return
@@ -1415,12 +1867,97 @@ export function AtlasAiSheet() {
     return () => subscription.remove()
   }, [recoverPendingSubmission, visible])
 
+  // ✅ Atlas Decide canon · submit branch baseado em destino classificado.
+  // Quando destino === 'captura' (anotação curta), NÃO invoca Atlas AI · cria
+  // text capture e abre Domain Sheet pra escolher domain. Outros destinos
+  // (conversa/tarefa/projeto) seguem fluxo Atlas AI atual (submitText).
   const submit = useCallback(() => {
-    void submitText(draft.trim(), {
+    const text = draft.trim()
+    if (!text) return
+
+    // Destino efetivo · override do user (via "trocar") sobrepõe classifier auto.
+    const effectiveDestino = destinoOverride ?? classifyDecideDestino(text)
+
+    // CAPTURA · abre Domain Sheet "Categorizar + Elaborar" pra user escolher
+    // domain (i.) + destino editorial (ii.). Callback recebe ambos · branch
+    // baseado em destino:
+    //   · conversar → submitText (fluxo Atlas AI tradicional)
+    //   · tarefa/projeto → futuro: Atlas Decide estrutura (por agora vai
+    //     pro Atlas AI também)
+    //   · salvar → createTextCapture pro inbox raw
+    if (effectiveDestino === 'captura') {
+      const capturedText = text
+      const capturedAttachments = draftAttachments
+      const capturedFileAttachments = draftFileAttachments
+      // Limpa draft imediatamente · UI feedback rápido.
+      setDraft('')
+      setDraftAttachments([])
+      setDraftFileAttachments([])
+      openDomain((picked, destino) => {
+        // Default destino "salvar" se user pular sem escolher destino.
+        const finalDestino = destino ?? 'salvar'
+        const finalDomain = picked ?? 'outro'
+
+        // CONVERSAR · invoca Atlas AI com captura como contexto.
+        if (finalDestino === 'conversar') {
+          void submitText(capturedText, {
+            attachments: capturedAttachments,
+            fileAttachments: capturedFileAttachments,
+          })
+          return
+        }
+
+        // TAREFA / PROJETO · futuro: Atlas estrutura via LLM. Por agora,
+        // delega pro submitText com hint no metadata.
+        if (finalDestino === 'tarefa' || finalDestino === 'projeto') {
+          // TODO: integrar Atlas Decide structure (tarefa/projeto). Fallback
+          // atual usa submitText pra manter funcional · backend pode usar
+          // metadata pra detectar intent.
+          void submitText(capturedText, {
+            attachments: capturedAttachments,
+            fileAttachments: capturedFileAttachments,
+          })
+          return
+        }
+
+        // SALVAR (default) · vai pro inbox raw · sem invocar Atlas AI.
+        void (async () => {
+          try {
+            await createTextCapture({
+              domain: finalDomain,
+              text: capturedText,
+              metadata: {
+                captureMode: 'text',
+                captureSurface: 'atlas_ai_composer',
+                source: 'atlas_decide_captura',
+              },
+            })
+            showToast('Captura registrada')
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Falha ao salvar captura'
+            showToast(msg)
+          }
+        })()
+      })
+      return
+    }
+
+    // CONVERSA/TAREFA/PROJETO (sem passar pela Domain Sheet) · fluxo Atlas AI
+    // tradicional · destino classificado já indica intent claro pro backend.
+    void submitText(text, {
       attachments: draftAttachments,
       fileAttachments: draftFileAttachments,
     })
-  }, [submitText, draft, draftAttachments, draftFileAttachments])
+  }, [
+    submitText,
+    draft,
+    draftAttachments,
+    draftFileAttachments,
+    destinoOverride,
+    createTextCapture,
+    openDomain,
+    showToast,
+  ])
 
   const openRouting = useCallback(() => {
     setRoutingOpen(true)
@@ -1809,28 +2346,54 @@ export function AtlasAiSheet() {
     [currentThreadId, loadThreadData, showToast],
   )
 
-  const archiveThread = useCallback(
+  const deleteThreadAfterConfirmation = useCallback(
+    async (thread: AtlasAiThread) => {
+      setOperationBusy(`delete:${thread.id}`)
+      // Remove otimista no cache react-query e no state local. Se o
+      // backend recusar, voltamos exatamente ao snapshot anterior.
+      const previousCache = queryClient.getQueryData<AiThreadsResponse>(threadListQueryKey)
+      queryClient.setQueryData<AiThreadsResponse>(threadListQueryKey, (current) => {
+        if (!current) return current
+        return { ...current, threads: current.threads.filter((item) => item.id !== thread.id) }
+      })
+      setThreadList((current) => current.filter((item) => item.id !== thread.id))
+      try {
+        await deleteAiThread(thread.id)
+        if (thread.id === currentThreadId) {
+          startNewThread()
+        }
+        showToast('Conversa apagada')
+      } catch (deleteError) {
+        if (previousCache) {
+          queryClient.setQueryData(threadListQueryKey, previousCache)
+          setThreadList(previousCache.threads)
+        }
+        showToast(humanAiError(deleteError, 'Falha ao apagar conversa.'))
+      } finally {
+        setOperationBusy(null)
+      }
+    },
+    [currentThreadId, queryClient, showToast, startNewThread, threadListQueryKey],
+  )
+
+  const deleteThread = useCallback(
     async (thread: AtlasAiThread) => {
       if (thread.id === currentThreadId && interactionLocked) {
         showToast('Atlas ainda está pensando')
         return
       }
 
-      setOperationBusy(`archive:${thread.id}`)
-      try {
-        await updateAiThread(thread.id, { status: 'archived' })
-        setThreadList((current) => current.filter((item) => item.id !== thread.id))
-        if (thread.id === currentThreadId) {
-          startNewThread()
-        }
-        showToast('Sessão arquivada')
-      } catch (archiveError) {
-        showToast(humanAiError(archiveError, 'Falha ao arquivar sessão.'))
-      } finally {
-        setOperationBusy(null)
-      }
+      openConfirmDelete((confirmed) => {
+        if (!confirmed) return
+
+        void deleteThreadAfterConfirmation(thread)
+      }, {
+        title: 'Excluir esta conversa?',
+        body: 'A conversa sai do histórico e deixa de alimentar busca, contexto e memória operacional.',
+        confirmLabel: 'Excluir',
+      })
     },
-    [currentThreadId, interactionLocked, showToast, startNewThread],
+    [currentThreadId, deleteThreadAfterConfirmation, interactionLocked, openConfirmDelete, showToast],
   )
 
   const retryJob = useCallback(
@@ -1947,17 +2510,41 @@ export function AtlasAiSheet() {
     return list
   }, [visibleTraces, pending, retryPending, submitFeedback, runQualityAction, openExecution, pinnedTraceIds, togglePinnedTrace])
 
-  const footerPaddingBottom =
-    keyboardHeight > 0
-      ? Math.max(8, keyboardHeight - insets.bottom + 8)
-      : Math.max(12, insets.bottom + 8)
+  // Footer só precisa de safe-area inset bottom (composer interno já é flush).
+  // Keyboard avoidance é feito no nível do container (paddingBottom = keyboardHeight)
+  // pra empurrar TUDO pra cima, não só padding interno do footer.
+  const footerPaddingBottom = Math.max(12, insets.bottom + 8)
 
-  return (
-    <SideSheet visible={visible}>
-      <View style={styles.fill}>
-        <View style={[styles.header, { borderBottomColor: c.border }]}>
+  // v18 · Container condicional · em sheet mode usa SideSheet (slide animado
+  // overlay), em screen mode usa View flex 1 direto com safe-area top inset
+  // (Atlas AI é tela primária, não há slide-in). Variável renderContainer
+  // wrap o body com o container correto.
+  const renderContainer = (body: ReactNode): ReactNode =>
+    isScreen ? (
+      <AtlasAiScreenContainer>{body}</AtlasAiScreenContainer>
+    ) : (
+      <SideSheet visible={visible}>{body}</SideSheet>
+    )
+
+  // v18 · Keyboard avoidance · paddingBottom no fill empurra TODO o conteúdo
+  // pra cima quando teclado abre. KeyboardAvoidingView misbehaves no SideSheet
+  // (comentário acima na linha 849), então fazemos manual: keyboardHeight vem
+  // do listener Keyboard.addListener. Quando keyboard fecha, padding volta a 0.
+  // FlatList encolhe pra acomodar (já é flex: 1) e Footer composer fica
+  // visível logo acima do teclado · vocabulário "Don Corleone scrivendo carta".
+  const keyboardOffset = keyboardHeight > 0 ? Math.max(0, keyboardHeight - insets.bottom) : 0
+
+  return renderContainer(
+    <>
+      <View style={[styles.fill, keyboardOffset > 0 && { paddingBottom: keyboardOffset }]}>
+        {/* Header 3-column [← Voltar / Atlas / ≡ + ✦] · borderBottomColor
+            bronze@18% (canon mockup atlas-ai-header) — vocabulário editorial
+            premium, não cinza neutro c.border. ${c.bronze}2E = bronze + alpha
+            hex 2E (≈ 18%). Funciona pra light + dark mode (palette tem bronze
+            específico em cada). */}
+        <View style={[styles.header, { borderBottomColor: `${c.bronze}2E` }]}>
           <Pressable
-            onPress={close}
+            onPress={closeAndGoBack}
             style={({ pressed }) => [styles.headerSlot, { opacity: pressed ? 0.55 : 1 }]}
           >
             <Sans size={15} color={c.ink}>
@@ -2013,54 +2600,17 @@ export function AtlasAiSheet() {
         </View>
 
         {/*
-          ContinuityPanel fica FORA do FlatList (não no ListHeaderComponent)
-          pra preservar o comportamento "sticky" do ScrollView original — o
-          painel sempre visível no topo, conversa rolando embaixo. Em FlatList,
-          stickyHeaderIndices se referiria ao primeiro item da lista, não ao
-          ListHeader, o que produziria sticky no turn errado.
+          v18 · ContinuityPanel agora é ListHeaderComponent do FlatList
+          (mudança da Onda 4.1). Antes ficava fora do FlatList em
+          <View style={styles.threadHeader}> pra preservar sticky behaviour,
+          mas isso causava problema CRÍTICO: quando o panel é expanded
+          (i. ESTADO + ii. OPERAÇÕES com 6+ items + iii. VISTAS), o conteúdo
+          excede a viewport mas a View estática não rola → user não conseguia
+          ver Skills/Copiar/Execução nos final.
+          Agora o ContinuityPanel rola JUNTO com os turns dentro do FlatList
+          scroll. Sticky behaviour foi removido (não era essencial — empty
+          state e long conversations ambos beneficiam de scroll natural).
         */}
-        <View style={styles.threadHeader}>
-          <ContinuityPanel
-            thread={currentThread}
-            state={sessionState}
-            compaction={currentThread?.latest_compaction ?? null}
-            handoff={currentThread?.latest_provider_handoff ?? null}
-            providerStatus={providerStatus}
-            observability={observability}
-            qualityActions={qualityActions}
-            latestTrace={latestTrace}
-            activeTrace={activeTrace}
-            activeTraceAgeMs={activeTraceAgeMs}
-            lastRefreshAt={lastRefreshAt}
-            lastRefreshError={lastRefreshError}
-            refreshFailures={refreshFailures}
-            pinnedCount={pinnedTraceIds.length}
-            turnFilter={turnFilter}
-            busy={operationBusy}
-            disabled={interactionLocked}
-            onCompact={compactCurrentThread}
-            onOpenThreads={() => setThreadHistoryOpen(true)}
-            onOpenContext={() => setContextOpen(true)}
-            onOpenOperations={() => setOperationsOpen(true)}
-            onOpenExecution={openExecution}
-            onOpenSkills={() => setSkillsOpen(true)}
-            onOpenSearch={() => setSearchOpen(true)}
-            onOpenMap={() => setSessionMapOpen(true)}
-            onSetTurnFilter={setTurnFilter}
-            onCopyConversation={() => void copyToClipboard(formatConversationForCopy(traces), () => flashCopyToast('conversa'))}
-            expanded={continuityExpanded}
-            onToggleExpanded={() => setContinuityExpanded((value) => !value)}
-            hasTurns={traces.length > 0}
-          />
-          {error && (
-            <View style={styles.errorRow}>
-              <Frau italic size={14} lineHeight={20} color={c.recRed}>
-                {error}
-              </Frau>
-            </View>
-          )}
-        </View>
-
         <LayoutAnimationConfig skipEntering={!animationsReady}>
           <FlatList<DisplayTurn>
             ref={scrollRef}
@@ -2082,22 +2632,60 @@ export function AtlasAiSheet() {
                 : null
             }
             ListHeaderComponent={
-              modeNotice || operationalBootstrap || contextualIntro
-                ? (
-                    <>
-                      {modeNotice ? <AtlasAiModeNotice notice={modeNotice} /> : null}
-                      {operationalBootstrap ? (
-                        <OperationalBootstrapPanel
-                          status={operationalBootstrap}
-                          retrying={bootstrapRetrying}
-                          onRefresh={() => void refresh({ silent: false })}
-                          onRetry={() => void retryOperationalBootstrap()}
-                        />
-                      ) : null}
-                      {contextualIntro ? <AtlasAiContextIntro intro={contextualIntro} onPromoteToDevelopment={promoteContextToDevelopment} /> : null}
-                    </>
-                  )
-                : null
+              <View style={styles.threadHeader}>
+                {/* v18 · ContinuityPanel dentro do FlatList ListHeader · rola
+                    junto com turns. Resolve bug de tela não rolar quando o
+                    panel é expanded e ocupa mais que viewport. */}
+                <ContinuityPanel
+                  thread={currentThread}
+                  state={sessionState}
+                  compaction={currentThread?.latest_compaction ?? null}
+                  handoff={currentThread?.latest_provider_handoff ?? null}
+                  providerStatus={providerStatus}
+                  observability={observability}
+                  qualityActions={qualityActions}
+                  latestTrace={latestTrace}
+                  activeTrace={activeTrace}
+                  activeTraceAgeMs={activeTraceAgeMs}
+                  lastRefreshAt={lastRefreshAt}
+                  lastRefreshError={lastRefreshError}
+                  refreshFailures={refreshFailures}
+                  pinnedCount={pinnedTraceIds.length}
+                  turnFilter={turnFilter}
+                  busy={operationBusy}
+                  disabled={interactionLocked}
+                  onCompact={compactCurrentThread}
+                  onOpenThreads={() => setThreadHistoryOpen(true)}
+                  onOpenContext={() => setContextOpen(true)}
+                  onOpenOperations={() => setOperationsOpen(true)}
+                  onOpenExecution={openExecution}
+                  onOpenSkills={() => setSkillsOpen(true)}
+                  onOpenSearch={() => setSearchOpen(true)}
+                  onOpenMap={() => setSessionMapOpen(true)}
+                  onSetTurnFilter={setTurnFilter}
+                  onCopyConversation={() => void copyToClipboard(formatConversationForCopy(traces), () => flashCopyToast('conversa'))}
+                  expanded={continuityExpanded}
+                  onToggleExpanded={() => setContinuityExpanded((value) => !value)}
+                  hasTurns={traces.length > 0}
+                />
+                {error && (
+                  <View style={styles.errorRow}>
+                    <Frau italic size={14} lineHeight={20} color={c.recRed}>
+                      {error}
+                    </Frau>
+                  </View>
+                )}
+                {modeNotice ? <AtlasAiModeNotice notice={modeNotice} /> : null}
+                {operationalBootstrap ? (
+                  <OperationalBootstrapPanel
+                    status={operationalBootstrap}
+                    retrying={bootstrapRetrying}
+                    onRefresh={() => void refresh({ silent: false })}
+                    onRetry={() => void retryOperationalBootstrap()}
+                  />
+                ) : null}
+                {contextualIntro ? <AtlasAiContextIntro intro={contextualIntro} onPromoteToDevelopment={promoteContextToDevelopment} /> : null}
+              </View>
             }
             renderItem={({ item: turn, index }) => (
               <View
@@ -2160,7 +2748,21 @@ export function AtlasAiSheet() {
               </Frau>
             </Animated.View>
           )}
-          <StatusRouting state={routing} onPress={openRouting} locked={interactionLocked} />
+          {/* v18 · DecideStatusLine canon premium · substitui o StatusRouting
+              "atlas decide · trocar" antigo (feio + redundante) por linha
+              limpa: só "atlas" (ou claude/codex/gemini/conselho) quando vazio.
+              Quando user digita, vira "atlas · captura · trocar" — modelo +
+              destino classificado + link toggle. Tap em modelo/destino abre
+              Atlas Decide Sheet (config). Tap em "trocar" rotaciona pelos
+              4 destinos (captura/conversa/tarefa/projeto). */}
+          <DecideStatusLine
+            text={draft}
+            executor={routing.executor}
+            destinoOverride={destinoOverride}
+            onOpenConfig={openRouting}
+            onToggleDestino={(next) => setDestinoOverride(next)}
+            locked={interactionLocked}
+          />
           <AttachmentPreviewStrip
             attachments={draftAttachments}
             onOpen={setPreviewAttachment}
@@ -2179,6 +2781,16 @@ export function AtlasAiSheet() {
             onAttachmentPress={() => setAttachmentSheetOpen(true)}
             attachmentCount={draftAttachments.length + draftFileAttachments.length}
             canSubmit={draftAttachments.length + draftFileAttachments.length > 0}
+            // Long-press idle abre Voice Mode mobile-first. Com texto/anexo no
+            // composer, preserva Modo Gravar como captura operacional.
+            onLongPressSend={() => {
+              if (draft.trim().length === 0 && draftAttachments.length === 0 && draftFileAttachments.length === 0) {
+                openVoiceMode()
+                return
+              }
+              void handleComposerRecordStart()
+            }}
+            recording={recordingActive}
           />
         </View>
       </View>
@@ -2206,21 +2818,58 @@ export function AtlasAiSheet() {
         onClose={() => setPreviewHistoricalAttachment(null)}
       />
 
-      <RoutingSheet
+      {/* v18 · canon mockup atlas-home-editorial · 5 sections numeradas
+          (modo · tarefa · domínio · executor · forma) com destino-list
+          vertical. Substitui RoutingSheet (que tinha pílulas azuis SaaS
+          em tarefa+domínio) sem mudar contrato (mesmas props initial/
+          onClose/onConfirm e mesma lógica funcional sanitize+applyMode). */}
+      <AtlasDecideSheet
         visible={routingOpen}
         initial={routing}
         onClose={() => setRoutingOpen(false)}
         onConfirm={confirmRouting}
       />
 
+      {/* v18 · Voice Mode · canon mockup · conversa por voz tempo real
+          fullscreen sem chrome. Acessado via long-press no ✦ send do
+          composer (gesture canon Atlas). ✦ bronze 96px pulsing centered
+          com cadência variável por estado (listening 1.2s · thinking 1.5s
+          · speaking 0.6s) + waveform 10 bars sequencial + indicator italic
+          "Atlas escutando./pensando./falando." + Encerrar mono caps no
+          rodapé. Vocabulário "salão Don Corleone": tela inteira é o ato. */}
+      <VoiceModeSheet
+        visible={voiceModeOpen}
+        state={voiceModeState}
+        onClose={closeVoiceMode}
+      />
+
+      {/* v18 · Modo Gravar overlay enterprise (v2) · 3 botões claros.
+          Entra em lock automático · solta dedo NÃO envia. Cancelar com
+          confirmação interna (tap 1: "Cancelar?", tap 2: descarta).
+          Pausar toggleable · canon iOS Voice Memo. Enviar é único caminho
+          de envio · ato editorial bronze. */}
+      <RecordModeStrip
+        visible={recordingActive}
+        durationMs={composerRecorderState.durationMillis}
+        paused={recordingPaused}
+        onCancel={() => { void handleComposerRecordCancel() }}
+        onSend={() => { void handleComposerRecordSend() }}
+        onPauseToggle={handleComposerRecordPauseToggle}
+      />
+
       <ThreadHistorySheet
         visible={threadHistoryOpen}
         threads={threadList}
         currentThreadId={currentThreadId}
+        listError={threadListError}
+        listRefreshing={threadListRefreshing}
+        hasMore={hasMore}
+        onRetryList={retryThreadListFetch}
+        onLoadMore={loadMoreThreads}
         onClose={() => setThreadHistoryOpen(false)}
         onSelect={selectThread}
         onNew={startNewThread}
-        onArchive={archiveThread}
+        onDelete={deleteThread}
       />
 
       <ContextSheet
@@ -2278,16 +2927,59 @@ export function AtlasAiSheet() {
         pinnedTraceIds={pinnedTraceIds}
         onClose={() => setSessionMapOpen(false)}
       />
-    </SideSheet>
+    </>,
+  )
+}
+
+// AtlasAiScreenContainer · canon v18 · wrapper alternativo ao SideSheet quando
+// Atlas AI é renderizado como tela primária (rota `/`). Sem slide animation,
+// sem overlay zIndex — só flex fill + safe-area top inset. Mesma estrutura
+// visual do SideSheet (backgroundColor c.bg + paddingTop), mas em flow normal
+// do Stack expo-router em vez de overlay absolute.
+function AtlasAiScreenContainer({ children }: { children: ReactNode }) {
+  const { c } = useTheme()
+  const insets = useSafeAreaInsets()
+  // paddingTop · safe-area top inset (status bar do iPhone).
+  // paddingBottom NÃO aplicado · o footer interno (composer) já tem
+  // footerPaddingBottom = insets.bottom + 8 (linha ~2034). Aplicar aqui
+  // duplicaria espaço e empurraria o composer pra fora da viewport.
+  return (
+    <View
+      style={[
+        styles.screenContainer,
+        { backgroundColor: c.bg, paddingTop: insets.top },
+      ]}
+    >
+      {children}
+    </View>
   )
 }
 
 function EmptyPage() {
   const { c } = useTheme()
+  // Empty state · canon ultra-premium · canon mockup atlas-ai-empty refinado.
+  // ✦ Frau italic 32 bronze (era 22 · agora matching ✦ send do composer ·
+  // peso editorial pleno · "Atlas presente em ato cognitivo"). Gap 40 entre
+  // ✦ e pergunta-norte (era 32 · respiração canon Don Corleone).
+  // ✦ ganha signet ring shadow (mesmo polish A do send).
+  // Container: paddingBottom 96 puxa o centro visual pra cima do terço
+  // geométrico · vocabulário canon "pergunta sobe das mãos" · Don Corleone.
   return (
     <View style={styles.empty}>
-      <BronzeDiamond size={16} />
-      <View style={{ height: 32 }} />
+      <Frau
+        italic
+        size={32}
+        lineHeight={32}
+        color={c.bronze}
+        style={{
+          textShadowColor: `${c.bronze}4D`,
+          textShadowOffset: { width: 0, height: 1 },
+          textShadowRadius: 4,
+        }}
+      >
+        ✦
+      </Frau>
+      <View style={{ height: 40 }} />
       <Frau italic size={22} lineHeight={32} align="center" color={c.ink}>
         “O que você quer pensar agora?”
       </Frau>
@@ -2927,8 +3619,12 @@ function ContinuityPanel({
       layout={LinearTransition.springify().damping(22).stiffness(170).mass(0.9)}
       style={[styles.continuityPanel, expanded ? styles.continuityPanelOpen : null, { borderBottomColor: c.border, backgroundColor: c.bg }]}
     >
-      <View style={[styles.continuityTop, thread?.title ? null : styles.continuityTopEmpty]}>
-        {thread?.title ? (
+      {/* Top row · "continuidade [thread.title]" + "· expandir/recolher".
+          Quando expanded, esconde o "continuidade [thread]" (já que vai ter
+          header editorial completo abaixo) e mantém apenas o link "· recolher"
+          alinhado à direita. */}
+      <View style={[styles.continuityTop, (!thread?.title || expanded) ? styles.continuityTopEmpty : null]}>
+        {thread?.title && !expanded ? (
           <Pressable
             onPress={onOpenThreads}
             hitSlop={8}
@@ -2960,21 +3656,52 @@ function ContinuityPanel({
           entering={FadeInDown.duration(360).springify().damping(22).stiffness(160).mass(0.85)}
           exiting={FadeOutUp.duration(220).easing(Easing.out(Easing.cubic))}
         >
-          <View style={styles.continuityRows}>
-            <MicroLine label="estado" value={topic} />
-            <MicroLine label="memória" value={compactionLabel} />
-            <MicroLine label="troca" value={handoffLabel} />
-            <MicroLine
+          {/* Header editorial canon mockup · eyebrow CONTINUIDADE DA SESSÃO
+              (mono caps small) + title "Atlas · sessão atual." (Frau italic 22
+              afirmativo com ponto · vocabulário "ato encerrado") + hairline.
+              Substitui o "continuidade [thread.title]" minimalista por header
+              editorial completo · vocabulário canon. */}
+          <View style={styles.continuityHeader}>
+            <Mono size={11} lineHeight={14} letterSpacing={1.6} color={c.ink2} style={styles.continuityHeaderEyebrow}>
+              CONTINUIDADE DA SESSÃO
+            </Mono>
+            <Frau italic size={22} lineHeight={29} letterSpacing={-0.18} color={c.ink}>
+              {thread?.title || 'Atlas · sessão atual.'}
+            </Frau>
+          </View>
+          <View style={[styles.continuityHeaderRule, { backgroundColor: `${c.ink}1F` }]} />
+
+          {/* i. ESTADO · canon mockup atlas-home-editorial · 5 toc-rows com
+              label italic Frau + leader dotted + value Frau. Vocabulário Don
+              Corleone "escritório em ordem": quando tudo é zero, mostra
+              "em repouso"/"89/100" (silêncio editorial); quando há atividade
+              real, valores detalhados. Substitui MicroLine grid 2-col SaaS.
+              withDivider={false} canon · sem hairlines entre toc-rows · só
+              leader dotted separa label/value. Items respiram com gap. */}
+          <View style={styles.continuitySection}>
+            <SectionHead numeral="i" title="Estado" />
+            <TocRow withDivider={false} variant="doorway" label="estado" value={topic} />
+            <TocRow withDivider={false} variant="doorway" label="memória" value={compactionLabel} />
+            <TocRow withDivider={false} variant="doorway" label="troca" value={handoffLabel} />
+            <TocRow
+              withDivider={false}
+              variant="doorway"
               label="operação"
-              value={`fila ${queue?.queued ?? 0} · rodando ${queue?.processing ?? 0} · ações ${openActions.length}`}
+              value={operacaoSummary(queue, openActions.length)}
             />
-            <MicroLine
+            <TocRow
+              withDivider={false}
+              variant="doorway"
               label="qualidade"
               value={qualitySummary(observability, openActions)}
             />
           </View>
 
-          <RuntimeStrip
+          {/* Sync dateline · canon mockup .continuity-sync · italic Frau 14
+              ink2 com em-dash inicial (vocabulário "atribuição de citação"
+              aplicado a marca temporal). Substitui RuntimeStrip antigo que
+              tinha mesma info mas sem peso editorial. */}
+          <SyncDateline
             activeTrace={activeTrace}
             activeTraceAgeMs={activeTraceAgeMs}
             lastRefreshAt={lastRefreshAt}
@@ -2982,36 +3709,107 @@ function ContinuityPanel({
             refreshFailures={refreshFailures}
           />
 
-          <MicroSection label="operações">
-            <MicroAction
-              label={busy === 'compact' ? 'compactando' : 'compactar'}
+          {/* ii. OPERAÇÕES · canon mockup · 6 destino-items vertical (Compactar
+              · Contexto · Mapa · Buscar · Fila · Skills + extras condicionais).
+              Substitui pílulas inline antigas (vocabulário SaaS proibido) por
+              lista canônica · cada item: · glyph + label Frau med 17 + subtitle
+              italic 13. Active = ✦ bronze (Atlas em ato cognitivo). isLast no
+              último item dinâmico (depende de hasTurns + latestTrace) evita
+              hairline-bottom redundante antes da próxima section. */}
+          <View style={styles.continuitySection}>
+            <SectionHead numeral="ii" title="Operações" />
+            <DestinoItem
+              label={busy === 'compact' ? 'Compactando' : 'Compactar'}
+              subtitle="comprime memória da sessão atual"
               onPress={onCompact}
               disabled={disabled || busy === 'compact'}
             />
-            <MicroAction label="contexto" onPress={onOpenContext} />
-            <MicroAction label="mapa" onPress={onOpenMap} active={pinnedCount > 0} />
-            <MicroAction label="buscar" onPress={onOpenSearch} />
-            <MicroAction label="fila" onPress={onOpenOperations} />
-            <MicroAction label="skills" onPress={onOpenSkills} />
-            {hasTurns && (
-              <MicroAction label="copiar" onPress={onCopyConversation} />
-            )}
-            {latestTrace && (
-              <MicroAction label="execução" onPress={() => onOpenExecution(latestTrace)} />
-            )}
-          </MicroSection>
+            <DestinoItem
+              label="Contexto"
+              subtitle="abrir Context Pack ativo"
+              onPress={onOpenContext}
+            />
+            <DestinoItem
+              label="Mapa"
+              subtitle="ver mapa cognitivo do Atlas"
+              active={pinnedCount > 0}
+              onPress={onOpenMap}
+            />
+            <DestinoItem
+              label="Buscar"
+              subtitle="buscar em sessões e memória"
+              onPress={onOpenSearch}
+            />
+            <DestinoItem
+              label="Fila"
+              subtitle="fila de operações pendentes"
+              onPress={onOpenOperations}
+            />
+            <DestinoItem
+              label="Skills"
+              subtitle="skills disponíveis"
+              isLast={!hasTurns && !latestTrace}
+              onPress={onOpenSkills}
+            />
+            {hasTurns ? (
+              <DestinoItem
+                label="Copiar"
+                subtitle="copia toda a conversa pra clipboard"
+                isLast={!latestTrace}
+                onPress={onCopyConversation}
+              />
+            ) : null}
+            {latestTrace ? (
+              <DestinoItem
+                label="Execução"
+                subtitle="abre o trace de execução mais recente"
+                isLast
+                onPress={() => onOpenExecution(latestTrace)}
+              />
+            ) : null}
+          </View>
 
+          {/* iii. VISTAS · filter strip de turns (condicional, só quando há
+              turns na conversa). Mantido como section editorial canon · não
+              está no mockup mas é funcionalidade essencial pra navegar
+              conversas longas. Filter strip horizontal italic Frau ink3,
+              underline bronze no ativo (mesma vocabulário do filter strip
+              do Inbox · Capturas). */}
           {hasTurns ? (
-            <MicroSection label="vistas">
-              {(['all', 'pinned', 'decisions', 'actions', 'dev', 'errors'] as AtlasAiTurnFilter[]).map((filter) => (
-                <MicroAction
-                  key={filter}
-                  label={turnFilterLabel(filter, pinnedCount)}
-                  active={turnFilter === filter}
-                  onPress={() => onSetTurnFilter(filter)}
-                />
-              ))}
-            </MicroSection>
+            <View style={styles.continuitySection}>
+              <SectionHead numeral="iii" title="Vistas" />
+              <View style={styles.vistasStrip}>
+                {(['all', 'pinned', 'decisions', 'actions', 'dev', 'errors'] as AtlasAiTurnFilter[]).map((filter, idx) => {
+                  const active = turnFilter === filter
+                  return (
+                    <Pressable
+                      key={filter}
+                      onPress={() => onSetTurnFilter(filter)}
+                      hitSlop={6}
+                      style={({ pressed }) => [styles.vistasItem, { opacity: pressed ? 0.55 : 1 }]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                    >
+                      <Frau
+                        italic
+                        weight={active ? 'med' : 'reg'}
+                        size={14}
+                        lineHeight={20}
+                        color={active ? c.bronze : c.ink3}
+                        style={active ? styles.vistasItemActive : undefined}
+                      >
+                        {turnFilterLabel(filter, pinnedCount)}
+                      </Frau>
+                      {idx < 5 ? (
+                        <Frau italic size={14} lineHeight={20} color={c.ink3} style={styles.vistasSep}>
+                          ·
+                        </Frau>
+                      ) : null}
+                    </Pressable>
+                  )
+                })}
+              </View>
+            </View>
           ) : null}
         </Animated.View>
       ) : null}
@@ -3220,26 +4018,23 @@ function ContextIntroMetric({ label, value }: { label: string; value: string }) 
   )
 }
 
-// Editorial subgroup inside ContinuityPanel. Italic lowercase label (Frau,
-// opacity ~0.55) followed by a hairline that fills the row — the same
-// pattern used in CaptureSettingsSheet sections. Gives operations / canal /
-// vistas clear separation without removing any chip.
-function MicroSection({ label, children }: { label: string; children: ReactNode }) {
-  const { c } = useTheme()
-  return (
-    <View style={styles.microSection}>
-      <View style={styles.microSectionHead}>
-        <Frau italic size={12} lineHeight={16} color={c.ink} style={{ opacity: 0.55 }}>
-          {label}
-        </Frau>
-        <View style={[styles.microSectionRule, { backgroundColor: c.border }]} />
-      </View>
-      <View style={styles.microSectionBody}>{children}</View>
-    </View>
-  )
-}
+// v18 · MicroSection, RuntimeStrip e MicroLine removidos · vocabulário SaaS
+// que o canon mockup substituiu por SectionHead + TocRow + DestinoItem +
+// SyncDateline (editorial atoms reusáveis em components/editorial/). Os
+// styles antigos (microSection*, runtimeStrip, microLine, microLabel,
+// microValue) também foram retirados do StyleSheet.
 
-function RuntimeStrip({
+// SyncDateline · canon mockup .continuity-sync (atlas-home-editorial-mockup.html
+// linha ~2510). Italic Frau 14 ink2 com em-dash inicial — vocabulário "atribuição
+// de citação" aplicado a marca temporal de sincronização. Substitui RuntimeStrip
+// quando dentro do ContinuityPanel canon — o RuntimeStrip antigo continua
+// disponível pra outros usos (ele tem tratamento de erro/stale com cores).
+//
+// Cores condicionais preservadas:
+//   · ink2 padrão (sincronização normal)
+//   · bronze quando trace ativo está stale (>10min)
+//   · recRed quando há erro de refresh
+function SyncDateline({
   activeTrace,
   activeTraceAgeMs,
   lastRefreshAt,
@@ -3258,34 +4053,210 @@ function RuntimeStrip({
     : null
   const stale = Boolean(activeTrace && activeAge != null && activeAge > 10 * 60 * 1000)
   const text = lastRefreshError
-    ? `reconectando · ${refreshFailures} falha${refreshFailures === 1 ? '' : 's'} · ${lastRefreshError}`
+    ? `reconectando · ${refreshFailures} falha${refreshFailures === 1 ? '' : 's'}`
     : stale
-      ? `execução longa · ${formatLatency(activeAge ?? 0)} · acompanhando sem perder sessão`
+      ? `execução longa · ${formatLatency(activeAge ?? 0)}`
       : lastRefreshAt
         ? `sincronizado ${formatRelative(new Date(lastRefreshAt).toISOString())}`
         : 'sincronização aguardando'
 
   return (
-    <View style={[styles.runtimeStrip, { borderTopColor: c.border }]}>
-      <Frau italic size={12} lineHeight={17} color={lastRefreshError ? c.recRed : stale ? c.bronze : c.ink2} numberOfLines={2}>
-        {text}
+    <View style={styles.syncDateline}>
+      <Frau italic size={14} lineHeight={20} color={lastRefreshError ? c.recRed : stale ? c.bronze : c.ink2}>
+        — {text}.
       </Frau>
     </View>
   )
 }
 
-function MicroLine({ label, value }: { label: string; value: string }) {
-  const { c } = useTheme()
+// operacaoSummary · vocabulário canon Atlas (Don Corleone "escritório em ordem")
+// quando todos os contadores são zero, mostra silêncio editorial "em repouso";
+// quando há atividade real, valores detalhados. Mesma lógica do mockup canon.
+// =============================================================================
+// DecideStatusLine · canon premium acima do composer
+// =============================================================================
+//
+// Substitui "atlas decide · trocar" antigo (feio + redundante) pela linha
+// canon premium: só "atlas" (ou nome do executor) quando vazio. Quando user
+// digita, vira "atlas · captura · trocar" — modelo + destino classificado +
+// link toggle.
+//
+// Comportamentos:
+//   · Tap "atlas" (ou nome do executor) → abre Atlas Decide Sheet (config)
+//   · Tap "captura" (destino) → abre Atlas Decide Sheet (config)
+//   · Tap "trocar" → rotaciona destino (captura → conversa → tarefa →
+//     projeto → captura) · seta destinoOverride
+//   · Sem texto: "trocar" some (não há destino pra trocar)
+//
+// O classifier auto roda quando destinoOverride === null. Quando user já
+// trocou manualmente (override !== null), respeita a escolha até draft
+// esvaziar (que reseta override).
+// =============================================================================
+
+export type DecideDestino = 'captura' | 'conversa' | 'tarefa' | 'projeto'
+
+const DESTINO_ORDER: DecideDestino[] = ['captura', 'conversa', 'tarefa', 'projeto']
+
+// Classifier heurístico · roda em real-time sem precisar de backend LLM.
+// Quando backend Atlas Decide LLM estiver disponível, substituir por chamada
+// API com debounce 300ms. Heurística atual:
+//   · vazio → null (não mostra destino)
+//   · termina com `?` → conversa (pergunta natural)
+//   · texto longo (>= 200 chars) com quebras de linha → projeto (doc densa)
+//   · texto médio (>= 80 chars) com escopo → tarefa (algo a fazer)
+//   · default (curto) → captura (anotação rápida)
+function classifyDecideDestino(text: string): DecideDestino | null {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return null
+
+  // Pergunta · termina com ?
+  if (/\?\s*$/.test(trimmed)) return 'conversa'
+
+  // Projeto · texto longo + estrutura (parágrafos ou bullets)
+  if (trimmed.length >= 200 && /\n\s*\n|^[-*•]/m.test(trimmed)) return 'projeto'
+
+  // Tarefa · médio + verbo imperativo no início (Implementar/Fazer/Criar/etc)
+  if (trimmed.length >= 80 && /^(implement|criar?|fazer|desenh|escrev|refator|consert|adicion|remov|atualiz|ajust|configur|publi)/i.test(trimmed)) {
+    return 'tarefa'
+  }
+
+  // Conversa · começa com pronome interrogativo ou "como/por que/quando/onde"
+  if (/^(como|por\s+qu[êe]|quando|onde|qual|quem|o\s+qu[êe]|me\s+(ajud|expli|cont|fal))/i.test(trimmed)) {
+    return 'conversa'
+  }
+
+  // Default · captura (anotação curta)
+  return 'captura'
+}
+
+// Label curto pro executor · sem verbo. Canon premium: "atlas" (não "atlas
+// decide"), "claude" (não "claude pensa"), etc.
+function executorShortLabel(executor: RoutingExecutor): string {
+  switch (executor) {
+    case 'claude_cli':   return 'claude'
+    case 'codex_cli':    return 'codex'
+    case 'gemini_cli':   return 'gemini'
+    case 'claude_codex': return 'conselho'
+    default:             return 'atlas'
+  }
+}
+
+// Próximo destino na rotação · trocar cycle: captura → conversa → tarefa →
+// projeto → captura. Quando current null, começa em captura.
+function nextDecideDestino(current: DecideDestino | null): DecideDestino {
+  if (current === null) return 'captura'
+  const idx = DESTINO_ORDER.indexOf(current)
+  return DESTINO_ORDER[(idx + 1) % DESTINO_ORDER.length]
+}
+
+function DecideStatusLine({
+  text,
+  executor,
+  destinoOverride,
+  onOpenConfig,
+  onToggleDestino,
+  locked,
+}: {
+  text: string
+  executor: RoutingExecutor
+  destinoOverride: DecideDestino | null
+  onOpenConfig: () => void
+  onToggleDestino: (next: DecideDestino) => void
+  locked?: boolean
+}) {
+  const c = useTheme().c
+  const executorLabel = executorShortLabel(executor)
+  const classified = classifyDecideDestino(text)
+  // destino efetivo · override do user > classifier auto > null (vazio)
+  const destino = destinoOverride ?? classified
+  // Opacity 0.7 (era 0.55) · canon premium · "atlas" precisa ter presença
+  // visível, não sussurro perdido. Locked state mantém 0.35 (clearly disabled).
+  const opacity = locked ? 0.35 : 0.7
+
+  // Vazio · só mostra o executor (clicável, abre config)
+  if (!destino) {
+    return (
+      <View style={statusLineStyles.row}>
+        <Pressable
+          onPress={onOpenConfig}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`atual: ${executorLabel}. tocar para configurar`}
+        >
+          <Frau italic weight="med" size={16} lineHeight={22} color={c.ink} style={{ opacity }}>
+            {executorLabel}
+          </Frau>
+        </Pressable>
+      </View>
+    )
+  }
+
+  // Com texto · executor · destino · trocar
   return (
-    <View style={styles.microLine}>
-      <Frau italic size={12} lineHeight={17} color={c.ink} style={[styles.microLabel, { opacity: 0.55 }]}>
-        {label}
+    <View style={statusLineStyles.row}>
+      <Pressable
+        onPress={onOpenConfig}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`atual: ${executorLabel} ${destino}. tocar para configurar`}
+      >
+        <Frau italic weight="med" size={16} lineHeight={22} color={c.ink} style={{ opacity }}>
+          {executorLabel}
+        </Frau>
+      </Pressable>
+      <Frau italic size={16} lineHeight={22} color={c.ink} style={[statusLineStyles.sep, { opacity: opacity * 0.7 }]}>
+        ·
       </Frau>
-      <Sans size={12.5} lineHeight={17} color={c.ink} numberOfLines={2} style={styles.microValue}>
-        {value}
-      </Sans>
+      <Pressable
+        onPress={onOpenConfig}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`destino: ${destino}. tocar para configurar`}
+      >
+        <Frau italic weight="med" size={16} lineHeight={22} color={c.ink} style={{ opacity }}>
+          {destino}
+        </Frau>
+      </Pressable>
+      <Frau italic size={16} lineHeight={22} color={c.ink} style={[statusLineStyles.sep, { opacity: opacity * 0.7 }]}>
+        ·
+      </Frau>
+      <Pressable
+        onPress={() => onToggleDestino(nextDecideDestino(destino))}
+        hitSlop={6}
+        disabled={locked}
+        accessibilityRole="button"
+        accessibilityLabel={`trocar destino · próximo: ${nextDecideDestino(destino)}`}
+      >
+        <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: opacity * 0.7 }}>
+          trocar
+        </Frau>
+      </Pressable>
     </View>
   )
+}
+
+const statusLineStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  sep: {
+    marginHorizontal: 8,
+  },
+})
+
+function operacaoSummary(
+  queue: { queued?: number; processing?: number } | null | undefined,
+  openActionsCount: number,
+): string {
+  const queued = queue?.queued ?? 0
+  const processing = queue?.processing ?? 0
+  if (queued === 0 && processing === 0 && openActionsCount === 0) {
+    return 'em repouso'
+  }
+  return `fila ${queued} · rodando ${processing} · ações ${openActionsCount}`
 }
 
 function MicroAction({
@@ -3436,158 +4407,861 @@ function OpenBrainTraceBadge({ trace }: { trace: AtlasAiTrace }) {
 
 type ThreadHistoryModeFilter = 'all' | RoutingMode
 
-function ThreadHistorySheet({
-  visible,
-  threads,
-  currentThreadId,
-  onClose,
-  onSelect,
-  onNew,
-  onArchive,
-}: {
+type ThreadHistorySheetProps = {
   visible: boolean
   threads: AtlasAiThread[]
   currentThreadId: string | null
+  listError: string | null
+  listRefreshing: boolean
+  hasMore: boolean
+  onRetryList: () => void
+  onLoadMore: () => void
   onClose: () => void
   onSelect: (thread: AtlasAiThread) => void
   onNew: () => void
-  onArchive: (thread: AtlasAiThread) => void
-}) {
+  onDelete: (thread: AtlasAiThread) => void
+}
+
+function ThreadHistorySheetInner({
+  visible,
+  threads,
+  currentThreadId,
+  listError,
+  listRefreshing,
+  hasMore,
+  onRetryList,
+  onLoadMore,
+  onClose,
+  onSelect,
+  onNew,
+  onDelete,
+}: ThreadHistorySheetProps) {
   const { c } = useTheme()
   const [query, setQuery] = useState('')
+  // ROUND 1 · Debounce 250ms — evita re-cálculo de filtro em cada
+  // keystroke. Search continua responsiva visualmente (input controlled),
+  // mas filtro só dispara depois que digitação para. Canon enterprise
+  // (input "snappy", computação "preguiçosa").
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [modeFilter, setModeFilter] = useState<ThreadHistoryModeFilter>('all')
-  const queryFiltered = filterThreads(threads, query)
-  const modeOptions = threadHistoryModeOptions(queryFiltered)
-  const filtered = modeFilter === 'all'
-    ? queryFiltered
-    : queryFiltered.filter((thread) => atlasAiModeFromThread(thread) === modeFilter)
 
-  return (
-    <BottomSheet visible={visible} onClose={onClose} height="85%">
-      <ScrollView contentContainerStyle={styles.threadPickerContent} showsVerticalScrollIndicator={false}>
-        <Frau size={24} lineHeight={30} color={c.ink} align="center">
-          Histórico Atlas
-        </Frau>
-        <View style={[styles.headingRule, { backgroundColor: c.border }]} />
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed === debouncedQuery) return
+    const timer = setTimeout(() => setDebouncedQuery(trimmed), 250)
+    return () => clearTimeout(timer)
+  }, [query, debouncedQuery])
 
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="buscar sessão…"
-          placeholderTextColor={c.ink3}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          autoComplete="off"
-          textContentType="none"
-          style={[styles.searchInput, { color: c.ink, borderBottomColor: c.border }]}
-        />
+  // ROUND 1 · useMemo nos 4 derivados pesados. Antes: re-filtrava 4 vezes
+  // a cada render (mesmo quando só threadList/query/modeFilter não
+  // mudavam). Agora: só recompila se deps mudam. Para 30+ threads,
+  // economia de ~12ms por render no thread mid-tier.
+  const queryFiltered = useMemo(
+    () => filterThreads(threads, debouncedQuery),
+    [threads, debouncedQuery],
+  )
+  const modeOptions = useMemo(
+    () => threadHistoryModeOptions(queryFiltered),
+    [queryFiltered],
+  )
+  const filtered = useMemo(
+    () => (modeFilter === 'all'
+      ? queryFiltered
+      : queryFiltered.filter((thread) => atlasAiModeFromThread(thread) === modeFilter)),
+    [queryFiltered, modeFilter],
+  )
+  // Sessões CLI "em curso" · canon mockup `i. EM CURSO`. Critério: thread
+  // origem CLI + atividade recente (last_message_at < 30 min). Quando
+  // backend publicar status real-time via gateway, substituir critério por
+  // metadata.status === 'running'.
+  const runningCli = useMemo(
+    () => filtered.filter((t) => threadIsCli(t) && threadIsRecentlyActive(t)),
+    [filtered],
+  )
+  const totalCount = filtered.length
+  const inCurseCount = runningCli.length
 
-        <View style={styles.threadModeGrid}>
-          {modeOptions.map((option) => (
+  // ROUND 2 · ListHeaderComponent memoizado · evita re-render do header
+  // quando data (filtered) muda. Header inclui: título HISTÓRICO + sub
+  // counts + search input + error banner + filter strip + section EM
+  // CURSO (com EmCursoCards) + section header CONVERSAS + Nova conversa
+  // row. Tudo que não é conversa-row vai aqui.
+  const headerEl = useMemo(() => (
+    <View>
+      {/* Header editorial · canon mockup .historico (linha ~2370). Title
+          "HISTÓRICO" Frau medium 26 caps letterSpacing 5 (massive editorial,
+          vocabulário canon · igual masthead). Hairline + sub-line italic
+          centered com counts agregados ("6 conversas · 1 em curso"). */}
+      <Frau weight="med" size={26} lineHeight={32} letterSpacing={5} color={c.ink} align="center">
+        HISTÓRICO
+      </Frau>
+      <View style={[styles.headingRule, { backgroundColor: c.border }]} />
+      <Frau italic size={13} lineHeight={19} color={c.ink2} align="center" style={styles.historicoSub}>
+        {totalCount === 1 ? '1 conversa' : `${totalCount} conversas`}
+        {inCurseCount > 0 ? ` · ${inCurseCount} em curso` : ''}
+      </Frau>
+
+      {/* Search line · hairline-only no topo · sem bg cream rounded SaaS.
+          Vocabulário canon: minimal, só hairline bottom como underline. */}
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="buscar sessão…"
+        placeholderTextColor={c.ink3}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        textContentType="none"
+        style={[styles.historicoSearch, { color: c.ink, borderBottomColor: c.border }]}
+      />
+
+      {/* ROUND 1 · Error banner editorial · vocabulário canon (sem
+          badge SaaS vermelho gigante). Hairline accent recRedMuted
+          border-left + texto Frau italic + retry como link mono caps
+          inline. */}
+      {listError ? (
+        <View style={[styles.historicoErrorBanner, { borderLeftColor: c.recRedMuted, backgroundColor: `${c.recRedMuted}0A` }]}>
+          <View style={{ flex: 1 }}>
+            <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.recRedMuted} weight="med">
+              FALHA NA SINCRONIA
+            </Mono>
+            <Frau italic size={13} lineHeight={19} color={c.ink2} style={{ marginTop: 4 }}>
+              {listError}
+            </Frau>
+          </View>
+          <Pressable
+            onPress={onRetryList}
+            disabled={listRefreshing}
+            hitSlop={8}
+            style={({ pressed }) => ({ opacity: listRefreshing ? 0.4 : pressed ? 0.55 : 1, marginLeft: 12 })}
+            accessibilityRole="button"
+            accessibilityLabel="tentar novamente"
+          >
+            <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.bronze} weight="med">
+              {listRefreshing ? 'TENTANDO…' : 'TENTAR DE NOVO'}
+            </Mono>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Filter strip horizontal · canon mockup .modo-filter / .filter-tabs
+          (mesmo do Inbox · Capturas). */}
+      <View style={styles.historicoFilter}>
+        {modeOptions.map((option, idx) => {
+          const active = modeFilter === option.key
+          return (
             <Pressable
               key={option.key}
               onPress={() => setModeFilter(option.key)}
-              style={({ pressed }) => [
-                styles.threadModeCard,
-                {
-                  borderColor: modeFilter === option.key ? modeFilterColor(option.key, c) : c.border,
-                  backgroundColor: modeFilter === option.key ? c.surface : 'transparent',
-                  opacity: pressed ? 0.72 : 1,
-                },
-              ]}
+              hitSlop={6}
+              style={({ pressed }) => [styles.historicoFilterItem, { opacity: pressed ? 0.55 : 1 }]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
             >
-              <View style={styles.threadModeCardTop}>
-                <View style={[
-                  styles.threadFocusDot,
-                  { backgroundColor: modeFilterColor(option.key, c) },
-                ]} />
-                <Mono
-                  size={10}
-                  lineHeight={13}
-                  color={modeFilter === option.key ? c.prussian : c.ink2}
-                  letterSpacing={0.25}
-                >
-                  {option.count}
-                </Mono>
-              </View>
-              <Sans
-                weight="sb"
+              <Frau
+                italic
+                weight={active ? 'med' : 'reg'}
                 size={14}
-                lineHeight={18}
-                color={c.ink}
+                lineHeight={20}
+                color={active ? c.bronze : c.ink2}
+                style={active ? styles.historicoFilterActive : undefined}
               >
-                {option.label}
-              </Sans>
-              <Frau italic size={11.5} lineHeight={16} color={c.ink2} numberOfLines={1}>
-                {option.caption}
+                {option.label.toLowerCase()}
               </Frau>
+              <Mono size={9.5} lineHeight={13} letterSpacing={0.4} color={c.ink3} style={styles.historicoFilterCount}>
+                ({option.count})
+              </Mono>
+              {idx < modeOptions.length - 1 ? (
+                <Frau italic size={14} lineHeight={20} color={c.ink3} style={styles.historicoFilterSep}>
+                  ·
+                </Frau>
+              ) : null}
             </Pressable>
+          )
+        })}
+      </View>
+
+      {/* REDESIGN v3 · Section EM CURSO de volta (charme canon).
+          Numeral i. mono bronze + EM CURSO Frau caps + deck italic.
+          Card EmCursoCard com ✦ pulsing + actions inline. Só renderiza
+          quando há sessões CLI ativas (silêncio editorial quando vazio).
+          As threads que aparecem aqui SÃO removidas do agrupamento
+          temporal HOJE/ONTEM abaixo (evita duplicação). */}
+      {runningCli.length > 0 ? (
+        <View>
+          <SectionHead
+            numeral="i"
+            title="Em curso"
+            deck="sessões Atlas CLI rodando · acompanhe pelo mobile"
+          />
+          {runningCli.map((thread) => (
+            <EmCursoCard
+              key={thread.id}
+              thread={thread}
+              onContinue={() => {
+                onSelect(thread)
+                onClose()
+              }}
+            />
           ))}
         </View>
+      ) : null}
 
+      {/* Nova conversa entry · hairline simples acima (mesmo padrão das
+          conversa-rows abaixo) · sem traço bronze que destacava demais e
+          quebrava o vocabulário visual uniforme da tela. Sub mantém
+          vocabulário Don Corleone "do silêncio · sem herança". */}
+      <View style={[styles.novaConversaAnchor, { borderTopColor: c.border }]}>
         <Pressable
           onPress={() => {
             onNew()
             onClose()
           }}
-          style={({ pressed }) => [styles.threadRow, { opacity: pressed ? 0.6 : 1 }]}
+          style={({ pressed }) => [styles.novaConversaRow, { opacity: pressed ? 0.55 : 1 }]}
         >
-          <View style={styles.threadMarker}>
-            <BronzeDiamond size={12} opacity={0.7} />
-          </View>
-          <View style={styles.threadRowBody}>
-            <Sans weight="med" size={15} lineHeight={20} color={c.ink}>
+          <View style={styles.novaConversaText}>
+            <Frau weight="med" size={17} lineHeight={22} color={c.ink} letterSpacing={-0.05}>
               Nova conversa
-            </Sans>
-                <Frau italic size={12} lineHeight={17} color={c.ink2}>
-                  geral · sem contexto herdado
-                </Frau>
+            </Frau>
+            <Frau italic size={13} lineHeight={19} color={c.ink2}>
+              do silêncio · sem herança
+            </Frau>
           </View>
         </Pressable>
+      </View>
+    </View>
+  ), [c, query, listError, listRefreshing, onRetryList, modeOptions, modeFilter, runningCli, onSelect, onClose, onNew, totalCount, inCurseCount])
 
-        {filtered.map((thread) => (
-          <View key={thread.id} style={styles.threadRow}>
-            <View style={styles.threadMarker}>
-              {thread.id === currentThreadId && <BronzeDiamond size={12} />}
-            </View>
-            <Pressable
-              onPress={() => onSelect(thread)}
-              style={({ pressed }) => [styles.threadRowBody, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <View>
-                <View style={styles.threadRowHeader}>
-                  <View style={[styles.threadFocusDot, { backgroundColor: modeColor(atlasAiModeFromThread(thread), c) }]} />
-                  <Mono size={9.5} lineHeight={13} color={c.ink2} letterSpacing={0.25}>
-                    {atlasAiModeLabel(atlasAiModeFromThread(thread)).toUpperCase()}
-                  </Mono>
-                  <Mono size={9.5} lineHeight={13} color={c.ink3} letterSpacing={0.25} numberOfLines={1}>
-                    ORIGEM {threadOriginLabel(thread).toUpperCase()}
-                  </Mono>
-                </View>
-                <Sans weight="med" size={15} lineHeight={20} color={c.ink} numberOfLines={1}>
-                  {thread.title || 'Conversa Atlas'}
-                </Sans>
-                <Frau italic size={12} lineHeight={17} color={c.ink2} numberOfLines={2}>
-                  {threadHistorySubtitle(thread)}
-                </Frau>
-                <CaptionWhisper
-                  text={`${providerWord(thread.last_provider) ?? 'atlas'} · ${formatRelative(thread.last_message_at ?? thread.updated_at)}`}
-                />
-              </View>
-            </Pressable>
-            <View style={styles.threadRowActions}>
-              <MicroAction
-                label="arquivar"
-                onPress={() => onArchive(thread)}
-              />
-            </View>
-          </View>
-        ))}
+  // REDESIGN · meta diversity computado da lista filtrada · usado em
+  // cada row pra decidir o que mostrar (mode/origin/provider só quando
+  // diferem do default).
+  const metaDiversity = useMemo(() => computeMetaDiversity(filtered), [filtered])
 
-        {filtered.length === 0 && <EmptyInline text="nenhuma sessão encontrada" />}
-      </ScrollView>
+  // REDESIGN · data heterogêneo · alterna entre group-header e thread.
+  // Canon Mail.app: HOJE / ONTEM / ESTA SEMANA / MAIS ANTIGAS sections
+  // como "fichas de processo no escritório do Don" (não rows de spreadsheet).
+  // Build groups → flatten em items pra FlatList consumir virtualizado.
+  type HistoryListItem =
+    | { kind: 'group'; key: string; label: string; count: number }
+    | { kind: 'thread'; key: string; thread: AtlasAiThread; isCurrent: boolean }
+
+  const listItems = useMemo<HistoryListItem[]>(() => {
+    // REDESIGN v3 · threads em runningCli (renderizadas no header como
+    // EmCursoCard) são excluídas dos grupos temporais — evita duplicação
+    // (mesma thread aparecendo em "i. EM CURSO" E em "hoje · 4").
+    const runningIds = new Set(runningCli.map((t) => t.id))
+    const groups: Record<ThreadGroupKey, AtlasAiThread[]> = {
+      today: [],
+      yesterday: [],
+      thisWeek: [],
+      older: [],
+    }
+    for (const thread of filtered) {
+      if (runningIds.has(thread.id)) continue
+      groups[threadGroupKey(thread)].push(thread)
+    }
+    const order: ThreadGroupKey[] = ['today', 'yesterday', 'thisWeek', 'older']
+    const items: HistoryListItem[] = []
+    for (const key of order) {
+      const list = groups[key]
+      if (list.length === 0) continue
+      items.push({
+        kind: 'group',
+        key: `group-${key}`,
+        label: THREAD_GROUP_LABELS[key],
+        count: list.length,
+      })
+      for (const thread of list) {
+        items.push({
+          kind: 'thread',
+          key: thread.id,
+          thread,
+          isCurrent: thread.id === currentThreadId,
+        })
+      }
+    }
+    return items
+  }, [filtered, runningCli, currentThreadId])
+
+  // REDESIGN · renderItem heterogêneo · switch no kind do item.
+  // Group headers ganham peso editorial silencioso (caps mono small +
+  // hairline + count italic). Thread rows usam ConversaRow refinado.
+  const renderItem = useCallback<ListRenderItem<HistoryListItem>>(
+    ({ item }) => {
+      if (item.kind === 'group') {
+        return <HistoryGroupHeader label={item.label} count={item.count} />
+      }
+      return (
+        <ConversaRow
+          thread={item.thread}
+          isCurrent={item.isCurrent}
+          metaDiversity={metaDiversity}
+          onSelect={onSelect}
+          onDelete={onDelete}
+        />
+      )
+    },
+    [metaDiversity, onSelect, onDelete],
+  )
+
+  const keyExtractor = useCallback((item: HistoryListItem) => item.key, [])
+
+  // ROUND 2 · Empty state inteligente: skeleton enquanto carrega
+  // primeiro fetch (lista vazia + refreshing + sem erro), texto canon
+  // editorial caso contrário. Sem shimmer SaaS · só Frau italic dim.
+  const emptyEl = useMemo(() => {
+    if (listRefreshing && filtered.length === 0 && !listError) {
+      return <HistoricoSkeleton />
+    }
+    return <EmptyInline text="nenhuma sessão encontrada" />
+  }, [listRefreshing, filtered.length, listError])
+
+  // ROUND 2 · RefreshControl iOS-native · tint bronze (signature Atlas).
+  // Pull-to-refresh chama mesmo callback que o retry banner usa.
+  const refreshControl = useMemo(
+    () => (
+      <RefreshControl
+        refreshing={listRefreshing}
+        onRefresh={onRetryList}
+        tintColor={c.bronze}
+        colors={[c.bronze]}
+      />
+    ),
+    [listRefreshing, onRetryList, c.bronze],
+  )
+
+  // REDESIGN · ListFooterComponent · botão "ver mais" editorial canônico
+  // OU mensagem editorial silenciosa de "fim do histórico" quando não há
+  // mais. Vocabulário Atlas: sem CTA SaaS gritando · italic Frau bronze
+  // como link inline (mesmo padrão do "+ novo domínio" do DomainSheet).
+  const footerEl = useMemo(() => {
+    if (filtered.length === 0) return null  // empty state cuida disso
+    if (hasMore) {
+      return (
+        <Pressable
+          onPress={onLoadMore}
+          disabled={listRefreshing}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.loadMoreRow,
+            { opacity: listRefreshing ? 0.4 : pressed ? 0.55 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="ver mais conversas"
+        >
+          <Frau italic size={15} lineHeight={22} color={c.bronze}>
+            {listRefreshing ? 'carregando…' : 'ver mais · 10'}
+          </Frau>
+        </Pressable>
+      )
+    }
+    return (
+      <View style={styles.loadMoreRow}>
+        <Frau italic size={13} lineHeight={18} color={c.ink3}>
+          fim do histórico
+        </Frau>
+      </View>
+    )
+  }, [hasMore, filtered.length, listRefreshing, onLoadMore, c.bronze, c.ink3])
+
+  return (
+    <BottomSheet visible={visible} onClose={onClose} height="85%">
+      {/* REDESIGN v4 · Animated.FlatList (reanimated) com itemLayoutAnimation.
+          Quando uma row some via swipe-to-delete, as restantes animam
+          subindo suavemente em ~280ms cubic-bezier (Apple Mail signature) ·
+          em vez do "pulo brusco" do FlatList nativo. Canon Mail.app:
+          HOJE / ONTEM / ESTA SEMANA / MAIS ANTIGAS · agora com transição
+          física entre estados da lista. */}
+      <Animated.FlatList
+        data={listItems}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={headerEl}
+        ListEmptyComponent={emptyEl}
+        ListFooterComponent={footerEl}
+        contentContainerStyle={styles.historicoContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
+        keyboardShouldPersistTaps="handled"
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        itemLayoutAnimation={LinearTransition.duration(280).easing(Easing.bezier(0.32, 0.72, 0.16, 1).factory())}
+      />
     </BottomSheet>
+  )
+}
+
+// REDESIGN v3 · HistoryGroupHeader · ornament canônico Atlas (mesmo padrão
+// do app/review.tsx · linha 50). <Sparkle size={14} /> bronze + linhas
+// hairline c.border flex 1 dos lados + gap 14. Refinado, não grosseiro.
+// Label "hoje/ontem/esta semana/mais antigas" centralizado abaixo em
+// Frau italic 13 ink3 dim · sussurro editorial.
+const HistoryGroupHeader = memo(function HistoryGroupHeader({
+  label,
+  count,
+}: {
+  label: string
+  count: number
+}) {
+  const { c } = useTheme()
+  return (
+    <View style={styles.groupOrnament}>
+      <View style={styles.groupOrnamentRow}>
+        <View style={[styles.groupOrnamentLine, { backgroundColor: c.border }]} />
+        <Sparkle size={14} />
+        <View style={[styles.groupOrnamentLine, { backgroundColor: c.border }]} />
+      </View>
+      <Frau italic size={13} lineHeight={18} color={c.ink3} align="center" style={styles.groupOrnamentLabel}>
+        {label.toLowerCase()} · {count}
+      </Frau>
+    </View>
+  )
+})
+
+// REDESIGN · ConversaRow editorial · canon Atlas.
+// Estrutura nova:
+//   [meta line condicional]              [tempo compacto editorial]
+//   título Sans med 16/22 · 2 linhas max
+//   workspace · turnos · provider (italic Frau dim · só sinais relevantes)
+//
+// Regras editoriais (esconde quando default):
+//   · meta line: só renderiza se metaDiversity tem algum sinal a mostrar
+//     OU se é a thread atual (· ATUAL bronze italic)
+//   · provider: só se diversidade > 1 (mistura claude/codex/gemini)
+//   · origem (CLI/APP): só se diversidade > 1
+//   · turnos: só se message_count > 1 (single-turn não merece signal)
+//   · workspace: só se shortWorkspace devolve algo non-trivial
+//
+// Swipe-left revela APAGAR gestural (canon iOS Mail · SwipeableCard
+// já usado no Inbox). Remove o botão fixo de cada row · ação destrutiva
+// aparece só no gesto para manter o histórico silencioso.
+type ConversaRowProps = {
+  thread: AtlasAiThread
+  isCurrent: boolean
+  metaDiversity: MetaDiversity
+  onSelect: (thread: AtlasAiThread) => void
+  onDelete: (thread: AtlasAiThread) => void
+}
+
+const ConversaRow = memo(function ConversaRow({ thread, isCurrent, metaDiversity, onSelect, onDelete }: ConversaRowProps) {
+  const { c } = useTheme()
+  const isCli = threadIsCli(thread)
+  const mode = atlasAiModeFromThread(thread)
+  const workspace = shortWorkspace(thread)
+  const isHomeWorkspace = workspace === '(home)'
+  const turns = thread.message_count ?? 0
+  const governance = providerGovernanceFromThread(thread)
+  const provider = providerWord(governance.executionProvider ?? thread.last_provider) ?? 'atlas'
+  const timestamp = formatHistoryTimestamp(thread.last_message_at ?? thread.updated_at)
+
+  // VARIANTE B · Regras "default vira silêncio":
+  //   1. Provider claude/atlas (defaults) NUNCA aparecem nos signals.
+  //      Só codex/gemini/etc (não-default).
+  //   2. Origem APP (default mobile/desktop) NUNCA renderiza badge.
+  //      Só CLI (terminal) ganha destaque bronze.
+  //   3. Workspace home directory (`(home)`) renderiza italic dim ink3
+  //      em vez do nome (sussurro "estava na minha sala").
+  //   4. Mode "general" (default) só aparece se há diversidade real.
+  const showProviderSignal = provider !== 'atlas'
+  const showCliBadge = isCli  // APP virou silêncio · só CLI vira badge
+  const showModeChip = metaDiversity.showMode && mode !== 'general'
+  const showAtualChip = isCurrent
+  const showMetaLine = showModeChip || showCliBadge || showAtualChip
+
+  // Signals row · só sinais que adicionam informação. Workspace renderiza
+  // separadamente (pra ficar dim quando é home) — resto vai como string.
+  const signalsSuffix: string[] = []
+  if (turns > 1) signalsSuffix.push(turns === 2 ? '2 turnos' : `${turns} turnos`)
+  if (showProviderSignal) signalsSuffix.push(provider)
+  const hasSignals = workspace || signalsSuffix.length > 0
+
+  return (
+    <SwipeableCard onDelete={() => onDelete(thread)}>
+      <View style={[styles.conversaRow, { borderBottomColor: c.border }]}>
+        <Pressable
+          onPress={() => onSelect(thread)}
+          style={({ pressed }) => [styles.conversaRowBody, { opacity: pressed ? 0.6 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel={`abrir conversa ${thread.title || 'sem título'}`}
+          accessibilityState={{ selected: isCurrent }}
+        >
+          {/* Top row: meta condicional à esquerda + timestamp à direita. */}
+          <View style={styles.conversaTopRow}>
+            <View style={styles.conversaTopMeta}>
+              {showModeChip ? (
+                <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.bronze} weight="med">
+                  {atlasAiModeLabel(mode).toUpperCase()}
+                </Mono>
+              ) : null}
+              {showCliBadge ? (
+                <>
+                  {showModeChip ? (
+                    <Frau italic size={10} lineHeight={14} color={c.ink3} style={styles.conversaTopSep}>
+                      ·
+                    </Frau>
+                  ) : null}
+                  <Mono weight="med" size={10} lineHeight={14} letterSpacing={1.4} color={c.bronze}>
+                    CLI
+                  </Mono>
+                </>
+              ) : null}
+              {showAtualChip ? (
+                <>
+                  {showModeChip || showCliBadge ? (
+                    <Frau italic size={10} lineHeight={14} color={c.ink3} style={styles.conversaTopSep}>
+                      ·
+                    </Frau>
+                  ) : null}
+                  <Frau italic size={11} lineHeight={14} color={c.bronze}>
+                    atual
+                  </Frau>
+                </>
+              ) : null}
+            </View>
+            {timestamp ? (
+              <Frau italic size={11} lineHeight={14} color={c.ink3}>
+                {timestamp}
+              </Frau>
+            ) : null}
+          </View>
+          {showMetaLine || timestamp ? <View style={styles.conversaTopGap} /> : null}
+          {/* Título · 2 linhas max · respira. */}
+          <Sans
+            weight="med"
+            size={16}
+            lineHeight={22}
+            color={c.ink}
+            letterSpacing={-0.1}
+            numberOfLines={2}
+          >
+            {thread.title || 'Conversa Atlas'}
+          </Sans>
+          {/* Signals row · workspace renderiza com cor diferente quando é
+              (home) — italic ink3 dim em vez de ink2. Resto inline. */}
+          {hasSignals ? (
+            <Frau italic size={13} lineHeight={18} color={c.ink2} numberOfLines={1} style={styles.conversaSignals}>
+              {workspace ? (
+                <Frau italic size={13} lineHeight={18} color={isHomeWorkspace ? c.ink3 : c.ink2}>
+                  {workspace}
+                </Frau>
+              ) : null}
+              {workspace && signalsSuffix.length > 0 ? ' · ' : ''}
+              {signalsSuffix.join(' · ')}
+            </Frau>
+          ) : null}
+        </Pressable>
+      </View>
+    </SwipeableCard>
+  )
+})
+
+// ROUND 2 · HistoricoSkeleton · loading state editorial canon. Sem
+// shimmer gradient SaaS, sem dots animados infantis. 5 rows mockados
+// com Frau italic ink3 dim — vocabulário "lendo histórico…" com cadência
+// editorial silenciosa (Don Corleone "esperando o homem terminar").
+const HistoricoSkeleton = memo(function HistoricoSkeleton() {
+  const { c } = useTheme()
+  return (
+    <View style={styles.skeletonContainer}>
+      <Frau italic size={13} lineHeight={19} color={c.ink3} align="center" style={{ marginBottom: 18 }}>
+        consultando memória…
+      </Frau>
+      {Array.from({ length: 5 }).map((_, idx) => (
+        <View key={idx} style={[styles.skeletonRow, { borderBottomColor: c.border }]}>
+          <View style={[styles.skeletonLineMeta, { backgroundColor: `${c.ink3}1A` }]} />
+          <View style={[styles.skeletonLineTitle, { backgroundColor: `${c.ink2}1A` }]} />
+          <View style={[styles.skeletonLineSub, { backgroundColor: `${c.ink3}14` }]} />
+        </View>
+      ))}
+    </View>
+  )
+})
+
+// ROUND 1 · React.memo evita re-render do ThreadHistorySheet quando o
+// parent (AtlasAiSheet) re-renderiza por motivo não relacionado (typing
+// no composer, recebimento de stream, etc). ScrollView com 30+ rows
+// renderiza tudo síncrono — evitar render desnecessário é o ganho mais
+// barato. Comparison default rasa basta: threadList muta por reference,
+// callbacks são useCallback estáveis, primitives comparam por valor.
+const ThreadHistorySheet = memo(ThreadHistorySheetInner)
+
+// threadIsCli · detecta se thread foi originada via Atlas CLI direto
+// (terminal: `atlas chat`, `atlas decide`, etc) vs app GUI (mobile/desktop).
+//
+// FIX (2026-05) · antes usava thread.last_provider.includes('cli'), mas
+// TODOS engines Atlas executam via CLI no backend (claude_cli, codex_cli,
+// gemini_cli) — discriminator errado, marcava 100% das threads como CLI
+// independente da origem real.
+//
+// Discriminator correto: thread.surface, declarada na criação:
+//   · 'cli' / 'atlas_cli' / 'manual'  → CLI direto pelo usuário
+//   · 'atlas_ai_sheet' / 'app' / etc  → app mobile/desktop
+//   · 'background' / 'scheduled'      → job automático (não-CLI direto)
+//   · '' / null                        → desconhecido, conservador: NÃO CLI
+function threadIsCli(thread: AtlasAiThread): boolean {
+  const surface = (thread.surface ?? '').toLowerCase()
+  return surface === 'cli' || surface === 'atlas_cli' || surface === 'manual'
+}
+
+// threadIsRecentlyActive · critério "em curso" pra section i. EM CURSO.
+// Atividade < 30 min indica thread provavelmente ainda rodando. Quando
+// backend publicar status real-time, substituir por metadata.status === 'running'.
+function threadIsRecentlyActive(thread: AtlasAiThread): boolean {
+  const lastActivity = thread.last_message_at ?? thread.updated_at
+  if (!lastActivity) return false
+  try {
+    const lastTs = new Date(lastActivity).getTime()
+    const ageMs = Date.now() - lastTs
+    return ageMs < 30 * 60 * 1000  // 30 min
+  } catch {
+    return false
+  }
+}
+
+// compactThreadWorkspace · substitui /Users/{user} por ~ + remove prefixo
+// "Workspace - " do label canon. Vocabulário canon mockup: paths editoriais
+// curtos (~/develop/Atlas/atlas-app), não verbose absolute paths SaaS.
+function compactThreadWorkspace(thread: AtlasAiThread): string | null {
+  const label = atlasAiContextLabel(thread)
+  if (!label) return null
+  return label
+    .replace(/^Workspace - /, '')
+    .replace(/^\/Users\/[^/]+/, '~')
+}
+
+// REDESIGN · workspace inteligente · só o último segmento + sandbox + home
+// detection. Path completo é metadata operacional, não voz editorial.
+// Hierarquia visual: title é o assunto, workspace é "em que mesa".
+//   ~/develop/Atlas/atlas-server          → atlas-server
+//   ~/develop/Atlas/atlas-app             → atlas-app
+//   /Users/vitorepf  ou  ~                → (home)         · sussurro dim
+//   /private/var/folders/.../tmp.X        → (sandbox)
+//   ~/Develop/atlas                       → atlas
+//   null/undefined                        → null (não renderiza)
+function shortWorkspace(thread: AtlasAiThread): string | null {
+  if (!threadIsCli(thread)) return null
+
+  const label = atlasAiContextLabel(thread)
+  if (!label) return null
+  const cleaned = label.replace(/^Workspace - /, '').trim()
+  // Home directory · /Users/{user} OU ~ OU ~/. Vocabulário canon Atlas:
+  // "(home)" italic dim · não anuncia "estive na minha sala", só está.
+  if (cleaned === '~' || cleaned === '~/' || /^\/Users\/[^/]+\/?$/.test(cleaned) || /^~\/?$/.test(cleaned)) {
+    return '(home)'
+  }
+  // Sandbox/temp paths do macOS · lixo absoluto pra leitor humano.
+  if (/^\/private\/var\/folders\//.test(cleaned) || /\/tmp\.[A-Za-z0-9]+/.test(cleaned)) {
+    return '(sandbox)'
+  }
+  // Último segmento do path · "atlas-server" em vez de "~/develop/Atlas/atlas-server".
+  const segments = cleaned.replace(/^~\//, '').replace(/^\/+/, '').split('/').filter(Boolean)
+  if (segments.length === 0) return null
+  const last = segments[segments.length - 1]
+  // Se o último segmento for vazio ou único caractere, devolve label original
+  // compactado pra não perder contexto.
+  if (!last || last.length < 2) return cleaned
+  return last.toLowerCase()
+}
+
+// REDESIGN · timestamp editorial canon Mail.app · "09:34" mesmo dia /
+// "ontem" / "seg" semana atual / "12 mai" meses / "mai 2025" anos.
+// Substitui "há 43 min" / "há 13 h" / "há 1 d" — vocabulário Atlas
+// silencioso (Don Corleone não diz "há 43 minutos", diz "às nove e meia").
+const WEEKDAYS_PT_BR = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'] as const
+const MONTHS_PT_BR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'] as const
+
+function formatHistoryTimestamp(input: string | null | undefined): string {
+  if (!input) return ''
+  let date: Date
+  try {
+    date = new Date(input)
+    if (isNaN(date.getTime())) return ''
+  } catch {
+    return ''
+  }
+  const now = new Date()
+  const sameDay = date.toDateString() === now.toDateString()
+  if (sameDay) {
+    const hh = String(date.getHours()).padStart(2, '0')
+    const mm = String(date.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
+  // Ontem · single dedicated label (mais quente que "seg" / "ter").
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (date.toDateString() === yesterday.toDateString()) {
+    return 'ontem'
+  }
+  // Esta semana · weekday curto.
+  const ageMs = now.getTime() - date.getTime()
+  const ageDays = ageMs / (1000 * 60 * 60 * 24)
+  if (ageDays < 7) {
+    return WEEKDAYS_PT_BR[date.getDay()]
+  }
+  // Mesmo ano · "12 mai".
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${date.getDate()} ${MONTHS_PT_BR[date.getMonth()]}`
+  }
+  // Anos anteriores · "mai 2025".
+  return `${MONTHS_PT_BR[date.getMonth()]} ${date.getFullYear()}`
+}
+
+// REDESIGN · grupo temporal · canon Mail.app sections.
+//   HOJE · ONTEM · ESTA SEMANA · MAIS ANTIGAS
+// Threads sem last_message_at caem em "MAIS ANTIGAS" (vocabulário silencioso
+// pra "não sabemos quando foi mexido por último").
+type ThreadGroupKey = 'today' | 'yesterday' | 'thisWeek' | 'older'
+
+const THREAD_GROUP_LABELS: Record<ThreadGroupKey, string> = {
+  today: 'Hoje',
+  yesterday: 'Ontem',
+  thisWeek: 'Esta semana',
+  older: 'Mais antigas',
+}
+
+function threadGroupKey(thread: AtlasAiThread): ThreadGroupKey {
+  const ts = thread.last_message_at ?? thread.updated_at
+  if (!ts) return 'older'
+  let date: Date
+  try {
+    date = new Date(ts)
+    if (isNaN(date.getTime())) return 'older'
+  } catch {
+    return 'older'
+  }
+  const now = new Date()
+  if (date.toDateString() === now.toDateString()) return 'today'
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (date.toDateString() === yesterday.toDateString()) return 'yesterday'
+  const ageMs = now.getTime() - date.getTime()
+  const ageDays = ageMs / (1000 * 60 * 60 * 24)
+  if (ageDays < 7) return 'thisWeek'
+  return 'older'
+}
+
+// REDESIGN · meta diversity · decide se vale mostrar mode/origin/provider
+// em cada row baseado em diversidade da lista. Se 100% das threads são CLI,
+// mostrar "CLI" em cada row é ruído. Se mistos (5 CLI + 3 APP), aí sim
+// vale destacar pra distinguir. Mesma lógica pra mode e provider.
+type MetaDiversity = {
+  showMode: boolean      // varia entre threads (geral/saúde/projetos)
+  showOrigin: boolean    // varia entre CLI/APP
+  showProvider: boolean  // varia entre claude/codex/gemini/etc
+}
+
+function computeMetaDiversity(threads: AtlasAiThread[]): MetaDiversity {
+  if (threads.length < 2) {
+    return { showMode: false, showOrigin: false, showProvider: false }
+  }
+  const modes = new Set<string>()
+  const origins = new Set<string>()
+  const providers = new Set<string>()
+  for (const t of threads) {
+    modes.add(atlasAiModeFromThread(t))
+    origins.add(threadIsCli(t) ? 'cli' : 'manual')
+    providers.add(providerWord(t.last_provider) ?? 'atlas')
+  }
+  return {
+    showMode: modes.size > 1,
+    showOrigin: origins.size > 1,
+    showProvider: providers.size > 1,
+  }
+}
+
+// threadActiveDuration · "X MIN" desde início da thread (ou last activity).
+// Usado no card EM CURSO pra meta "RODANDO · 12 MIN · 3 TURNOS".
+function threadActiveDuration(thread: AtlasAiThread): string {
+  const start = thread.created_at ?? thread.last_message_at
+  if (!start) return '? min'
+  try {
+    const ageMs = Date.now() - new Date(start).getTime()
+    const min = Math.max(1, Math.floor(ageMs / 60000))
+    if (min < 60) return `${min} min`
+    const hours = Math.floor(min / 60)
+    return `${hours}h ${min % 60}m`
+  } catch {
+    return '? min'
+  }
+}
+
+// EmCursoCard · canon mockup linha ~2691 .em-curso-card · sessão CLI ativa
+// como card destaque com border-left bronze 3px + bg @4% bronze + meta caps
+// + title + workspace + actions inline. Vocabulário "thread viva":
+//   ✦ RODANDO · 12 MIN · 3 TURNOS  (meta mono caps com ✦ pulsing bronze)
+//   implemente AtlasDecide refactor pra extrair provider policy  (title sans)
+//   codex · /Users/.../atlas-app  (workspace path italic)
+//   CONTINUAR AQUI · VER LOGS · INTERROMPER  (actions mono caps inline)
+function EmCursoCard({
+  thread,
+  onContinue,
+}: {
+  thread: AtlasAiThread
+  onContinue: () => void
+}) {
+  const c = useTheme().c
+  const turnsLabel = thread.message_count === 1 ? '1 turno' : `${thread.message_count} turnos`
+  const workspace = compactThreadWorkspace(thread)
+  const provider = providerWord(thread.last_provider) ?? 'codex'
+
+  return (
+    <View
+      style={[
+        styles.emCursoCard,
+        {
+          backgroundColor: `${c.bronze}0A`,  // bronze @ ~4% opacity
+          borderLeftColor: c.bronze,
+          borderColor: `${c.bronze}33`,
+        },
+      ]}
+    >
+      <View style={styles.emCursoMeta}>
+        <Frau italic size={13} lineHeight={18} color={c.bronze} style={{ marginRight: 6 }}>
+          ✦
+        </Frau>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.bronze} weight="med">
+          RODANDO
+        </Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink3} style={{ marginHorizontal: 8 }}>
+          ·
+        </Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink2}>
+          {threadActiveDuration(thread).toUpperCase()}
+        </Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink3} style={{ marginHorizontal: 8 }}>
+          ·
+        </Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink2}>
+          {turnsLabel.toUpperCase()}
+        </Mono>
+      </View>
+      <Sans weight="med" size={15.5} lineHeight={21} color={c.ink} letterSpacing={-0.05} numberOfLines={3} style={styles.emCursoTitle}>
+        {thread.title || 'Sessão Atlas CLI'}
+      </Sans>
+      {workspace ? (
+        <Frau italic size={13} lineHeight={19} color={c.ink2} numberOfLines={2} style={styles.emCursoWorkspace}>
+          {provider} · {workspace}
+        </Frau>
+      ) : null}
+      <View style={styles.emCursoActions}>
+        <Pressable onPress={onContinue} hitSlop={6} style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}>
+          <Mono weight="med" size={10} lineHeight={14} letterSpacing={1.4} color={c.bronze}>
+            CONTINUAR AQUI
+          </Mono>
+        </Pressable>
+        <Mono size={10} lineHeight={14} color={c.ink3} style={styles.emCursoActionSep}>·</Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink2}>
+          VER LOGS
+        </Mono>
+        <Mono size={10} lineHeight={14} color={c.ink3} style={styles.emCursoActionSep}>·</Mono>
+        <Mono size={10} lineHeight={14} letterSpacing={1.4} color={c.ink2}>
+          INTERROMPER
+        </Mono>
+      </View>
+    </View>
   )
 }
 
@@ -4607,16 +6281,46 @@ function canRunQualityAction(action: AtlasAiQualityAction): boolean {
   return action.status === 'queued' || action.status === 'failed'
 }
 
+// qualitySummary · vocabulário canon Atlas (Don Corleone "escritório em ordem"):
+// quando todos os contadores são zero, mostra apenas o score (silêncio editorial);
+// quando há alertas, mostra apenas os relevantes (omite zeros). Lógica idêntica
+// ao operacaoSummary do ContinuityPanel — preserva legibilidade e respeita o
+// canon: palavra carrega significado, não enumeração de zeros.
+//
+// Exemplos:
+//   · todos zero · "89/100"
+//   · só revisar 2 · "89/100 · 2 a revisar"
+//   · só falhas 1 · "89/100 · 1 falha"
+//   · revisar + falhas · "89/100 · 2 a revisar · 1 falha"
+//   · sem quality data + ações 3 · "3 ações abertas"
+//   · sem quality data + zero ações · "em repouso"
 function qualitySummary(
   observability: AiObservabilityResponse | null,
   openActions: AtlasAiQualityAction[],
 ): string {
   const quality = observability?.quality
-  if (!quality?.available) return `ações abertas ${openActions.length}`
+  const actionsCount = openActions.length
+
+  // Sem quality data · vocabulário fallback minimalista
+  if (!quality?.available) {
+    return actionsCount === 0 ? 'em repouso' : `${actionsCount} ${actionsCount === 1 ? 'ação aberta' : 'ações abertas'}`
+  }
+
   const avg = typeof quality.average_score === 'number' ? `${quality.average_score}/100` : 'sem média'
   const review = quality.by_status?.needs_review ?? 0
   const failed = quality.by_status?.failed ?? 0
-  return `${avg} · revisar ${review} · falhas ${failed} · ações ${openActions.length}`
+
+  // Todos zero · só score (silêncio canon Atlas)
+  if (review === 0 && failed === 0 && actionsCount === 0) {
+    return avg
+  }
+
+  // Há alertas · monta lista omitindo zeros
+  const parts: string[] = [avg]
+  if (review > 0) parts.push(`${review} a revisar`)
+  if (failed > 0) parts.push(`${failed} ${failed === 1 ? 'falha' : 'falhas'}`)
+  if (actionsCount > 0) parts.push(`${actionsCount} ${actionsCount === 1 ? 'ação' : 'ações'}`)
+  return parts.join(' · ')
 }
 
 function filterThreads(threads: AtlasAiThread[], query: string): AtlasAiThread[] {
@@ -4683,10 +6387,9 @@ function threadOriginLabel(thread: AtlasAiThread): string {
   return humanizeRuntimeKey(thread.source_type)
 }
 
-function modeFilterColor(filter: ThreadHistoryModeFilter, c: ReturnType<typeof useTheme>['c']): string {
-  if (filter === 'all') return c.ink2
-  return modeColor(filter, c)
-}
+// modeFilterColor · removido · usado pelos cards 2x2 antigos do
+// ThreadHistorySheet (canon v18 substituiu por filter strip horizontal sem
+// bullets coloridos). modeColor preservado · ainda usado em AtlasAiModeNotice.
 
 function modeColor(mode: RoutingMode, c: ReturnType<typeof useTheme>['c']): string {
   switch (mode) {
@@ -5029,6 +6732,33 @@ function decisionModeLabel(mode: unknown): string {
   if (mode === 'manual_override') return 'override manual'
   if (mode === 'atlas_decide') return 'atlas decide'
   return typeof mode === 'string' && mode.trim() ? mode : 'atlas decide'
+}
+
+type ThreadProviderGovernance = {
+  decisionMode: string | null
+  decisionAuthority: string | null
+  executionProvider: string | null
+  manualOverride: boolean
+}
+
+function providerGovernanceFromThread(thread: AtlasAiThread): ThreadProviderGovernance {
+  const metadata = thread.metadata ?? {}
+  const governance = metadataRecord(metadata, 'provider_governance')
+  const decisionMode = metadataString(governance ?? metadata, 'decision_mode')
+  const decisionAuthority = metadataString(governance ?? metadata, 'decision_authority')
+  const executionProvider =
+    metadataString(governance ?? metadata, 'execution_provider')
+    ?? metadataString(governance ?? metadata, 'selected_provider')
+    ?? thread.last_provider
+    ?? null
+  const manualOverrideRaw = governance?.manual_override
+
+  return {
+    decisionMode,
+    decisionAuthority,
+    executionProvider,
+    manualOverride: manualOverrideRaw === true || decisionMode === 'manual_override' || decisionAuthority === 'operator_override',
+  }
 }
 
 function executorAsProviderWord(executor: RoutingExecutor): string | undefined {
@@ -5900,17 +7630,33 @@ export type { RoutingExecutor }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  // v18 · screen mode container · canon Atlas AI como tela primária.
+  // flex 1 sem absolute (não é overlay) · backgroundColor cream sólido ·
+  // safe-area top inset aplicado externamente (paddingTop). Diferente do
+  // SideSheet que tem position absolute + zIndex 58.
+  screenContainer: {
+    flex: 1,
+  },
+  // Header 3-column · canon mockup atlas-ai-header (linha 2184).
+  // alignItems baseline (não center) — alinha tipografia pelo baseline,
+  // que é como mockup "Atlas" Frau 26 alinha com "← Voltar" Sans 15 e
+  // ícones na direita. Editorial > geométrico.
+  // Sem height fixo — paddingTop+paddingBottom controlam respiração.
+  // borderBottomColor é setado inline com bronze@18% (vocabulário canon
+  // do mockup, não c.border cinza).
   header: {
-    height: 64,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'baseline',
     paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 8,
   },
+  // headerSlot esquerdo/direito flex 1 — empurra título "Atlas" pra centro
+  // sem largura fixa. Mockup: .left { flex: 1 } / .right { flex: 1 }.
   headerSlot: {
-    width: 104,
-    height: 44,
+    flex: 1,
     justifyContent: 'center',
   },
   headerSlotRight: {
@@ -5918,13 +7664,11 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'flex-end',
     gap: 18,
   },
   headerAction: {
-    width: 36,
-    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -6088,36 +7832,10 @@ const styles = StyleSheet.create({
     marginTop: 14,
     gap: 7,
   },
-  microLine: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-  },
-  microLabel: {
-    width: 78,
-    paddingTop: 0,
-  },
-  microValue: {
-    flex: 1,
-  },
-  microSection: {
-    marginTop: 18,
-  },
-  microSectionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  microSectionRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-  },
-  microSectionBody: {
-    marginTop: 10,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  // microAction · ainda usado em SearchSheet/OperationsSheet/ExecutionSheet/
+  // SkillsSheet/SessionMapSheet (8 usos). Preservado. Os outros micro* styles
+  // (microLine, microLabel, microValue, microSection*, runtimeStrip) foram
+  // removidos · canon v18 substitui por SectionHead + TocRow + DestinoItem.
   microAction: {
     minHeight: 30,
     paddingHorizontal: 12,
@@ -6126,10 +7844,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  runtimeStrip: {
+  // v18 · canon mockup atlas-home-editorial · sub-styles do ContinuityPanel
+  // refatorado pra usar SectionHead + TocRow + DestinoItem editorial.
+  // continuitySection · wrapper de cada section (i. ESTADO / ii. OPERAÇÕES /
+  // iii. VISTAS) · marginBottom 12 entre sections (cadência editorial).
+  continuitySection: {
+    marginBottom: 12,
+  },
+  // Header editorial canon · eyebrow CONTINUIDADE DA SESSÃO + title
+  // "Atlas · sessão atual." (Frau italic 22). marginLeft/Right 32 alinha
+  // com trilho interno canon do app. marginTop 12 dá respiro entre o
+  // toggle "· recolher" e o eyebrow. marginBottom 0 — hr-section abaixo
+  // encosta sem gap.
+  continuityHeader: {
+    marginLeft: 32,
+    marginRight: 32,
+    marginTop: 12,
+    marginBottom: 14,
+  },
+  continuityHeaderEyebrow: {
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  // hr-section · canon mockup .hr-section · 1px ink @ 12% opacity.
+  continuityHeaderRule: {
+    height: 1,
+    marginLeft: 32,
+    marginRight: 32,
+    marginBottom: 4,
+  },
+  // syncDateline · canon mockup .continuity-sync · italic Frau 14 ink2 com
+  // em-dash inicial. marginTop 18 dá respiração entre o bloco i. ESTADO e
+  // a próxima section. marginLeft 32 alinha com trilho interno canon.
+  syncDateline: {
+    marginTop: 18,
+    marginBottom: 6,
+    marginLeft: 32,
+    marginRight: 32,
+  },
+  // vistasStrip · filter strip horizontal italic Frau · vocabulário canon do
+  // filter strip do Inbox · Capturas. Items inline separados por · ink3.
+  // marginLeft 32 alinha com trilho interno canon.
+  vistasStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     marginTop: 14,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    marginLeft: 32,
+    marginRight: 32,
+    gap: 0,
+  },
+  vistasItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  vistasItemActive: {
+    // Underline bronze sutil pro filter ativo · vocabulário canon Atlas
+    // (mesmo do filter strip do Inbox).
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+  },
+  vistasSep: {
+    paddingHorizontal: 8,
+    opacity: 0.45,
   },
   sheetContent: {
     paddingHorizontal: 28,
@@ -6244,10 +8022,18 @@ const styles = StyleSheet.create({
   errorRow: {
     paddingBottom: 24,
   },
+  // Empty state container · canon ultra-premium · puxa o centro visual pra
+  // cima do terço geométrico (paddingBottom 96 maior que paddingTop 48)
+  // criando vibe "pergunta sobe das mãos" — Don Corleone. Quando o usuário
+  // abre o app, sua atenção cai naturalmente no terço-superior visual,
+  // não no meio geométrico (que parece "balão flutuando").
   empty: {
+    flex: 1,
     alignItems: 'center',
-    paddingTop: 96,
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 48,
+    paddingBottom: 96,
   },
   turn: {
     paddingBottom: 8,
@@ -6265,11 +8051,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 22,
   },
-  threadPickerContent: {
-    paddingHorizontal: 28,
-    paddingTop: 24,
-    paddingBottom: 36,
-  },
+  // searchInput · ainda usado em SearchSheet (busca em traces). Preservado.
+  // Os outros thread* styles (threadPickerContent, threadModeGrid,
+  // threadModeCard, threadRow, threadMarker, threadRowBody, threadRowActions,
+  // threadRowHeader, threadFocusDot) foram removidos · canon v18 substitui
+  // por historicoContent + filter strip + nova/conversaRow.
   searchInput: {
     fontFamily: fonts.sans,
     fontSize: 15,
@@ -6280,54 +8066,241 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     marginBottom: 12,
   },
-  threadModeGrid: {
+  // v18 · canon mockup atlas-home-editorial · ThreadHistorySheet refatorado
+  // pra layout editorial com filter strip horizontal + sections numeradas.
+  // Substitui threadPickerContent + threadModeGrid + threadRow do layout
+  // antigo (que usava cards 2x2 com bullets coloridos · vocabulário SaaS).
+  historicoContent: {
+    paddingTop: 20,
+    paddingBottom: 36,
+  },
+  historicoSub: {
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  // ROUND 1 · Error banner editorial · border-left recRedMuted hairline
+  // accent + bg subtle 4% recRedMuted (igual em-curso-card pattern).
+  // Vocabulário canon: sem badge SaaS, sem ícone alarme. Texto Frau
+  // italic + retry mono caps inline bronze. Trilho interno marginHoriz 32.
+  historicoErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 32,
+    marginBottom: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderLeftWidth: 3,
+  },
+  // Search line · hairline-only no topo · canon: minimal, sem bg cream
+  // rounded SaaS. paddingHorizontal 32 alinha com trilho interno canon.
+  historicoSearch: {
+    fontFamily: fonts.sans,
+    fontSize: 15,
+    lineHeight: 22,
+    minHeight: 42,
+    marginHorizontal: 32,
+    paddingHorizontal: 0,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: 18,
+  },
+  // Filter strip horizontal · canon mockup .modo-filter · italic Frau inline
+  // separados por · ink3 · counts mono entre parens · underline bronze ativo.
+  // Trilho interno marginLeft/Right 32. paddingVertical 4 dá hit area decente.
+  historicoFilter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 4,
+    alignItems: 'center',
+    marginHorizontal: 32,
+    marginBottom: 24,
+    gap: 0,
+  },
+  historicoFilterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  historicoFilterActive: {
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+  },
+  historicoFilterCount: {
+    marginLeft: 4,
+  },
+  historicoFilterSep: {
+    paddingHorizontal: 8,
+    opacity: 0.45,
+  },
+  // Section wrapper · marginBottom 12 entre sections (cadência editorial canon).
+  historicoSection: {
     marginBottom: 12,
   },
-  threadModeCard: {
-    width: '47.5%',
-    minHeight: 82,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    gap: 5,
+  // ROUND 2 · Section header-only wrapper · usado quando rows ficam fora
+  // (FlatList data) mas section title + Nova conversa entry continuam no
+  // ListHeaderComponent. Sem marginBottom (FlatList items já têm
+  // espaçamento próprio).
+  historicoSectionHeaderOnly: {
+    marginBottom: 0,
   },
-  threadModeCardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  // ROUND 2 · Skeleton container · cadência editorial silenciosa.
+  // marginHorizontal 32 alinha com trilho interno canon (mesmo das rows).
+  // marginTop pra respirar do header.
+  skeletonContainer: {
+    paddingHorizontal: 32,
+    marginTop: 8,
   },
-  threadRow: {
+  skeletonRow: {
+    paddingVertical: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  skeletonLineMeta: {
+    width: 84,
+    height: 8,
+    borderRadius: 1,
+    marginBottom: 12,
+  },
+  skeletonLineTitle: {
+    width: '78%',
+    height: 14,
+    borderRadius: 1,
+    marginBottom: 10,
+  },
+  skeletonLineSub: {
+    width: '52%',
+    height: 10,
+    borderRadius: 1,
+  },
+  // EM CURSO card · canon mockup .em-curso-card · sessão CLI ativa.
+  // Border-left bronze 3px + bg subtle (@4% bronze) · vocabulário "thread viva
+  // com peso bronze". marginHorizontal 32 alinha com trilho interno canon.
+  // padding 18 vertical + 22 horizontal pra respirar com o conteúdo denso.
+  emCursoCard: {
+    marginHorizontal: 32,
+    marginTop: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    borderLeftWidth: 3,
+    borderTopWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderRadius: 2,
+  },
+  emCursoMeta: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'baseline',
+    marginBottom: 10,
+  },
+  emCursoTitle: {
+    marginBottom: 6,
+  },
+  emCursoWorkspace: {
+    marginBottom: 14,
+  },
+  emCursoActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 0,
+  },
+  emCursoActionSep: {
+    marginHorizontal: 12,
+    opacity: 0.55,
+  },
+  // Nova conversa anchor · hairline simples acima (mesmo padrão dos
+  // separadores entre conversa-rows da lista). Sem traço bronze que
+  // destacava demais e quebrava o vocabulário visual uniforme da tela.
+  novaConversaAnchor: {
+    marginHorizontal: 32,
+    paddingTop: 14,
+    borderTopWidth: 1,
+  },
+  // Nova conversa row · label Frau med 17 + sub italic 13.
+  // SEM border-bottom · o ornament temporal "─ ✦ ─" abaixo já dá
+  // separação visual editorial. Antes tinha hairline-bottom que ficava
+  // redundante (duas linhas próximas competindo).
+  novaConversaRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 14,
     paddingVertical: 14,
+    paddingBottom: 18,
   },
-  threadMarker: {
-    width: 28,
-    paddingTop: 4,
+  novaConversaGlyph: {
+    width: 18,
+    textAlign: 'center',
   },
-  threadRowBody: {
+  novaConversaText: {
     flex: 1,
-    gap: 3,
+    gap: 4,
   },
-  threadRowActions: {
-    paddingLeft: 10,
-    paddingTop: 2,
+  // REDESIGN · Conversa row editorial · canon Mail.app + Atlas DNA.
+  // marginHorizontal 32 alinha com trilho interno · paddingVertical 16
+  // dá respiro entre rows · hairline bottom dinâmico (cor vem do theme,
+  // funciona em light/dark sem alpha hardcoded).
+  conversaRow: {
+    marginHorizontal: 32,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  threadRowHeader: {
+  conversaRowBody: {
+    // gap 0 · espaçamento entre top-row, title e signals controlado
+    // por marginTop dedicado em cada elemento (controle fino editorial).
+  },
+  // REDESIGN · Top row · meta condicional à esquerda + timestamp à direita.
+  // Sempre renderiza (timestamp sozinho ainda merece a row). Baseline
+  // alignment pra texto editorial alinhado.
+  conversaTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    minHeight: 14,
+  },
+  conversaTopMeta: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexShrink: 1,
+  },
+  conversaTopSep: {
+    marginHorizontal: 6,
+  },
+  // Gap entre top-row e título · 6pt · respiro editorial sem perder densidade.
+  conversaTopGap: {
+    height: 6,
+  },
+  // Signals row (workspace · turnos · provider) · marginTop 6 entre title.
+  conversaSignals: {
+    marginTop: 6,
+  },
+  // REDESIGN v3 · Group ornament canônico · espelha app/review.tsx
+  // (linha 161): flexDirection row + alignItems center + gap 14 +
+  // marginVertical 26. Sparkle 14pt bronze + hairlines flex 1 dos
+  // lados. Refinado, mesmo vocabulário visual usado em outras telas.
+  groupOrnament: {
+    marginTop: 26,
+    marginBottom: 14,
+  },
+  groupOrnamentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 3,
+    gap: 14,
+    marginHorizontal: 32,
   },
-  threadFocusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  groupOrnamentLine: {
+    flex: 1,
+    // height 1px sólido (não hairlineWidth) · canon app/review.tsx:162.
+    // hairlineWidth = ~0.5px no retina = quase invisível, fica delicado
+    // demais. Review usa 1px sólido pra peso visual correto.
+    height: 1,
+  },
+  groupOrnamentLabel: {
+    marginTop: 10,
+  },
+  // REDESIGN · "Ver mais" footer · paddingVertical 28 dá respiro entre
+  // último row e o botão · centralizado como link editorial Frau italic
+  // bronze (mesmo vocabulário do "+ novo domínio" inline link).
+  loadMoreRow: {
+    alignItems: 'center',
+    paddingVertical: 28,
   },
   qualityBar: {
     marginTop: 14,
@@ -6507,8 +8480,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     justifyContent: 'center',
   },
+  // Footer (composer + status routing) · canon mockup atlas-ai-composer
+  // (linha 2316). paddingHorizontal 24 (não 28 ad-hoc anterior) — alinha
+  // com o mesmo trilho horizontal do header (24px). paddingTop 4 mantido,
+  // paddingBottom dinâmico via footerPaddingBottom (insets safe-area iPhone).
   footer: {
-    paddingHorizontal: 28,
+    paddingHorizontal: 24,
     paddingTop: 4,
   },
   copyToast: {

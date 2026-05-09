@@ -5,10 +5,20 @@ import type { DomainKey } from './domains'
 
 export type CaptureMode = 'audio' | 'text' | 'photo'
 export type CaptureSensitivity = 'normal' | 'private' | 'sensitive'
+// v18 canon · destino editorial após captura · section ii do mockup
+// "Categorizar + Elaborar". Conversar abre Atlas AI, Tarefa/Projeto estruturam
+// via Atlas Decide, Salvar vai pro inbox raw.
+export type DomainDestino = 'conversar' | 'tarefa' | 'projeto' | 'salvar'
 export interface CaptureSettings {
   mode: CaptureMode
   domain: DomainKey
   sensitivity: CaptureSensitivity
+}
+
+export interface ConfirmDeleteCopy {
+  title?: string
+  body?: string
+  confirmLabel?: string
 }
 
 // Overlay registry — every sheet/modal in the app routes through here so
@@ -30,10 +40,14 @@ interface OverlayState {
   open: OverlayKey | null
   // Detail / edit context
   item: InboxItem | null
-  // Domain picker callback (resolves with chosen domain or null on skip)
-  onPickDomain: ((d: DomainKey | null) => void) | null
+  // Domain picker callback · v18 canon expandido · 2º arg opcional `destino`
+  // (Conversar/Tarefa/Projeto/Salvar) pra suporte ao mockup canônico
+  // "Categorizar + Elaborar" com sections i. Sobre o quê é? + ii. O que fazer?
+  // Callbacks antigos que só usam `d` continuam funcionando (2º arg ignorado).
+  onPickDomain: ((d: DomainKey | null, destino?: DomainDestino) => void) | null
   // Confirm-delete callback (resolves true on confirm, false on cancel)
   onConfirmDelete: ((confirmed: boolean) => void) | null
+  confirmDeleteCopy: ConfirmDeleteCopy | null
   // Inbox domain filter — current value and select callback
   inboxDomainFilter: InboxDomainFilter
   onPickInboxDomainFilter: ((d: InboxDomainFilter) => void) | null
@@ -43,8 +57,8 @@ interface OverlayState {
   atlasAiThreadId: string | null
 
   openDetail: (item: InboxItem) => void
-  openDomain: (cb: (d: DomainKey | null) => void) => void
-  openConfirmDelete: (cb: (confirmed: boolean) => void) => void
+  openDomain: (cb: (d: DomainKey | null, destino?: DomainDestino) => void) => void
+  openConfirmDelete: (cb: (confirmed: boolean) => void, copy?: ConfirmDeleteCopy) => void
   openEdit: (item: InboxItem) => void
   openSettings: () => void
   openMic: () => void
@@ -78,6 +92,7 @@ export const useOverlays = create<OverlayState>((set) => ({
   item: null,
   onPickDomain: null,
   onConfirmDelete: null,
+  confirmDeleteCopy: null,
   inboxDomainFilter: 'all',
   onPickInboxDomainFilter: null,
   captureSettings: null,
@@ -90,7 +105,7 @@ export const useOverlays = create<OverlayState>((set) => ({
 
   openDetail: (item) => set({ open: 'detail', item }),
   openDomain: (cb) => set({ open: 'domain', onPickDomain: cb }),
-  openConfirmDelete: (cb) => set({ open: 'confirmDelete', onConfirmDelete: cb }),
+  openConfirmDelete: (cb, copy) => set({ open: 'confirmDelete', onConfirmDelete: cb, confirmDeleteCopy: copy ?? null }),
   openEdit: (item) => set({ open: 'edit', item }),
   openSettings: () => set({ open: 'settings' }),
   openMic: () => set({ open: 'mic' }),
@@ -113,6 +128,7 @@ export const useOverlays = create<OverlayState>((set) => ({
       atlasAiThreadId: null,
       onPickDomain: null,
       onConfirmDelete: null,
+      confirmDeleteCopy: null,
       onPickInboxDomainFilter: null,
       onUpdateCaptureSettings: null,
     }),

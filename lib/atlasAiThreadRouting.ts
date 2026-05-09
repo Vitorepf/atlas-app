@@ -47,9 +47,48 @@ export function atlasAiFocusForRouting(routing: Pick<AtlasAiThreadRoutingState, 
 
 export function atlasAiModeFromThread(thread: AtlasAiThreadRoutingLike | null | undefined): AtlasAiMode {
   const metadata = thread?.metadata ?? {}
+
+  // 1. Modo explícito (mobile/sheet salva isso após routing)
   const explicit = metadataString(metadata, 'current_mode') ?? metadataString(metadata, 'atlas_mode')
   if (explicit) return normalizeAtlasAiMode(explicit)
 
+  // 2. CLI workflow mode · `atlas dev` envia `atlas_workflow_mode: 'dev'`
+  //    no payload (que NÃO vai pro `atlas_mode` no AiThreadResolver).
+  //    `normalizeAtlasAiMode` já mapeia 'dev'/'debug' → 'programming'.
+  const workflow = metadataString(metadata, 'atlas_workflow_mode') ?? metadataString(metadata, 'workflow_mode')
+  if (workflow) {
+    const normalized = normalizeAtlasAiMode(workflow, 'general')
+    if (normalized !== 'general') return normalized
+  }
+
+  // 3. Routing task explícito · 'dev'/'debug'/'execute' = programming,
+  //    'research'/'analysis' = operational. Espelha o mapping do
+  //    AtlasAiPolicyService::mode() do backend.
+  const task = metadataString(metadata, 'routing_task')
+  if (task) {
+    const t = task.trim().toLowerCase()
+    if (t === 'dev' || t === 'debug' || t === 'execute' || t === 'quality_repair') return 'programming'
+    if (t === 'research' || t === 'analysis') return 'operational'
+  }
+
+  // 4. Requested agent / last agent slug · agentes específicos sinalizam
+  //    intenção. Backend Atlas usa agent slugs PT-BR ('desenvolvedor',
+  //    'pesquisador', 'analista') além dos en-US ('dev', 'code', 'engineer').
+  //    Real exemplo: thread `019e0cf8` tem requested_agent='desenvolvedor'
+  //    e last_agent_slug='desenvolvedor' (verificado no banco).
+  const agent = metadataString(metadata, 'requested_agent')
+    ?? metadataString(metadata, 'last_agent_slug')
+  if (agent) {
+    const a = agent.trim().toLowerCase()
+    // PT-BR explícitos (canon Atlas)
+    if (a === 'desenvolvedor' || a === 'engenheiro' || a === 'programador') return 'programming'
+    if (a === 'pesquisador' || a === 'analista' || a === 'consultor') return 'operational'
+    // EN/substring fallback
+    if (a.includes('dev') || a.includes('code') || a.includes('engineer')) return 'programming'
+    if (a.includes('research') || a.includes('analy')) return 'operational'
+  }
+
+  // 5. Fallback final · derive de focus (geralmente 'general' se nada veio).
   const focus = atlasAiFocusFromThread(thread)
   if (focus === 'programming') return 'programming'
   if (focus === 'operational') return 'operational'

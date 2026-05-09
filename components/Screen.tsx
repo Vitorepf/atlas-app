@@ -18,7 +18,13 @@ const atlasSettle = new Keyframe({
 
 interface Props extends ScrollViewProps {
   children: ReactNode
-  // Skip the cartography background (capture screen, etc.)
+  // Skip the cartography background. Two usos canônicos:
+  //   1. Capture screen e fluxos que mountam o próprio fundo
+  //   2. Home editorial — cream puro, peso pela ausência. Os hairlines dos
+  //      próprios componentes (masthead bottom, hr-section, toc-row borders,
+  //      folio-footer top) já carregam toda a estrutura visual; grade de
+  //      fundo viraria doubling. Vocabulário Patek/Cucinelli/NYRB:
+  //      "the page that needs no scaffolding."
   bare?: boolean
   // Extra top padding above the safe area (defaults to 24).
   topExtra?: number

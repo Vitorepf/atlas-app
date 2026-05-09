@@ -61,7 +61,12 @@ export function DetailSheet() {
             openConfirmDelete((confirmed) => {
               if (confirmed) {
                 void deleteCapture(item.id).then((deleted) => {
-                  showToast(deleted ? 'Captura excluída' : 'Falha ao excluir captura')
+                  if (deleted) {
+                    close()
+                    showToast('Captura excluída')
+                    return
+                  }
+                  showToast('Falha ao excluir captura')
                 })
               }
             })

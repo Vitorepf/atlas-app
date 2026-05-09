@@ -98,6 +98,7 @@ function ThemedRoot() {
           <Stack.Screen name="routines" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="bitacula" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="memory"   options={{ animation: 'slide_from_right', animationDuration: 320 }} />
+          <Stack.Screen name="agenda"   options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           {/* Modais (capture/detail/decision) · slide_from_bottom é apropriado
               aqui · são overlays operacionais, não navegação principal. */}
           <Stack.Screen name="capture"  options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />

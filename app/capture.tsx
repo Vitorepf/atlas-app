@@ -124,7 +124,9 @@ export default function CaptureScreen() {
         const permission = await requestRecordingPermissionsAsync()
         if (!permission.granted) {
           openMic()
-          router.replace('/')
+          // v18: rota `/` virou Atlas AI; "voltar pra home antiga" agora é /edicao
+          // (exemplar editorial · agenda/operação/tecido/portas).
+          router.replace('/edicao')
           return
         }
 

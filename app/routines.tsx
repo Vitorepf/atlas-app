@@ -236,13 +236,13 @@ export default function RoutinesScreen() {
           </Mono>
         </View>
         <Pressable
-          onPress={() => router.replace('/')}
+          onPress={() => router.replace('/edicao')}
           style={({ pressed }) => [
             styles.roundAction,
             { borderColor: c.border, backgroundColor: pressed ? c.surface : 'transparent' },
           ]}
         >
-          <Sans weight="sb" size={12} color={c.prussian}>Home</Sans>
+          <Sans weight="sb" size={12} color={c.prussian}>Edição</Sans>
         </Pressable>
       </View>
 

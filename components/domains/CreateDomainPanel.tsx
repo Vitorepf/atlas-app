@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Pressable, StyleSheet, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import { Mono, Sans } from '../../design/Type'
+import { Frau, Mono, Sans } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import { useAtlasStore } from '../../lib/atlasStore'
 import type { Domain } from '../../lib/domains'
@@ -78,20 +78,26 @@ export function CreateDomainPanel({ onCreated }: Props) {
   }
 
   if (!expanded) {
+    // v18 canon Atlas · link editorial inline (não SaaS button). Vocabulário
+    // "+ novo domínio" italic Frau bronze · sem background/border/radius.
+    // Aparece centralizado abaixo dos domains · respira no papel cream.
     return (
       <Pressable
         onPress={() => {
           setExpanded(true)
           setError(null)
         }}
+        hitSlop={8}
         style={({ pressed }) => [
-          styles.newButton,
-          { borderColor: c.border, backgroundColor: c.surface, opacity: pressed ? 0.72 : 1 },
+          styles.newLink,
+          { opacity: pressed ? 0.55 : 1 },
         ]}
+        accessibilityRole="button"
+        accessibilityLabel="adicionar novo domínio"
       >
-        <Sans weight="med" size={14} color={c.prussian}>
-          Novo domínio
-        </Sans>
+        <Frau italic size={14} lineHeight={20} color={c.bronze}>
+          + novo domínio
+        </Frau>
       </Pressable>
     )
   }
@@ -189,14 +195,13 @@ function colorsForSlug(slug: string): { light: string; dark: string } {
 }
 
 const styles = StyleSheet.create({
-  newButton: {
-    minHeight: 44,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
+  // v18 canon · link editorial inline · sem background/border/radius SaaS.
+  // marginTop 18 dá respiro entre último domain e o link. paddingVertical 10
+  // garante hit area decente (~40pt total com a typography).
+  newLink: {
+    marginTop: 18,
+    paddingVertical: 10,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    marginTop: 12,
   },
   panel: {
     borderRadius: 14,

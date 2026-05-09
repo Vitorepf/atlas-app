@@ -21,6 +21,7 @@ export type Block =
   | { type: 'quote'; spans: InlineSpan[] }
   | { type: 'code'; text: string; lang?: string }
   | { type: 'divider' }
+  | { type: 'table'; headers: InlineSpan[][]; rows: InlineSpan[][][] }
 
 const INLINE_RE =
   /(`+)([^`\n]+?)\1|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*\*([^*\n]+?)\*\*\*|\*\*([^*\n]+?)\*\*|\*([^*\n]+?)\*/g
@@ -57,6 +58,11 @@ const HEADING_RE = /^(#{1,3})\s+(.+?)\s*#*\s*$/
 const ULIST_RE = /^[-*+]\s+/
 const OLIST_RE = /^\d+\.\s+/
 const QUOTE_RE = /^>\s?/
+// Tabela GFM · header linha com ≥1 pipe + linha separator (| --- | --- |)
+// abaixo. Pipes externos opcionais (| a | b | OU a | b). Pra evitar
+// false-positives em texto como "x | y", exigimos a separator line.
+const TABLE_PIPE_RE = /\|/
+const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/
 
 export function parseBlocks(text: string): Block[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
@@ -130,6 +136,25 @@ export function parseBlocks(text: string): Block[] {
       continue
     }
 
+    // Tabela GFM · só consome se a próxima linha É um separator válido.
+    // Senão, deixa cair no parágrafo (texto solto com pipes).
+    if (TABLE_PIPE_RE.test(line) && i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1])) {
+      const headers = splitTableRow(line).map(parseInline)
+      i += 2  // skip header + separator
+      const rows: InlineSpan[][][] = []
+      while (
+        i < lines.length &&
+        lines[i].trim() !== '' &&
+        TABLE_PIPE_RE.test(lines[i]) &&
+        !isBlockStart(lines[i])
+      ) {
+        rows.push(splitTableRow(lines[i]).map(parseInline))
+        i++
+      }
+      blocks.push({ type: 'table', headers, rows })
+      continue
+    }
+
     const buf: string[] = []
     while (i < lines.length && lines[i].trim() !== '' && !isBlockStart(lines[i])) {
       buf.push(lines[i])
@@ -149,4 +174,35 @@ function isBlockStart(line: string): boolean {
     /^```/.test(line) ||
     DIVIDER_RE.test(line)
   )
+}
+
+// Split de linha de tabela em células · respeita pipes externos opcionais
+// e trim de cada célula. Ex: "| a | b | c |" → ["a", "b", "c"].
+// Pipes escapados com \| ficam como literal "|" dentro de uma célula.
+function splitTableRow(line: string): string[] {
+  // Remove pipes externos
+  let trimmed = line.trim()
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1)
+  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1)
+
+  // Split em pipes não-escapados (suporta \| como literal)
+  const cells: string[] = []
+  let current = ''
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    const next = trimmed[i + 1]
+    if (ch === '\\' && next === '|') {
+      current += '|'
+      i++
+      continue
+    }
+    if (ch === '|') {
+      cells.push(current.trim())
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  cells.push(current.trim())
+  return cells
 }

@@ -49,7 +49,69 @@ function BlockView({ block, tone }: { block: Block; tone: Tone }) {
       )
     case 'divider':
       return <DividerEditorial />
+    case 'table':
+      return <TableBlock headers={block.headers} rows={block.rows} tone={tone} />
   }
+}
+
+// TableBlock editorial · canon Atlas (Patek dial subdial register).
+// Sem stripes alternantes SaaS, sem cores de células, sem ícones.
+// Header: Mono caps small bronze (registro de "etiqueta")
+// Body: Sans 14 ink (corpo de relatório)
+// Hairlines c.border entre rows (não em volta da tabela inteira)
+// Hairline mais grossa abaixo do header (peso de "abertura de seção")
+function TableBlock({
+  headers,
+  rows,
+  tone,
+}: {
+  headers: InlineSpan[][]
+  rows: InlineSpan[][][]
+  tone: Tone
+}) {
+  const c = usePalette()
+  const colCount = Math.max(headers.length, ...rows.map((r) => r.length))
+  return (
+    <View style={[styles.table, { borderTopColor: c.border, borderBottomColor: c.border }]}>
+      {/* Header row · mono caps small bronze */}
+      <View style={[styles.tableHeaderRow, { borderBottomColor: c.border }]}>
+        {Array.from({ length: colCount }).map((_, ci) => (
+          <View key={ci} style={[styles.tableCell, { flex: 1 }]}>
+            <Mono
+              size={10}
+              lineHeight={14}
+              letterSpacing={1.4}
+              color={c.bronze}
+              weight="med"
+            >
+              {(spansToPlain(headers[ci] ?? []) || '').toUpperCase()}
+            </Mono>
+          </View>
+        ))}
+      </View>
+
+      {/* Body rows · Sans 14 com hairline entre */}
+      {rows.map((row, ri) => (
+        <View
+          key={ri}
+          style={[
+            styles.tableRow,
+            ri < rows.length - 1
+              ? { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }
+              : null,
+          ]}
+        >
+          {Array.from({ length: colCount }).map((_, ci) => (
+            <View key={ci} style={[styles.tableCell, { flex: 1 }]}>
+              <Sans size={14} lineHeight={20} color={c.ink}>
+                <InlineRun spans={row[ci] ?? []} tone={tone} />
+              </Sans>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  )
 }
 
 function Paragraph({ spans, tone }: { spans: InlineSpan[]; tone: Tone }) {
@@ -272,5 +334,24 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: 12,
     paddingHorizontal: 14,
+  },
+  // Tabela editorial Atlas · hairlines top + bottom como "register marks"
+  // de Patek dial. Sem border lateral (sem caixa SaaS).
+  table: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginVertical: 4,
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    paddingVertical: 10,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+  },
+  tableCell: {
+    paddingHorizontal: 8,
   },
 })

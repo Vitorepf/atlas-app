@@ -1,5 +1,5 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -11,11 +11,36 @@ import Svg, { Circle, Defs, LinearGradient, RadialGradient, Rect, Stop } from 'r
 import { useRouter, usePathname } from 'expo-router'
 import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio'
 import { Frau } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
+import { useAtlasStore } from '../lib/atlasStore'
+import { useShell } from './AtlasShell'
+// v18 · Modo Gravar · canon mockup atlas-home-editorial · mini UI que
+// substitui visualmente o dock por uma tira de gravação editorial enquanto
+// o ✦ central está em long-press hold. Resto da tela continua visível.
+import { RecordModeStrip } from './inbox/RecordModeStrip'
 
-const FOCUSED_ROUTES = new Set(['/capture', '/detail', '/decision'])
+// v18 · `/` (Atlas AI tela primária) entra em FOCUSED_ROUTES — dock some
+// completamente. Atlas AI é "salão Don Corleone": entrega total à conversa,
+// sem chrome de navegação. User volta pra outras rotas via "← Voltar" no
+// header do Atlas AI (que vai pra /edicao) e dali navega pelo dock normal.
+//
+// Outras rotas em FOCUSED_ROUTES (capture/detail/decision) seguem mesma
+// lógica · telas focused que ocupam atenção total, dock se retira.
+//
+// Implicação pro Modo Gravar: ele só está disponível quando o dock está
+// visível (long-press hold no ✦ central). Em `/` (Atlas AI), voz é Voice
+// Mode (long-press no ✦ send do composer · conversa por voz, não captura).
+// Em outras rotas, Modo Gravar continua acessível.
+const FOCUSED_ROUTES = new Set(['/', '/capture', '/detail', '/decision'])
 const atlasLogoMarfim = require('../assets/brand/atlas-logo-marfim.png')
 
 // Animated Pressable · permite passar style array contendo animated styles
@@ -25,13 +50,20 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable)
 
 interface DockItem {
   key: string
-  href: '/' | '/inbox' | '/ritual' | '/review'
+  href: '/edicao' | '/inbox' | '/ritual' | '/review'
   label: string
   icon: 'home' | 'inbox' | 'review' | 'ritual'
 }
 
+// v18 · Atlas AI vira a "home" navegacional (rota `/`).
+// O exemplar editorial diário (masthead + agenda + operação + tecido + portas)
+// vira `/edicao` — vocabulário canon Atlas: a tela inteira É uma edição matinal
+// do jornal pessoal, identificada por folio (vol·no). Don Corleone abrindo a
+// edição matinal do WSJ. "EDIÇÃO MATINAL" já era o dateline visível na tela —
+// formaliza-se o vocabulário que já estava lá. Ícone 'home' preservado: ele
+// significa "tela editorial principal", não "primeira tela do app".
 const ITEMS: DockItem[] = [
-  { key: 'home',   href: '/',       label: 'Home',   icon: 'home' },
+  { key: 'edicao', href: '/edicao', label: 'Edição', icon: 'home' },
   { key: 'inbox',  href: '/inbox',  label: 'Inbox',  icon: 'inbox' },
   { key: 'review', href: '/review', label: 'Review', icon: 'review' },
   { key: 'ritual', href: '/ritual', label: 'Ritual', icon: 'ritual' },
@@ -43,6 +75,9 @@ export function Dock() {
   const pathname = usePathname()
   const insets = useSafeAreaInsets()
   const openAtlasAi = useOverlays((s) => s.openAtlasAi)
+  // openDomain · canon Atlas · Domain Sheet "Categorizar + Elaborar" após
+  // captura de áudio do Modo Gravar (mesma logic do composer · AtlasAiSheet).
+  const openDomain = useOverlays((s) => s.openDomain)
   const focused = FOCUSED_ROUTES.has(pathname)
 
   const opacity = useSharedValue(focused ? 0 : 1)
@@ -111,6 +146,208 @@ export function Dock() {
       inboxTapTimerRef.current = null
     }, 600)
   }
+
+  // v18 · Modo Gravar · canon mockup. Long-press hold no ✦ central ativa
+  // gravação. UI mini (RecordModeStrip) substitui o dock visualmente; resto
+  // da tela atrás continua visível. Solta dedo = enviar (a menos que tenha
+  // entrado em "lock mode" via slide ↑). Atlas NÃO responde · áudio vai pro
+  // inbox como captura silenciosa, depois transcrito + classificado via
+  // Atlas Decide.
+  //
+  // Integração de captura real · expo-audio (mesmo padrão de capture.tsx):
+  //   · useAudioRecorder(RecordingPresets.HIGH_QUALITY) instância
+  //   · requestRecordingPermissionsAsync() pra permissão (uma vez)
+  //   · setAudioModeAsync({allowsRecording, playsInSilentMode}) habilita áudio
+  //   · prepareToRecordAsync() + record() inicia gravação
+  //   · stop() + getUri() finaliza · createAudioCapture envia pro inbox
+  // v18 · Modo Gravar enterprise (v3) · 5 fixes: race start + race stop
+  // (Send/Cancel mutex) + cleanup unmount + sync pause + interaction lock.
+  const [recordingActive, setRecordingActive] = useState(false)
+  const [recordingPaused, setRecordingPaused] = useState(false)
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+  const recorderState = useAudioRecorderState(recorder, 150)
+  const recordingActiveRef = useRef(false)
+  // Mutex pra Send/Cancel · evita rodarem juntos com tap rápido.
+  const recordOpInFlightRef = useRef(false)
+  // isMountedRef · evita setState após unmount (React warning + leak).
+  const isMountedRef = useRef(true)
+  const createAudioCapture = useAtlasStore((s) => s.createAudioCapture)
+  const { showToast } = useShell()
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const safeSetRecordingActive = (value: boolean) => {
+    if (isMountedRef.current) setRecordingActive(value)
+  }
+  const safeSetRecordingPaused = (value: boolean) => {
+    if (isMountedRef.current) setRecordingPaused(value)
+  }
+
+  // v18 · enterprise tap-lock · race condition fix.
+  const handleRecordStart = async () => {
+    if (recordingActiveRef.current) return
+    // ✅ FIX RACE CONDITION · marca ativo IMEDIATAMENTE
+    recordingActiveRef.current = true
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
+
+    try {
+      const permission = await requestRecordingPermissionsAsync()
+      if (!permission.granted) {
+        recordingActiveRef.current = false  // rollback
+        showToast('Permissão de microfone necessária pra gravar')
+        return
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      })
+      await recorder.prepareToRecordAsync()
+      recorder.record()
+      setRecordingActive(true)
+      setRecordingPaused(false)
+    } catch (err) {
+      recordingActiveRef.current = false  // rollback
+      const msg = err instanceof Error ? err.message : 'Falha ao iniciar gravação'
+      showToast(msg)
+      void releaseAudioMode()
+    }
+  }
+
+  // Pause toggle · canon iOS Voice Memo · pausa/continua sem perder áudio.
+  const handleRecordPauseToggle = () => {
+    if (!recordingActiveRef.current) return
+    Haptics.selectionAsync().catch(() => {})
+    try {
+      if (recorderState.isRecording) {
+        recorder.pause()
+        setRecordingPaused(true)
+      } else {
+        recorder.record()
+        setRecordingPaused(false)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao pausar/continuar'
+      showToast(msg)
+    }
+  }
+
+  const handleRecordCancel = async () => {
+    if (recordOpInFlightRef.current) return
+    recordOpInFlightRef.current = true
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    safeSetRecordingActive(false)
+    safeSetRecordingPaused(false)
+    if (!recordingActiveRef.current) {
+      recordOpInFlightRef.current = false
+      return
+    }
+    recordingActiveRef.current = false
+    try {
+      if (recorderState.isRecording) {
+        await recorder.stop()
+      }
+    } catch {
+      // ignore
+    } finally {
+      void releaseAudioMode()
+      recordOpInFlightRef.current = false
+    }
+  }
+
+  const handleRecordSend = async () => {
+    if (recordOpInFlightRef.current) return
+    recordOpInFlightRef.current = true
+
+    if (!recordingActiveRef.current) {
+      safeSetRecordingActive(false)
+      safeSetRecordingPaused(false)
+      recordOpInFlightRef.current = false
+      return
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+    const durationMs = recorderState.durationMillis
+    safeSetRecordingActive(false)
+    safeSetRecordingPaused(false)
+    recordingActiveRef.current = false
+
+    let fileUri: string | null = null
+    try {
+      if (recorderState.isRecording || recorderState.url) {
+        await recorder.stop()
+      }
+      fileUri = safeRecorderUri(recorder) ?? recorderState.url
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao parar gravação'
+      showToast(msg)
+    } finally {
+      void releaseAudioMode()
+      recordOpInFlightRef.current = false
+    }
+
+    if (!fileUri) {
+      showToast('Gravação não gerou arquivo')
+      return
+    }
+
+    // ✅ Canon mockup · Domain Sheet "Categorizar + Elaborar" (i + ii).
+    openDomain((picked, destino) => {
+      void (async () => {
+        const finalDomain = picked ?? 'outro'
+        const finalDestino = destino ?? 'salvar'
+        try {
+          await createAudioCapture({
+            domain: finalDomain,
+            fileUri: fileUri!,
+            durationMs,
+            metadata: {
+              captureMode: 'audio',
+              captureSurface: 'dock_long_press',
+              source: 'modo_gravar_dock',
+              destino: finalDestino,
+            },
+          })
+          showToast('Áudio capturado')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Falha ao salvar captura'
+          showToast(msg)
+        }
+      })()
+    })
+  }
+
+  // ✅ FIX 2 · Cleanup unmount · garante stop + release audioMode mesmo se
+  // user navega/app vai background com gravação ativa.
+  useEffect(() => {
+    return () => {
+      if (recordingActiveRef.current) {
+        recordingActiveRef.current = false
+        void (async () => {
+          try {
+            await recorder.stop()
+          } catch {
+            // ignore
+          }
+          await releaseAudioMode()
+        })()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ✅ FIX 4 · Sync recordingPaused com recorderState.isRecording.
+  useEffect(() => {
+    if (!recordingActive) return
+    const realPaused = !recorderState.isRecording
+    if (realPaused !== recordingPaused) {
+      safeSetRecordingPaused(realPaused)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingActive, recordingPaused, recorderState.isRecording])
 
   if (focused) {
     return <Animated.View pointerEvents="none" style={wrapStyle} />
@@ -221,6 +458,8 @@ export function Dock() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
             openAtlasAi()
           }}
+          onLongPress={handleRecordStart}
+          delayLongPress={420}
           onPressIn={() => {
             // 220ms · weighted give · singularity resiste mais que tabs (180ms).
             domePress.value = withTiming(1, {
@@ -235,96 +474,34 @@ export function Dock() {
               duration: 520,
               easing: Easing.bezier(0.16, 1, 0.3, 1),
             })
+            // v18 enterprise · solta dedo NÃO envia. Modo Gravar fica em lock
+            // automático até user tap explicit em Cancelar/Enviar na strip.
           }}
           style={[
-            styles.atlas,
-            {
-              backgroundColor: c.prussian,
-              shadowColor: '#1A1612',
-              shadowOpacity: 0.32,
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: 'rgba(155,122,63,0.36)',
-            },
+            styles.atlasFlat,
             animatedDomeStyle,
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Atlas AI"
+          accessibilityLabel="Atlas AI · pressione e segure para gravar"
         >
-          {/* v17 · curvatura óptica real · 3 layers SVG ao invés de 2:
-              - atlasDepth (bottom-right shadow profundidade)
-              - atlasDome (highlight warm soft top-left, halo amplo)
-              - atlasSpecular (highlight crisp focal · Apple Watch tier glass) */}
-          <Svg
-            width="100%"
-            height="100%"
-            style={StyleSheet.absoluteFillObject}
-            pointerEvents="none"
+          {/* v18 canon Atlas · ✦ italic Frau bronze 32 · signet ring shadow.
+              Substitui o dome SVG azul prussian + AtlasBrandMark astrolábio
+              (vocabulário SaaS dome flutuante) pela signature canônica do
+              Atlas: glyph único integrado ao dock cream, sem protagonismo
+              visual SaaS. Don Corleone signet ring carimbando documento. */}
+          <Frau
+            italic
+            size={32}
+            lineHeight={32}
+            color={c.bronze}
+            style={{
+              textShadowColor: `${c.bronze}4D`,
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 4,
+            }}
           >
-            <Defs>
-              <RadialGradient
-                id="atlasDome"
-                cx="32%"
-                cy="22%"
-                r="62%"
-                fx="32%"
-                fy="22%"
-              >
-                <Stop offset="0%" stopColor="#F4EFE6" stopOpacity="0.18" />
-                <Stop offset="55%" stopColor="#F4EFE6" stopOpacity="0" />
-              </RadialGradient>
-              <RadialGradient
-                id="atlasDepth"
-                cx="78%"
-                cy="84%"
-                r="58%"
-                fx="78%"
-                fy="84%"
-              >
-                <Stop offset="0%" stopColor="#06080F" stopOpacity="0.36" />
-                <Stop offset="60%" stopColor="#06080F" stopOpacity="0" />
-              </RadialGradient>
-              {/* Specular crisp · highlight focal pequeno e brilhante.
-                  Diferente do atlasDome que é soft halo, este é o "ponto de luz"
-                  refletido como em vidro polido. Apple Watch face technique. */}
-              <RadialGradient
-                id="atlasSpecular"
-                cx="36%"
-                cy="26%"
-                r="20%"
-                fx="36%"
-                fy="26%"
-              >
-                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.14" />
-                <Stop offset="80%" stopColor="#FFFFFF" stopOpacity="0" />
-              </RadialGradient>
-              {/* v17 · Rim light bottom · luz bronze refletida do papel sob o
-                  dome batendo na base. Optical realism · cera oxidada pega
-                  reflexão warm do plano abaixo. Apple Watch caustic effect. */}
-              <RadialGradient
-                id="atlasRimLight"
-                cx="50%"
-                cy="100%"
-                r="48%"
-                fx="50%"
-                fy="100%"
-              >
-                <Stop offset="0%" stopColor="#9B7A3F" stopOpacity="0.14" />
-                <Stop offset="55%" stopColor="#9B7A3F" stopOpacity="0" />
-              </RadialGradient>
-            </Defs>
-            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDepth)" />
-            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasRimLight)" />
-            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasDome)" />
-            <Circle cx="50%" cy="50%" r="50%" fill="url(#atlasSpecular)" />
-          </Svg>
-
-          {/* Camada 2 · brand mark astrolábio · reduzido 36→30 (53% fill).
-              Respiro de medalhão / signet ring · não emblema apertado. */}
-          <AtlasBrandMark size={30} />
-
-          {/* Camada 3 · inner bezel · 1px marfim 7% inset · sinal de "biselado",
-              como anel de joalheria · adiciona profundidade sem virar contorno visível. */}
-          <View pointerEvents="none" style={styles.atlasBezel} />
+            ✦
+          </Frau>
         </AnimatedPressable>
 
         {ITEMS.slice(2).map((it) => {
@@ -344,8 +521,39 @@ export function Dock() {
       </View>
       </View>
       </View>
+
+      {/* v18 enterprise · Modo Gravar · mini UI substitui o dock visualmente
+          quando recordingActive. Lock automático imediato no start · solta
+          dedo NÃO envia. 3 botões claros: Cancelar (com confirm) · Pausar
+          (toggle) · Enviar. Pause sincroniza com recorderState.isRecording. */}
+      <RecordModeStrip
+        visible={recordingActive}
+        durationMs={recorderState.durationMillis}
+        paused={recordingPaused}
+        onCancel={() => { void handleRecordCancel() }}
+        onSend={() => { void handleRecordSend() }}
+        onPauseToggle={handleRecordPauseToggle}
+      />
     </Animated.View>
   )
+}
+
+// safeRecorderUri · canon do app (mesmo helper de capture.tsx). expo-audio
+// pode invalidar o native shared object durante unmount ou mode switches,
+// então acessar `.uri` com try/catch é robustez padrão.
+function safeRecorderUri(recorder: ReturnType<typeof useAudioRecorder>): string | null {
+  try {
+    return recorder.uri
+  } catch {
+    return null
+  }
+}
+
+// releaseAudioMode · libera o modo de gravação (allowsRecording: false) pra
+// que outros áudios do app (toast sounds, voice playback) voltem a funcionar
+// normalmente. Chamado em cancel/send/error.
+async function releaseAudioMode(): Promise<void> {
+  await setAudioModeAsync({ allowsRecording: false }).catch(() => {})
 }
 
 interface DockButtonProps {
@@ -531,6 +739,10 @@ function DockIcon({ icon, color, active = false }: DockIconProps) {
   )
 }
 
+// v18 canon · DEPRECATED · AtlasBrandMark astrolábio substituído pelo
+// glyph ✦ italic Frau bronze direto no dock central (canon mockup atlas-
+// home-editorial). Função preservada caso seja necessária pra outras
+// telas (splash screen, about page, etc) mas não usada atualmente no Dock.
 function AtlasBrandMark({ size }: { size: number }) {
   return (
     <Image
@@ -640,30 +852,14 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  // v17 · dome 56→54, borderRadius 28→27 · subtle downscale, menos chunky.
-  // Mantém presença como singularity do app · só ligeiramente mais discreto.
-  atlas: {
+  // v18 canon Atlas · ✦ flat integrado ao dock cream · sem dome SVG, sem
+  // background prussian, sem shadow, sem bezel. Apenas hit area pra glyph
+  // bronze. Vocabulário "signature editorial" · não "botão flutuante SaaS".
+  // 54px mantém o tap area generoso · alignItems center pra glyph centralizar.
+  atlasFlat: {
     width: 54,
     height: 54,
-    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 16,
-    elevation: 6,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  // Inner bezel · inset 1px · marfim 7% · sinal de biselado de joalheria.
-  // Não é contorno visível — é profundidade sussurrada. Casa com bronze edge top.
-  atlasBezel: {
-    position: 'absolute',
-    left: 1,
-    top: 1,
-    right: 1,
-    bottom: 1,
-    borderRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(244,239,230,0.07)',
   },
 })

@@ -65,6 +65,123 @@ export interface MobileDevicesResponse {
   current_device?: AtlasMobileDevice | null
 }
 
+export interface ConstelacaoPositionItem {
+  source_type: 'semantic_note' | 'capture' | string
+  source_id: string
+  title: string
+  domains: string[]
+  kind: string
+  status: string
+  x: number
+  y: number
+  intensity: number
+  cluster_key: string
+  position_method: string
+  position_hash: string
+  updated_at: string | null
+  preview?: {
+    summary_available?: boolean
+    content_redacted?: boolean
+  }
+}
+
+export interface ConstelacaoPositionsResponse {
+  schema_version: 'atlas.constelacao.positions.v1' | string
+  status: 'ok' | string
+  surface_id: 'constelacao' | string
+  lens: 'bilderatlas' | 'command_sky' | string
+  ui_contract?: {
+    schema_version: 'atlas.constelacao.ui_contract.v1' | string
+    lens: string
+    lens_role: string
+    operational_chrome_allowed: boolean
+    default_interaction: string
+    raw_reading_allowed: boolean
+    telemetry?: {
+      required_events?: string[]
+      privacy_class?: string
+      raw_content_allowed?: boolean
+    }
+  }
+  position_engine: {
+    mode: string
+    source: string
+    semantic_positioning_mode?: string
+    graph_rag_status: string
+    embedding_runtime: string
+    fallback_active: boolean
+    semantic_positioning_readiness?: Record<string, unknown>
+  }
+  privacy: {
+    privacy_class: string
+    raw_content_exposed: boolean
+    body_excerpt_exposed: boolean
+    vault_raw_content_exposed: boolean
+    payload_hash: string
+  }
+  items: ConstelacaoPositionItem[]
+  evidence_ledger: {
+    recorded: boolean
+    event_type: string
+    event_id: string | null
+  }
+  generated_at: string
+}
+
+export interface AtlasVoiceSessionLease {
+  schema_version: 'atlas.voice.session_lease.v1' | string
+  mode: 'mobile_push_to_talk' | 'livekit_webrtc' | string
+  room_name: string
+  participant_identity: string
+  token_status: 'not_issued_scaffold' | 'issued' | string
+  access_token?: string
+  livekit_url?: string | null
+  ttl_seconds?: number
+  kernel_decision_required_per_turn: boolean
+  raw_audio_persistence_allowed: boolean
+}
+
+export interface AtlasVoiceSessionResponse {
+  schema_version: 'atlas.voice_realtime.scaffold.v1' | string
+  status: 'session_started_scaffold' | 'session_ended_scaffold' | string
+  session: {
+    session_id: string
+    surface_id: 'voice_realtime' | string
+    client_surface: 'mobile' | 'mac_edge' | string
+    transport: 'mobile_push_to_talk' | 'livekit_webrtc' | string
+    runtime: 'livekit_agents_sdk' | string
+    room_name: string
+    participant_identity: string
+    privacy_class: string
+    rivals_arm: string
+  }
+  session_lease?: AtlasVoiceSessionLease
+  eclipse?: {
+    active: boolean
+    reasons: string[]
+    raw_audio_persistence_allowed: boolean
+  }
+  evidence_ledger?: {
+    recorded: boolean
+    event_type: string
+    event_id: string | null
+  }
+}
+
+export interface AtlasVoiceReadinessResponse {
+  schema_version: 'atlas.voice.readiness.v1' | string
+  available: boolean
+  status: 'ready' | 'attention' | 'ledger_unavailable' | string
+  mobile_first: boolean
+  score: number
+  missing_events: string[]
+  review_signal: {
+    status: string
+    severity: string
+    recommended_action: string
+  }
+}
+
 export interface AtlasInboxAction {
   id: string
   label: string
@@ -5263,6 +5380,65 @@ export async function listMobileDevices(): Promise<MobileDevicesResponse> {
   return mobileApiGet<MobileDevicesResponse>('/v1/mobile/devices')
 }
 
+export async function listMobileConstelacaoPositions(params: {
+  limit?: number
+  domain?: DomainKey | 'all'
+  lens?: 'bilderatlas' | 'command_sky'
+} = {}): Promise<ConstelacaoPositionsResponse> {
+  const normalized = { ...params, domain: params.domain === 'all' ? undefined : params.domain }
+
+  return mobileApiGet<ConstelacaoPositionsResponse>(
+    `/v1/mobile/atlas/celestial/positions${queryString(normalized)}`,
+  )
+}
+
+export async function startMobileVoiceSession(input: {
+  session_id?: string
+  envelope_id?: string
+  receipt_id?: string
+  client_surface?: 'mobile'
+  transport?: 'mobile_push_to_talk' | 'livekit_webrtc'
+  runtime?: 'livekit_agents_sdk'
+  room_name?: string
+  participant_identity?: string
+  privacy_class?: 'p1_public' | 'p2_internal' | 'p3_audio' | 'p4_secret'
+  explicit_operator_consent?: boolean
+  rivals_arm?: 'atlas_voice' | 'direct_provider_baseline'
+} = {}): Promise<AtlasVoiceSessionResponse> {
+  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/start', {
+    client_surface: 'mobile',
+    transport: 'mobile_push_to_talk',
+    runtime: 'livekit_agents_sdk',
+    privacy_class: 'p3_audio',
+    explicit_operator_consent: true,
+    ...input,
+  }, {
+    idempotencyKey: `mobile-voice-session-${input.session_id ?? Date.now()}`,
+  })
+}
+
+export async function endMobileVoiceSession(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  reason?: string
+}): Promise<AtlasVoiceSessionResponse> {
+  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/end', {
+    reason: 'operator_finished',
+    ...input,
+  }, {
+    idempotencyKey: `mobile-voice-session-end-${input.session_id}-${Date.now()}`,
+  })
+}
+
+export async function getMobileVoiceReadiness(params: {
+  hours?: number
+} = {}): Promise<AtlasVoiceReadinessResponse> {
+  return mobileApiGet<AtlasVoiceReadinessResponse>(
+    `/v1/mobile/ai/voice/readiness${queryString(params)}`,
+  )
+}
+
 export async function getMobileMacStatus(): Promise<AtlasMacStatusResponse> {
   return mobileApiGet<AtlasMacStatusResponse>('/v1/mobile/mac/status')
 }
@@ -5638,8 +5814,22 @@ export async function patchCapture(
   return apiPatch<AtlasCapture>(`/captures/${id}`, patch)
 }
 
-export async function deleteCapture(id: string): Promise<AtlasCapture> {
-  return apiDelete<AtlasCapture>(`/captures/${id}`)
+export async function deleteCapture(id: string): Promise<{
+  ok: boolean
+  deleted_capture_id: string
+  deletion: {
+    content_purged: boolean
+    file_deleted: boolean
+  }
+}> {
+  return apiDelete<{
+    ok: boolean
+    deleted_capture_id: string
+    deletion: {
+      content_purged: boolean
+      file_deleted: boolean
+    }
+  }>(`/captures/${id}`)
 }
 
 export async function retryCaptureTranscription(id: string): Promise<AtlasCapture> {
@@ -7153,6 +7343,11 @@ export async function listAiThreads(params: {
   workspace?: string
   include_messages?: boolean
   limit?: number
+  // 2026-05 · light=true omite relations pesadas (activeSession, activeState,
+  // latestCompaction, latestProviderHandoff, lastTrace). Payload cai ~80×
+  // (1.2MB → ~15KB pra 10 threads). Use no histórico — só precisa de
+  // id/title/meta pra listar. Mobile inicial deve sempre passar true.
+  light?: boolean
 } = {}): Promise<AiThreadsResponse> {
   return apiGet<AiThreadsResponse>(`/ai/threads${queryString(params)}`)
 }
@@ -7183,6 +7378,24 @@ export async function updateAiThread(
   },
 ): Promise<{ thread: AtlasAiThread }> {
   return apiPatch(`/ai/threads/${encodeURIComponent(id)}`, patch)
+}
+
+export async function deleteAiThread(id: string): Promise<{
+  ok: boolean
+  deleted_thread_id: string
+  deletion: {
+    content_purged: boolean
+    traces_tombstoned: number
+  }
+}> {
+  return apiDelete<{
+    ok: boolean
+    deleted_thread_id: string
+    deletion: {
+      content_purged: boolean
+      traces_tombstoned: number
+    }
+  }>(`/ai/threads/${encodeURIComponent(id)}`)
 }
 
 export async function getAiThreadState(id: string): Promise<{ state: AtlasAiSessionState }> {
@@ -8064,6 +8277,13 @@ function normalizeQueryValue(key: string, value: unknown): string | null {
   if (key === 'limit' && typeof value === 'number') {
     const safeLimit = Math.min(200, Math.max(1, Math.trunc(value)))
     return String(safeLimit)
+  }
+
+  // Booleans · Laravel `boolean` validate aceita 1/0/true/false mas
+  // REJEITA "true"/"false" como string. String(true) = "true" (422).
+  // Solução universal: serializar boolean como "1"/"0" sempre.
+  if (typeof value === 'boolean') {
+    return value ? '1' : '0'
   }
 
   return String(value)

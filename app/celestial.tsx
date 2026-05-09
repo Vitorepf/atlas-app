@@ -18,6 +18,8 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg'
 import { Frau, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
+import { listMobileConstelacaoPositions, type ConstelacaoPositionItem } from '../lib/api/client'
+import { newAtlasAiCorrelationId, recordAtlasAiEvent } from '../lib/atlasAiTelemetry'
 import { captureToInboxItem, useAtlasStore, visibleCaptures } from '../lib/atlasStore'
 import type { InboxItem } from '../components/InboxCard'
 import { useOverlays } from '../lib/overlays'
@@ -85,6 +87,18 @@ function starPosition(item: InboxItem, screenW: number, screenH: number): { x: n
   }
 }
 
+function serverStarPosition(item: ConstelacaoPositionItem, screenW: number, screenH: number): { x: number; y: number } {
+  const marginX = Math.max(42, screenW * 0.08)
+  const marginY = Math.max(112, screenH * 0.16)
+  const usableW = Math.max(1, screenW - marginX * 2)
+  const usableH = Math.max(1, screenH - marginY * 2)
+
+  return {
+    x: marginX + ((Math.max(-1, Math.min(1, item.x)) + 1) / 2) * usableW,
+    y: marginY + ((Math.max(-1, Math.min(1, item.y)) + 1) / 2) * usableH,
+  }
+}
+
 // Rubber-band clamping · pan vai além do bound mas com resistência crescente.
 // Inspirado no iOS scroll bounce · sensação de elasticidade ao "puxar".
 function clampSoft(value: number, min: number, max: number): number {
@@ -116,6 +130,38 @@ function ageBucket(item: InboxItem): 'recent' | 'mid' | 'old' {
   return 'old'
 }
 
+function constelacaoItemToInboxItem(item: ConstelacaoPositionItem): InboxItem {
+  const domain = (item.domains[0] ?? item.cluster_key ?? 'outro') as DomainKey
+  const updatedAt = item.updated_at ?? new Date().toISOString()
+
+  return {
+    id: `${item.source_type}:${item.source_id}`,
+    time: formatTime(new Date(updatedAt)),
+    domain,
+    domainLabel: domain,
+    kind: normalizeKind(item.kind),
+    text: item.title,
+    capturedAt: updatedAt,
+    updatedAt,
+    statusLabel: item.status,
+    statusDetail: item.position_method,
+    targetType: item.source_type,
+    targetId: item.source_id,
+    targetTitle: item.title,
+    isRawCapture: item.source_type === 'capture',
+    sensitivity: 'normal',
+    privacyLabel: item.preview?.content_redacted ? 'redigido' : undefined,
+    externalAiAllowed: false,
+  }
+}
+
+function normalizeKind(kind: string): InboxItem['kind'] {
+  if (kind === 'audio') return 'audio'
+  if (kind === 'photo' || kind === 'image') return 'photo'
+
+  return 'text'
+}
+
 export default function CelestialScreen() {
   const c = usePalette()
   const router = useRouter()
@@ -125,6 +171,24 @@ export default function CelestialScreen() {
   const queuedCaptures = useAtlasStore((s) => s.queuedCaptures)
   const domains = useAtlasStore((s) => s.domains)
   const openDetail = useOverlays((s) => s.openDetail)
+  const [backendItems, setBackendItems] = useState<ConstelacaoPositionItem[] | null>(null)
+  const telemetryCorrelationId = useRef(newAtlasAiCorrelationId())
+
+  useEffect(() => {
+    void recordAtlasAiEvent({
+      eventName: 'constelacao_opened',
+      correlation_id: telemetryCorrelationId.current,
+      event_phase: 'start',
+      metadata: {
+        lens: 'bilderatlas',
+        entrypoint: 'mobile_celestial_screen',
+      },
+      privacy: {
+        privacy_class: 'p2_metadata',
+        raw_content_allowed: false,
+      },
+    })
+  }, [])
 
   // Items reais do atlas (até 30 mais recentes)
   const items = useMemo(() => {
@@ -132,14 +196,94 @@ export default function CelestialScreen() {
     return merged.slice(0, 30).map((cap) => captureToInboxItem(cap, domains))
   }, [captures, queuedCaptures, domains])
 
+  useEffect(() => {
+    let cancelled = false
+
+    listMobileConstelacaoPositions({ limit: 30, lens: 'bilderatlas' })
+      .then((response) => {
+        if (!cancelled) {
+          setBackendItems(response.items)
+          void recordAtlasAiEvent({
+            eventName: 'constelacao_backend_loaded',
+            correlation_id: telemetryCorrelationId.current,
+            event_phase: 'success',
+            numeric_value: response.items.length,
+            unit: 'items',
+            metadata: {
+              lens: response.lens,
+              surface_id: response.surface_id,
+              position_engine_mode: response.position_engine.mode,
+              semantic_positioning_mode: response.position_engine.semantic_positioning_mode,
+              graph_rag_status: response.position_engine.graph_rag_status,
+              fallback_active: response.position_engine.fallback_active,
+              operational_chrome_allowed: response.ui_contract?.operational_chrome_allowed ?? null,
+            },
+            privacy: {
+              privacy_class: response.privacy.privacy_class,
+              raw_content_allowed: false,
+            },
+          })
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBackendItems(null)
+          void recordAtlasAiEvent({
+            eventName: 'constelacao_backend_failed',
+            correlation_id: telemetryCorrelationId.current,
+            event_phase: 'failure',
+            metadata: {
+              lens: 'bilderatlas',
+              fallback: 'local_domain_jitter',
+              error: error instanceof Error ? error.message : 'unknown',
+            },
+            privacy: {
+              privacy_class: 'p2_metadata',
+              raw_content_allowed: false,
+            },
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const backendStars = useMemo(() => {
+    if (backendItems === null) return null
+
+    return backendItems.map((source) => {
+      const item = constelacaoItemToInboxItem(source)
+
+      return {
+        item,
+        pos: serverStarPosition(source, width, height),
+        age: ageBucket(item),
+        source,
+        backendPositioned: true,
+      }
+    })
+  }, [backendItems, width, height])
+
   // Star positions calculadas uma vez (recalcula só se items/screen mudar)
-  const stars = useMemo(() => {
+  const stars = useMemo<Array<{
+    item: InboxItem
+    pos: { x: number; y: number }
+    age: 'recent' | 'mid' | 'old'
+    source?: ConstelacaoPositionItem | null
+    backendPositioned: boolean
+  }>>(() => {
+    if (backendStars) return backendStars
+
     return items.map((item) => ({
       item,
       pos: starPosition(item, width, height),
       age: ageBucket(item),
+      source: null,
+      backendPositioned: false,
     }))
-  }, [items, width, height])
+  }, [backendStars, items, width, height])
 
   // Entry overlay · ✦ bronze cresce · marfim revela céu
   const entryProgress = useSharedValue(1)
@@ -330,6 +474,25 @@ export default function CelestialScreen() {
               delay={1500 + idx * 60}
               onPress={() => {
                 Haptics.selectionAsync().catch(() => {})
+                void recordAtlasAiEvent({
+                  eventName: 'constelacao_star_tapped',
+                  correlation_id: telemetryCorrelationId.current,
+                  event_phase: 'interaction',
+                  client_id: star.item.id,
+                  metadata: {
+                    lens: 'bilderatlas',
+                    source_type: star.source?.source_type ?? star.item.targetType ?? 'local_capture',
+                    source_id: star.source?.source_id ?? star.item.targetId ?? star.item.id,
+                    cluster_key: star.source?.cluster_key ?? star.item.domain,
+                    position_method: star.source?.position_method ?? 'local_domain_jitter',
+                    backend_positioned: star.backendPositioned,
+                    opens: 'existing_detail_sheet',
+                  },
+                  privacy: {
+                    privacy_class: 'p2_metadata',
+                    raw_content_allowed: false,
+                  },
+                })
                 openDetail(star.item)
               }}
             />
@@ -546,6 +709,12 @@ function generateReadingText(
 function formatDate(d: Date): string {
   const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ']
   return `${String(d.getDate()).padStart(2, '0')}.${months[d.getMonth()]}.${d.getFullYear()}`
+}
+
+function formatTime(d: Date): string {
+  if (Number.isNaN(d.getTime())) return '--:--'
+
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 const styles = StyleSheet.create({
