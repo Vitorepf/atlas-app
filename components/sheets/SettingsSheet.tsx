@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { Alert, InteractionManager, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Constants from 'expo-constants'
 import { SideSheet } from './SideSheet'
 import { ScreenTimeSelectionSheet } from '../ScreenTimeSelectionSheet'
@@ -49,6 +49,7 @@ import {
   SCREEN_TIME_BUCKETS,
   type ScreenTimeLocalStatus,
 } from '../../lib/screenTime'
+import { nowMs, recordPerformanceDuration } from '../../lib/performanceTelemetry'
 
 export function SettingsSheet() {
   const open = useOverlays((s) => s.open)
@@ -124,14 +125,50 @@ export function SettingsSheet() {
   const [macError, setMacError] = useState<string | null>(null)
   const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
   const [apiAutoSave, setApiAutoSave] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [settingsWarmupReady, setSettingsWarmupReady] = useState(false)
+  const settingsOpenedAtRef = useRef<number | null>(null)
+  const settingsMetricRecordedRef = useRef(false)
   const apiDraftsRef = useRef({ hostDraft: '', portDraft: '', tokenDraft: '' })
   apiDraftsRef.current = { hostDraft, portDraft, tokenDraft }
   const apiBaselineRef = useRef<{ host: string; port: string; token: string } | null>(null)
 
   useEffect(() => {
-    if (visible) return
+    if (visible) {
+      settingsOpenedAtRef.current = nowMs()
+      settingsMetricRecordedRef.current = false
+      return
+    }
+    setSettingsWarmupReady(false)
     setAiSessionsPanelOpen(false)
+    settingsOpenedAtRef.current = null
+    settingsMetricRecordedRef.current = false
   }, [visible])
+
+  useEffect(() => {
+    if (!visible) return
+
+    let cancelled = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    const task = InteractionManager.runAfterInteractions(() => {
+      timeout = setTimeout(() => {
+        if (!cancelled) {
+          setSettingsWarmupReady(true)
+          if (!settingsMetricRecordedRef.current && settingsOpenedAtRef.current != null) {
+            settingsMetricRecordedRef.current = true
+            recordPerformanceDuration('settings_open_ms', settingsOpenedAtRef.current, {
+              api_config_loaded: apiConfigLoaded,
+            })
+          }
+        }
+      }, 500)
+    })
+
+    return () => {
+      cancelled = true
+      if (timeout) clearTimeout(timeout)
+      task.cancel()
+    }
+  }, [apiConfigLoaded, visible])
 
   useEffect(() => {
     if (!visible) return
@@ -181,23 +218,23 @@ export function SettingsSheet() {
   }, [visible])
 
   useEffect(() => {
-    if (!visible || !apiConfigLoaded) return
+    if (!visible || !apiConfigLoaded || !settingsWarmupReady) return
     void getHealth()
       .then(setServerHealth)
       .catch(() => setServerHealth(null))
     void refreshAiStatus({ silent: true })
     void refreshMacStatus({ silent: true })
-  }, [visible, apiConfigLoaded])
+  }, [visible, apiConfigLoaded, settingsWarmupReady])
 
   useEffect(() => {
-    if (!visible || !apiConfigLoaded) return
+    if (!visible || !apiConfigLoaded || !settingsWarmupReady) return
     const interval = setInterval(() => {
       void refreshAiStatus({ silent: true })
       void refreshMacStatus({ silent: true })
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [apiConfigLoaded, visible])
+  }, [apiConfigLoaded, settingsWarmupReady, visible])
 
   useEffect(() => {
     const flows = aiPolicyProfiles?.profile_registry.flows ?? []
@@ -207,9 +244,9 @@ export function SettingsSheet() {
   }, [aiPolicyProfiles, selectedAiFlowId])
 
   useEffect(() => {
-    if (!visible || !apiConfigLoaded || !selectedAiFlowId) return
+    if (!visible || !apiConfigLoaded || !settingsWarmupReady || !selectedAiFlowId) return
     void refreshSelectedAiPolicyPreview({ silent: true })
-  }, [visible, apiConfigLoaded, selectedAiFlowId, aiPolicyProfiles?.profile_registry.source])
+  }, [visible, apiConfigLoaded, settingsWarmupReady, selectedAiFlowId, aiPolicyProfiles?.profile_registry.source])
 
   const queue = queuedCaptures
     + queuedCheckins

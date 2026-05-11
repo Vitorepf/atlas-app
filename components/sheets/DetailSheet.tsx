@@ -56,7 +56,7 @@ export function DetailSheet() {
             void updateCapture(item.id, { domain: d }).then((updated) => {
               showToast(updated ? `Movido · ${domainLabel(d, domains)}` : 'Falha ao mover captura')
             })
-          })}
+          }, item.id)}
           onDelete={() =>
             openConfirmDelete((confirmed) => {
               if (confirmed) {
@@ -863,7 +863,10 @@ function ClarificationProse({
           >
             Tipo sugerido
           </Sans>
-          <Frau italic size={14} lineHeight={20} color={c.bronze} style={{ marginLeft: 12 }}>✦</Frau>
+          {/* canon mockup · em-dash bronze inline (substitui ✦ que é proibido
+              como decoração · ✦ é signature exclusiva pra capture button,
+              empty state Atlas AI, send, voice mode, refresh sync). */}
+          <Frau size={14} lineHeight={20} color={c.bronze} style={{ marginLeft: 12 }}>—</Frau>
           <Frau italic size={14} lineHeight={20} color={c.bronze} style={{ marginLeft: 6 }}>
             {suggestedType}
           </Frau>
@@ -1816,11 +1819,11 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     gap: 8,
   },
-  // Hairline scroll-edge · bronze @ 8% opacity · sinal sutil de "header termina".
-  // iOS 17 pattern: header tem edge fade quando content rola atrás.
+  // canon mockup detail-meta-header · border-bottom 1px bronze @ 18%.
+  // Sinal "header termina" em sussurro warm (não cinza technical).
   metaHeaderRule: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(155,122,63,0.10)',
+    height: 1,
+    backgroundColor: 'rgba(155,122,63,0.18)',
   },
   // metaRow legado · referenciado em outros pontos do app · mantido pra retrocompat.
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 0, marginBottom: 24 },

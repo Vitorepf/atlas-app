@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { InboxItem } from '../components/InboxCard'
 import type { InboxDomainFilter } from '../components/inbox/InboxDomainStatus'
 import type { DomainKey } from './domains'
+import type { SnoozeOption } from './snoozeOptions'
+import type { OverflowAction } from '../components/sheets/TriageOverflowSheet'
 
 export type CaptureMode = 'audio' | 'text' | 'photo'
 export type CaptureSensitivity = 'normal' | 'private' | 'sensitive'
@@ -35,6 +37,9 @@ export type OverlayKey =
   | 'inboxDomainFilter'
   | 'captureSettings'
   | 'providerChoice'
+  | 'snooze'
+  | 'triageOverflow'
+  | 'operationalDetail'
 
 interface OverlayState {
   open: OverlayKey | null
@@ -55,14 +60,34 @@ interface OverlayState {
   captureSettings: CaptureSettings | null
   onUpdateCaptureSettings: ((next: Partial<CaptureSettings>) => void) | null
   atlasAiThreadId: string | null
+  atlasAiOpenNonce: number
+  onSnooze: ((option: SnoozeOption | null) => void) | null
+  onTriageOverflow: ((action: OverflowAction | null) => void) | null
+  /** Captura ID opcional · quando passado pra openDomain, DomainSheet
+   *  consulta `getAtlasDecide(captureId)` pra pre-populate domínio + destino
+   *  com base no LLM classifier. */
+  domainSheetCaptureId: string | null
+  /** Pré-classificação heurística (client-side · `inferAtlasDecide`) ·
+   *  usada quando ainda não há captureId (fluxo de criação). DomainSheet
+   *  usa esses valores como pickedDomain inicial + destino sugerido. */
+  domainSheetPrePicked: { domain: DomainKey; destino: DomainDestino } | null
+  /** ID do item operacional aberto via `openOperationalDetail`. */
+  operationalDetailId: string | null
 
   openDetail: (item: InboxItem) => void
-  openDomain: (cb: (d: DomainKey | null, destino?: DomainDestino) => void) => void
+  openOperationalDetail: (itemId: string) => void
+  openDomain: (
+    cb: (d: DomainKey | null, destino?: DomainDestino) => void,
+    captureId?: string,
+    prePicked?: { domain: DomainKey; destino: DomainDestino } | null,
+  ) => void
   openConfirmDelete: (cb: (confirmed: boolean) => void, copy?: ConfirmDeleteCopy) => void
   openEdit: (item: InboxItem) => void
   openSettings: () => void
   openMic: () => void
   openAtlasAi: (threadId?: string | null) => void
+  openSnooze: (cb: (option: SnoozeOption | null) => void) => void
+  openTriageOverflow: (cb: (action: OverflowAction | null) => void) => void
   openInboxDomainFilter: (
     current: InboxDomainFilter,
     cb: (d: InboxDomainFilter) => void,
@@ -102,14 +127,30 @@ export const useOverlays = create<OverlayState>((set) => ({
   providerChoiceResetHint: null,
   providerChoiceOptions: [],
   atlasAiThreadId: null,
+  atlasAiOpenNonce: 0,
+  onSnooze: null,
+  onTriageOverflow: null,
+  domainSheetCaptureId: null,
+  domainSheetPrePicked: null,
+  operationalDetailId: null,
 
   openDetail: (item) => set({ open: 'detail', item }),
-  openDomain: (cb) => set({ open: 'domain', onPickDomain: cb }),
+  openOperationalDetail: (itemId) =>
+    set({ open: 'operationalDetail', operationalDetailId: itemId }),
+  openDomain: (cb, captureId, prePicked) =>
+    set({
+      open: 'domain',
+      onPickDomain: cb,
+      domainSheetCaptureId: captureId ?? null,
+      domainSheetPrePicked: prePicked ?? null,
+    }),
   openConfirmDelete: (cb, copy) => set({ open: 'confirmDelete', onConfirmDelete: cb, confirmDeleteCopy: copy ?? null }),
   openEdit: (item) => set({ open: 'edit', item }),
   openSettings: () => set({ open: 'settings' }),
   openMic: () => set({ open: 'mic' }),
-  openAtlasAi: (threadId = null) => set({ open: 'atlasAi', atlasAiThreadId: threadId ?? null }),
+  openAtlasAi: (threadId = null) => set((s) => ({ open: 'atlasAi', atlasAiThreadId: threadId ?? null, atlasAiOpenNonce: s.atlasAiOpenNonce + 1 })),
+  openSnooze: (cb) => set({ open: 'snooze', onSnooze: cb }),
+  openTriageOverflow: (cb) => set({ open: 'triageOverflow', onTriageOverflow: cb }),
   openInboxDomainFilter: (current, cb) =>
     set({
       open: 'inboxDomainFilter',
@@ -128,6 +169,11 @@ export const useOverlays = create<OverlayState>((set) => ({
       atlasAiThreadId: null,
       onPickDomain: null,
       onConfirmDelete: null,
+      onSnooze: null,
+      onTriageOverflow: null,
+      domainSheetCaptureId: null,
+      domainSheetPrePicked: null,
+      operationalDetailId: null,
       confirmDeleteCopy: null,
       onPickInboxDomainFilter: null,
       onUpdateCaptureSettings: null,

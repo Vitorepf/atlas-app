@@ -3569,6 +3569,333 @@ body {
   opacity: 0.7;
 }
 
+/* =====================================================================
+   AGENDA · SEMANA · canon (escala intermediária TDAH)
+   ---------------------------------------------------------------------
+   Vista distinta de Hoje (foco no agora) e Mês (visão longa). Resolve a
+   pergunta-norte que TDAH precisa: "se uma única coisa for entregue
+   essa semana, qual é?". 5 sections numeradas:
+     i.   INTENÇÃO  · pergunta-norte + resposta única editorial
+     ii.  RIO DA SEMANA · 7 dias verticais com density label (não horário)
+     iii. JANELAS · slots livres ≥ 90min como oportunidades editoriais
+     iv.  ÂNCORAS · rotinas + marcos fixos · TOC compacto
+     v.   PANORAMA · métricas mono caps do horizonte semanal
+
+   Não-grid · não-Gantt · não-heatmap. TOC editorial linear (canon TDAH).
+   ===================================================================== */
+
+/* INTENÇÃO · pergunta + resposta com border-left bronze (selo do "ato") */
+.va-canon .semana-intencao {
+  margin: 0 32px;
+}
+.va-canon .semana-intencao .question {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink2);
+  letter-spacing: 0;
+  margin-bottom: 10px;
+}
+.va-canon .semana-intencao .answer {
+  font-family: var(--frau);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.18px;
+  color: var(--ink);
+  border-left: 2px solid var(--bronze);
+  padding-left: 14px;
+  margin-left: -14px;
+  margin-bottom: 14px;
+}
+.va-canon .semana-intencao .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.va-canon .semana-intencao .meta .edit {
+  color: var(--bronze);
+  cursor: pointer;
+  font-weight: 500;
+  margin-left: 8px;
+  border-bottom: 1.5px solid var(--bronze);
+  padding-bottom: 1px;
+}
+
+/* RIO DA SEMANA · 7 dias verticais como entradas de diário */
+.va-canon .semana-rio {
+  margin: 0 32px;
+}
+.va-canon .rio-day {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .rio-day:last-child {
+  border-bottom: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .rio-day .day-id {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--ink);
+  text-transform: uppercase;
+  width: 60px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.va-canon .rio-day .density {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink3);
+  width: 72px;
+  flex-shrink: 0;
+}
+.va-canon .rio-day .summary {
+  flex: 1;
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink2);
+  letter-spacing: 0;
+}
+/* Estados */
+.va-canon .rio-day.past .day-id,
+.va-canon .rio-day.past .density {
+  color: var(--ink3);
+}
+.va-canon .rio-day.past .summary {
+  color: var(--ink3);
+  text-decoration: line-through;
+  text-decoration-color: rgba(168,159,144,0.4);
+  text-decoration-thickness: 1px;
+}
+.va-canon .rio-day.empty .summary {
+  color: var(--ink3);
+}
+.va-canon .rio-day.major .summary,
+.va-canon .rio-day.major .density {
+  color: var(--bronze);
+  font-weight: 500;
+}
+.va-canon .rio-day.major .summary {
+  text-decoration: none;
+}
+.va-canon .rio-day.major.past .day-id {
+  color: var(--ink3);
+}
+.va-canon .rio-day.major.past .summary {
+  color: var(--bronze);
+  opacity: 0.85;
+  text-decoration: none;
+}
+.va-canon .rio-day.today {
+  background: rgba(155,122,63,0.04);
+  margin-left: -8px;
+  margin-right: -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-top-color: rgba(155,122,63,0.18);
+  border-bottom-color: rgba(155,122,63,0.18);
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+.va-canon .rio-day.today .day-id,
+.va-canon .rio-day.today .density {
+  color: var(--bronze);
+  font-weight: 500;
+}
+.va-canon .rio-day.today .summary {
+  color: var(--bronze);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* JANELAS DE FOCO · slots livres como oportunidades editoriais */
+.va-canon .semana-janelas {
+  margin: 0 32px;
+}
+.va-canon .janela-row {
+  padding: 14px 0;
+  border-top: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .janela-row:last-child {
+  border-bottom: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .janela-row .when {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--bronze);
+  font-weight: 500;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.va-canon .janela-row .when .duration {
+  color: var(--ink2);
+  font-weight: 400;
+}
+.va-canon .janela-row .label {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--ink);
+  letter-spacing: -0.05px;
+  margin-bottom: 4px;
+}
+.va-canon .janela-row .suggestion {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink2);
+  letter-spacing: 0;
+  margin-bottom: 10px;
+}
+.va-canon .janela-row .action {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--bronze);
+  border-bottom: 1.5px solid var(--bronze);
+  padding-bottom: 2px;
+  cursor: pointer;
+}
+
+/* ÂNCORAS · rotinas e marcos fixos · TOC compacto */
+.va-canon .semana-ancoras {
+  margin: 0 32px;
+}
+.va-canon .ancora-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .ancora-row:first-child {
+  border-top: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .ancora-row .when {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--prussian);
+  width: 96px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.va-canon .ancora-row .leader {
+  flex: 1;
+  border-bottom: 1.5px dotted var(--ink3);
+  position: relative;
+  bottom: 4px;
+  opacity: 0.45;
+  margin: 0 6px;
+}
+.va-canon .ancora-row .label {
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.va-canon .ancora-row .kind {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+/* PANORAMA SEMANAL · TOC mono caps com métricas */
+.va-canon .semana-panorama {
+  margin: 0 32px;
+}
+.va-canon .panorama-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .panorama-row:first-child {
+  border-top: 1px solid rgba(26,22,18,0.06);
+}
+.va-canon .panorama-row .label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--ink2);
+  flex-shrink: 0;
+}
+.va-canon .panorama-row .leader {
+  flex: 1;
+  border-bottom: 1.5px dotted var(--ink3);
+  position: relative;
+  bottom: 4px;
+  opacity: 0.45;
+  margin: 0 6px;
+}
+.va-canon .panorama-row .value {
+  font-family: var(--frau);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.va-canon .panorama-row.accent .value {
+  color: var(--bronze);
+  font-weight: 500;
+  font-style: normal;
+}
+
+/* PEEK PRÓXIMA SEMANA · marginalia editorial italic */
+.va-canon .peek-proxima {
+  margin: 18px 32px 0;
+  font-family: var(--frau);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink2);
+  letter-spacing: 0;
+}
+.va-canon .peek-proxima .tag {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--bronze);
+  margin-right: 8px;
+}
+
 /* Operacional limpo · estado vazio editorial */
 .va-canon .op-clean {
   margin: 56px 32px 0;
@@ -6897,6 +7224,315 @@ body {
           </section>
 
           <div class="folio-footer">— maio · mmxxvi —</div>
+
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-item active">
+          <span class="dock-glyph">i.</span>
+          <span>home</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">ii.</span>
+          <span>inbox</span>
+        </div>
+        <div class="dock-capture">✦</div>
+        <div class="dock-item">
+          <span class="dock-glyph">iv.</span>
+          <span>review</span>
+        </div>
+        <div class="dock-item">
+          <span class="dock-glyph">v.</span>
+          <span>ritual</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================
+       A · CANON · AGENDA · SEMANA (escala intermediária TDAH)
+       ---------------------------------------------------------------------
+       Vista distinta de Hoje (foco no agora) e Mês (visão longa).
+       Resolve a pergunta-norte que TDAH precisa: "se uma única coisa for
+       entregue essa semana, qual é?". 5 sections numeradas:
+         i.   INTENÇÃO  · pergunta + resposta única editorial
+         ii.  RIO DA SEMANA · 7 dias verticais com density label
+         iii. JANELAS · slots ≥ 90min como oportunidades editoriais
+         iv.  ÂNCORAS · rotinas + marcos fixos · TOC compacto
+         v.   PANORAMA · métricas mono caps do horizonte semanal
+       Plus peek opcional da próxima semana no rodapé.
+       ================================================================= -->
+  <div class="variant">
+    <div class="variant-meta">
+      <div class="vmid">A · Canon · Agenda · Semana</div>
+      <div class="vname">Vista semanal · escala intermediária TDAH</div>
+      <div class="vdesc">Vista distinta de Hoje e Mês. Resolve a pergunta-norte que TDAH precisa: "se uma única coisa for entregue, qual é?". 5 sections: <strong>i. Intenção</strong> (pergunta + resposta com border-left bronze), <strong>ii. Rio da Semana</strong> (7 dias verticais com density label LEVE/MÉDIO/DENSO/PESADO/MARCO em vez de horários), <strong>iii. Janelas</strong> (slots ≥ 90min como oportunidades editoriais com action RESERVAR), <strong>iv. Âncoras</strong> (rotinas + marcos fixos · TOC mono caps), <strong>v. Panorama</strong> (métricas mono caps · TOC dot-leader). Não-grid · não-Gantt · não-heatmap. Folio "FOLIO N · SEMANA XIX" porque semana É um capítulo editorial recorrente (numeral romano legítimo).</div>
+    </div>
+
+    <div class="viewport va va-canon">
+      <div class="viewport-inner">
+        <div class="status-bar-spacer"></div>
+        <div class="content">
+
+          <header class="masthead masthead-section">
+            <div class="title">S E M A N A</div>
+          </header>
+          <div class="dateline">
+            <div class="date">Semana de 4 a 10 de Maio</div>
+            <div class="edition">semana xix · 12 atos · 1 marco · 4 janelas livres</div>
+          </div>
+
+          <div class="view-tabs">
+            <span class="view-tab">Hoje</span>
+            <span class="view-tab-sep">·</span>
+            <span class="view-tab active">Semana</span>
+            <span class="view-tab-sep">·</span>
+            <span class="view-tab">Mês</span>
+          </div>
+
+          <!-- Cinta semanal · 7 day-slots silenciosos · sex 8 com dot bronze
+               (Atlas fundação) · sáb 9 today com underline bronze. -->
+          <div class="agenda-week-strip">
+            <div class="day-slot past">
+              <span class="dow">seg</span>
+              <span class="num">4</span>
+              <div class="marks"><span class="mark"></span><span class="mark"></span></div>
+            </div>
+            <div class="day-slot past">
+              <span class="dow">ter</span>
+              <span class="num">5</span>
+              <div class="marks"><span class="mark"></span></div>
+            </div>
+            <div class="day-slot past">
+              <span class="dow">qua</span>
+              <span class="num">6</span>
+              <div class="marks"></div>
+            </div>
+            <div class="day-slot past">
+              <span class="dow">qui</span>
+              <span class="num">7</span>
+              <div class="marks"><span class="mark"></span><span class="mark"></span><span class="mark"></span></div>
+            </div>
+            <div class="day-slot past">
+              <span class="dow">sex</span>
+              <span class="num">8</span>
+              <div class="marks">
+                <span class="mark" style="background:#9B7A3F;"></span>
+              </div>
+            </div>
+            <div class="day-slot today">
+              <span class="dow">sáb</span>
+              <span class="num">9</span>
+              <div class="marks"><span class="mark"></span><span class="mark"></span><span class="mark"></span></div>
+            </div>
+            <div class="day-slot">
+              <span class="dow">dom</span>
+              <span class="num">10</span>
+              <div class="marks"></div>
+            </div>
+          </div>
+
+          <!-- i. INTENÇÃO -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">i.</div>
+              <div class="section-title">Intenção</div>
+            </div>
+            <div class="hr-section"></div>
+
+            <div class="semana-intencao">
+              <div class="question">Se uma única coisa for entregue essa semana, qual é?</div>
+              <div class="answer">Definir kernel pipeline v3 · testar com check-in matinal.</div>
+              <div class="meta">
+                declarado segunda · 09.04
+                <span class="edit">trocar</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- ii. RIO DA SEMANA -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">ii.</div>
+              <div class="section-title">Rio da semana</div>
+            </div>
+            <div class="deck">sete dias verticais · density label, não horário</div>
+            <div class="hr-section"></div>
+
+            <div class="semana-rio">
+              <div class="rio-day past">
+                <span class="day-id">SEG 4</span>
+                <span class="density">PESADO</span>
+                <span class="summary">4 atos · revisão Codex · provider policy</span>
+              </div>
+              <div class="rio-day past">
+                <span class="day-id">TER 5</span>
+                <span class="density">MÉDIO</span>
+                <span class="summary">kernel pipeline · primeira passagem</span>
+              </div>
+              <div class="rio-day past empty">
+                <span class="day-id">QUA 6</span>
+                <span class="density">LIVRE</span>
+                <span class="summary">descanso · leitura solta</span>
+              </div>
+              <div class="rio-day past">
+                <span class="day-id">QUI 7</span>
+                <span class="density">DENSO</span>
+                <span class="summary">3 atos · revisão de embeddings com Marcos</span>
+              </div>
+              <div class="rio-day past major">
+                <span class="day-id">SEX 8</span>
+                <span class="density">MARCO</span>
+                <span class="summary">Atlas · fundação · primeiro folio publicado</span>
+              </div>
+              <div class="rio-day today">
+                <span class="day-id">SÁB 9</span>
+                <span class="density">EM CURSO</span>
+                <span class="summary">3 atos · captura matinal feita · escrita à tarde</span>
+              </div>
+              <div class="rio-day empty">
+                <span class="day-id">DOM 10</span>
+                <span class="density">LIVRE</span>
+                <span class="summary">amanhã · dia das mães · descanso</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- iii. JANELAS DE FOCO -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iii.</div>
+              <div class="section-title">Janelas</div>
+            </div>
+            <div class="deck">slots protegidos · noventa minutos ou mais</div>
+            <div class="hr-section"></div>
+
+            <div class="semana-janelas">
+              <div class="janela-row">
+                <div class="when">QUARTA · 09.00 — 12.00 <span class="duration">· 3h</span></div>
+                <div class="label">Manhã livre · meio da semana.</div>
+                <div class="suggestion">trabalho profundo · escrita capítulo 4 · sem reuniões agendadas</div>
+                <div class="action">Reservar →</div>
+              </div>
+              <div class="janela-row">
+                <div class="when">SEXTA · 14.00 — 18.00 <span class="duration">· 4h</span></div>
+                <div class="label">Tarde solta · sexta.</div>
+                <div class="suggestion">revisão da semana · planejamento da próxima · ritual de fechamento</div>
+                <div class="action">Reservar →</div>
+              </div>
+              <div class="janela-row">
+                <div class="when">SÁBADO · 14.00 — 19.00 <span class="duration">· 5h</span></div>
+                <div class="label">Tarde de fim de semana.</div>
+                <div class="suggestion">descanso · varanda · leitura solta sem destino</div>
+                <div class="action">Proteger →</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- iv. ÂNCORAS -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">iv.</div>
+              <div class="section-title">Âncoras</div>
+            </div>
+            <div class="deck">rotinas e marcos fixos · pontos cardeais da semana</div>
+            <div class="hr-section"></div>
+
+            <div class="semana-ancoras">
+              <div class="ancora-row">
+                <span class="when">SEG · 09.00</span>
+                <span class="label">Bloco de escrita</span>
+                <span class="leader"></span>
+                <span class="kind">ROTINA · DIÁRIA</span>
+              </div>
+              <div class="ancora-row">
+                <span class="when">TER · 11.00</span>
+                <span class="label">Check-in com Marcos</span>
+                <span class="leader"></span>
+                <span class="kind">ROTINA · SEMANAL</span>
+              </div>
+              <div class="ancora-row">
+                <span class="when">QUI · 15.00</span>
+                <span class="label">Reunião · arquitetura embeddings</span>
+                <span class="leader"></span>
+                <span class="kind">EVENTO</span>
+              </div>
+              <div class="ancora-row">
+                <span class="when">SEX · 16.30</span>
+                <span class="label">Revisão semanal</span>
+                <span class="leader"></span>
+                <span class="kind">RITUAL</span>
+              </div>
+              <div class="ancora-row">
+                <span class="when">DOM · 19.30</span>
+                <span class="label">Jantar de família</span>
+                <span class="leader"></span>
+                <span class="kind">ÂNCORA · CASA</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- v. PANORAMA SEMANAL -->
+          <section class="section">
+            <div class="section-head">
+              <div class="numeral">v.</div>
+              <div class="section-title">Panorama</div>
+            </div>
+            <div class="deck">indicadores da semana xix</div>
+            <div class="hr-section"></div>
+
+            <div class="semana-panorama">
+              <div class="panorama-row">
+                <span class="label">Atos planejados</span>
+                <span class="leader"></span>
+                <span class="value">12</span>
+              </div>
+              <div class="panorama-row accent">
+                <span class="label">Completados</span>
+                <span class="leader"></span>
+                <span class="value">7</span>
+              </div>
+              <div class="panorama-row">
+                <span class="label">Em curso</span>
+                <span class="leader"></span>
+                <span class="value">3</span>
+              </div>
+              <div class="panorama-row">
+                <span class="label">Horas de foco</span>
+                <span class="leader"></span>
+                <span class="value">18h</span>
+              </div>
+              <div class="panorama-row">
+                <span class="label">Horas de reunião</span>
+                <span class="leader"></span>
+                <span class="value">6h</span>
+              </div>
+              <div class="panorama-row accent">
+                <span class="label">Janelas livres</span>
+                <span class="leader"></span>
+                <span class="value">4</span>
+              </div>
+              <div class="panorama-row">
+                <span class="label">Energia média</span>
+                <span class="leader"></span>
+                <span class="value">alta</span>
+              </div>
+              <div class="panorama-row">
+                <span class="label">Dias restantes</span>
+                <span class="leader"></span>
+                <span class="value">2</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Peek próxima semana · marginalia editorial -->
+          <div class="peek-proxima">
+            <span class="tag">PRÓXIMA</span>
+            12 mai · revisão kernel · 13 mai · médico · 14 a 16 mai · São Paulo · congresso de embeddings.
+          </div>
+
+          <div class="folio-footer">— folio 2 · semana xix —</div>
 
         </div>
       </div>

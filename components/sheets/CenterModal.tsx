@@ -14,10 +14,17 @@ interface Props {
   children: ReactNode
   // 'denser' scrim; mic permission uses blur backdrop in the prototype.
   emphasised?: boolean
+  /**
+   * Canon variant — match mockup `confirm-modal`:
+   *   border 1px @18% ink · border-radius 4 (manuscript minimal) ·
+   *   padding 28 24 0 · bg cream (não premium)
+   * Quando false (default), usa o card "premium" arredondado tradicional.
+   */
+  canon?: boolean
 }
 
 // Center confirmation/info modal. Card lifts + scales subtly on entry.
-export function CenterModal({ visible, onClose, children, emphasised }: Props) {
+export function CenterModal({ visible, onClose, children, emphasised, canon }: Props) {
   const { c } = useTheme()
   const opacity = useSharedValue(0)
   const cardTy = useSharedValue(8)
@@ -45,11 +52,21 @@ export function CenterModal({ visible, onClose, children, emphasised }: Props) {
       <Animated.View
         style={[
           styles.card,
-          {
-            backgroundColor: c.premium,
-            borderColor: c.border,
-            shadowColor: '#1C1916',
-          },
+          canon
+            ? {
+                backgroundColor: c.bg,
+                borderColor: 'rgba(26,22,18,0.18)',
+                borderRadius: 4,
+                paddingTop: 28,
+                paddingHorizontal: 24,
+                paddingBottom: 0,
+                shadowColor: '#1C1916',
+              }
+            : {
+                backgroundColor: c.premium,
+                borderColor: c.border,
+                shadowColor: '#1C1916',
+              },
           cardStyle,
         ]}
       >

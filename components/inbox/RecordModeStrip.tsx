@@ -60,6 +60,7 @@ export function RecordModeStrip({
   const [internalElapsedMs, setInternalElapsedMs] = useState(0)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const startedAtRef = useRef<number | null>(null)
+  const internalElapsedRef = useRef(0)
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cancelConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Lock pra Pause toggle · debounce 300ms evita race entre taps rápidos +
@@ -111,10 +112,12 @@ export function RecordModeStrip({
       }
       return
     }
-    startedAtRef.current = Date.now() - internalElapsedMs
+    startedAtRef.current = Date.now() - internalElapsedRef.current
     tickIntervalRef.current = setInterval(() => {
       if (startedAtRef.current != null) {
-        setInternalElapsedMs(Date.now() - startedAtRef.current)
+        const nextElapsedMs = Date.now() - startedAtRef.current
+        internalElapsedRef.current = nextElapsedMs
+        setInternalElapsedMs(nextElapsedMs)
       }
     }, 200)
     return () => {
@@ -123,12 +126,12 @@ export function RecordModeStrip({
         tickIntervalRef.current = null
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, durationMs, paused])
 
   // Reset state quando barra esconde · próxima sessão começa do zero.
   useEffect(() => {
     if (!visible) {
+      internalElapsedRef.current = 0
       setInternalElapsedMs(0)
       setConfirmingCancel(false)
       if (cancelConfirmTimeoutRef.current) {

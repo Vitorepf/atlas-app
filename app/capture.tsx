@@ -33,6 +33,7 @@ import { useShell } from '../components/AtlasShell'
 import { useOverlays, type CaptureMode, type CaptureSensitivity } from '../lib/overlays'
 import type { DomainKey } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
+import { inferAtlasDecide } from '../lib/atlasDecide'
 import { useFocusSuppression } from '../lib/hooks/useFocusSuppression'
 
 export default function CaptureScreen() {
@@ -156,22 +157,36 @@ export default function CaptureScreen() {
     }
   }, [mode, openMic, recorder, router])
 
-  // Always ask for domain at save — pre-selected via CaptureStatus is
-  // intentionally not surfaced. The default ('outro') makes the prompt
-  // safe to skip (skipping commits as 'outro').
+  // Always ask for domain at save — pre-selected via Atlas Decide heurística
+  // client-side (`inferAtlasDecide`) quando há texto. Default 'outro' faz o
+  // prompt safe-to-skip; com Atlas Decide, abre já com domínio sugerido +
+  // destino editorial pré-marcado.
   const promptDomainAndSave = (
     saver: (chosen: DomainKey, chosenSensitivity: CaptureSensitivity) => Promise<void>,
+    options?: { text?: string | null; domainHint?: DomainKey | null },
   ) => {
-    openDomain((picked) => {
-      const finalDomain = picked ?? 'outro'
-      const finalSensitivity = sensitivityForSave(finalDomain, domains, sensitivity)
-      void saver(finalDomain, finalSensitivity)
-    })
+    const decided = options
+      ? inferAtlasDecide({ text: options.text, domain: options.domainHint })
+      : null
+    const prePicked = decided
+      ? { domain: decided.domain, destino: decided.destino }
+      : null
+    openDomain(
+      (picked) => {
+        const finalDomain = picked ?? prePicked?.domain ?? 'outro'
+        const finalSensitivity = sensitivityForSave(finalDomain, domains, sensitivity)
+        void saver(finalDomain, finalSensitivity)
+      },
+      undefined,
+      prePicked,
+    )
   }
 
   const handleSaveAudio = () => {
     if (saving || starting) return
     const durationMs = recorderState.durationMillis
+    // Áudio sem transcrição local · Atlas Decide pega via clarifyCapture
+    // pós-criação (não há texto pra heurística agora).
     promptDomainAndSave(async (chosenDomain, chosenSensitivity) => {
       setSaving(true)
       setError(null)
@@ -212,6 +227,8 @@ export default function CaptureScreen() {
       setError('Escreva o pensamento antes de salvar.')
       return
     }
+    // Atlas Decide heurística client-side com o texto · pre-populate
+    // domain + destino sugeridos no DomainSheet.
     promptDomainAndSave(async (chosenDomain, chosenSensitivity) => {
       setSaving(true)
       setError(null)
@@ -231,7 +248,7 @@ export default function CaptureScreen() {
         setError(captureError instanceof Error ? captureError.message : 'Falha ao salvar captura.')
         setSaving(false)
       }
-    })
+    }, { text: body })
   }
 
   const pickPhoto = async () => {

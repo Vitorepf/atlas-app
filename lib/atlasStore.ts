@@ -3027,10 +3027,14 @@ function metadataTags(metadata: Record<string, unknown>): string[] {
 }
 
 function formatTime(iso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
+  // canon mockup · "12.27" (ponto entre HH e MM, não dois pontos).
+  // Vocabulário Atlas: mono caps com tabular-nums alinhados, ponto remete
+  // a relógio editorial (Patek/Cucinelli) vs separador técnico SaaS.
+  const formatted = new Intl.DateTimeFormat('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(iso))
+  return formatted.replace(':', '.')
 }
 
 function formatDate(iso: string): string {

@@ -7,7 +7,6 @@ import { type DomainKey, domainColor, domainLabel } from '../lib/domains'
 import { useAtlasStore } from '../lib/atlasStore'
 import { copyToClipboard, COPY_LONG_PRESS_DELAY } from '../lib/clipboard'
 import { useShell } from './AtlasShell'
-import { FoilStar } from './inbox/FoilStar'
 
 export interface InboxItem {
   id: string
@@ -153,6 +152,8 @@ export function InboxCard({
   const [actionsRevealed, setActionsRevealed] = useState(false)
 
   const dColor = domainColor(item.domain, c, domains)
+  const dTextColor = domainTextColor(item.domain, c, dColor)
+  const nextStepAction = item.nextStepLabel ? nextStepActionLabel(item.nextStepLabel) : null
   // Fresh state · técnica v6 · ≤30s pós-save · bg-fresh + edge bronze 1px topo + foil shimmer ✦
   const cardBg = selected ? c.bgDeep : isFresh ? c.bgFresh : c.bg
   const topEdge = selected
@@ -205,25 +206,35 @@ export function InboxCard({
         ]}
       >
         <View style={styles.metaRow}>
-          <Mono size={12} lineHeight={16} letterSpacing={0.24} color={c.ink2}>
+          {/* canon mockup capture-entry .meta · time mono caps lspc 1.4
+              prussian med (acentua "ato editorial momento") · kind Frau italic
+              13 ink2 inline, separados por · ink3@60% opacity. */}
+          <Mono
+            size={10}
+            lineHeight={13}
+            letterSpacing={1.4}
+            color={c.prussian}
+            weight="med"
+            style={styles.uppercase}
+          >
             {item.time}
           </Mono>
           {item.kind ? (
             <>
-              <Sans size={11} lineHeight={14} color={c.ink3} style={styles.metaSep}>·</Sans>
-              <Frau italic size={13} lineHeight={16} color={c.ink2}>
+              <Frau size={11} lineHeight={14} color={c.ink3} style={styles.metaSep}>·</Frau>
+              <Mono size={10} lineHeight={13} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>
                 {kindLabel(item.kind)}
-              </Frau>
+              </Mono>
             </>
           ) : null}
           <Sans size={11} lineHeight={14} color={c.ink3} style={styles.metaSep}>·</Sans>
-          <View style={[styles.domainBullet, { backgroundColor: dColor }]} />
+          <View style={[styles.domainBullet, { backgroundColor: dTextColor }]} />
           <Sans
             weight="med"
             size={10}
             lineHeight={14}
             letterSpacing={1.3}
-            color={dColor}
+            color={dTextColor}
             style={styles.uppercase}
           >
             {item.domainLabel ?? domainLabel(item.domain, domains)}
@@ -261,18 +272,29 @@ export function InboxCard({
             Antes: "Próximo: decidir destino" repetido em TODA card raw = ruído editorial.
             Apple Mail não escreve "ainda não lida" em cada email — usa peso tipográfico.
             Agora: ausência de nextStepRow = "ainda raw, decidir destino implícito".
-            Quando isCurationCandidate=true: ✦ + "Próximo: promover" em prussian.
+            Quando isCurationCandidate=true: micro-sinal "próximo · promover".
             Estado tipográfico em vez de label repetida. */}
-        {item.nextStepLabel && item.isCurationCandidate ? (
+        {nextStepAction && item.isCurationCandidate ? (
           <View style={styles.nextStepRow}>
-            <FoilStar shimmer={isFresh} size={13} style={styles.nextStepStar} />
             <Frau
               italic
               size={13}
-              lineHeight={17}
-              color={c.prussian}
+              lineHeight={18}
+              color={c.ink2}
             >
-              {item.nextStepLabel}
+              próximo
+            </Frau>
+            <Frau italic size={13} lineHeight={18} color={c.ink3}>
+              ·
+            </Frau>
+            <Frau
+              italic
+              weight="med"
+              size={13}
+              lineHeight={18}
+              color={c.bronze}
+            >
+              {nextStepAction}
             </Frau>
           </View>
         ) : null}
@@ -419,20 +441,18 @@ const styles = StyleSheet.create({
   metaTrailing: { marginLeft: 'auto' },
   uppercase: { textTransform: 'uppercase' },
   domainBullet: {
-    width: 6,
-    height: 6,
+    width: 5,
+    height: 5,
     borderRadius: 999,
     marginLeft: 3,
     marginRight: 3,
+    opacity: 0.78,
   },
   nextStepRow: {
-    marginTop: 12,
+    marginTop: 13,
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 7,
-  },
-  nextStepStar: {
-    lineHeight: 13,
+    gap: 6,
   },
   destinationRow: {
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -522,4 +542,19 @@ function kindLabel(kind: NonNullable<InboxItem['kind']>): string {
     case 'text':
       return 'texto'
   }
+}
+
+function nextStepActionLabel(label: string): string {
+  return label
+    .replace(/^pr[oó]ximo\s*[:·-]\s*/i, '')
+    .trim()
+    .toLocaleLowerCase('pt-BR')
+}
+
+function domainTextColor(
+  domain: DomainKey,
+  palette: ReturnType<typeof usePalette>,
+  fallback: string,
+): string {
+  return domain === 'atlas' ? palette.bronze : fallback
 }

@@ -5,6 +5,9 @@ import { EditSheet } from './EditSheet'
 import { SettingsSheet } from './SettingsSheet'
 import { MicModal } from './MicModal'
 import { AtlasAiSheet } from './AtlasAiSheet'
+import { SnoozeSheet } from './SnoozeSheet'
+import { TriageOverflowSheet } from './TriageOverflowSheet'
+import { OperationalDetailSheet } from './OperationalDetailSheet'
 import { InboxDomainSheet } from '../inbox/InboxDomainSheet'
 import { CaptureSettingsSheet } from '../capture/CaptureSettingsSheet'
 import { ProviderChoiceModal } from './ProviderChoiceModal'
@@ -21,6 +24,9 @@ export function OverlayHost() {
       <SettingsSheet />
       <MicModal />
       <AtlasAiSheet />
+      <SnoozeSheet />
+      <TriageOverflowSheet />
+      <OperationalDetailSheet />
       <InboxDomainSheet />
       <CaptureSettingsSheet />
       <ProviderChoiceModal />

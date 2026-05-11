@@ -1,5 +1,5 @@
-import { Pressable, StyleSheet, TextInput, View, type PressableProps, type ViewStyle, type StyleProp } from 'react-native'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { InteractionManager, Pressable, StyleSheet, TextInput, View, type PressableProps, type ViewStyle, type StyleProp } from 'react-native'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'expo-router'
 import * as Location from 'expo-location'
 import Animated, {
@@ -38,7 +38,6 @@ import {
   deviceTimezone,
   formatPassiveSignal,
   latestCheckin,
-  latestPassiveSignal,
   useAtlasStore,
   visibleBehaviors,
   visibleCaptures,
@@ -59,6 +58,7 @@ import {
   type AtlasAgendaTask,
   type AtlasCheckin,
   type AtlasMemoryReviewQueue,
+  type AtlasPassiveSignal,
   type AtlasTaskAgendaResponse,
   type AtlasTaskEvent,
 } from '../lib/api/client'
@@ -66,6 +66,13 @@ import { buildReadinessV1 } from '../lib/readiness'
 import { isCheckinLevelFresh } from '../lib/checkinFreshness'
 import { MOOD_LEVELS } from '../lib/checkinScale'
 import { canUseAppleCalendar, createAppleCalendarEvent } from '../lib/appleCalendar'
+import {
+  readCachedAgenda,
+  readCachedMemoryReviewQueue,
+  writeCachedAgenda,
+  writeCachedMemoryReviewQueue,
+} from '../lib/editionHomeCache'
+import { nowMs, recordPerformanceDuration } from '../lib/performanceTelemetry'
 
 const CHECKIN_STATES: Array<{ key: AtlasCheckin['state']; label: string }> = [
   { key: 'focused', label: 'Foco' },
@@ -121,6 +128,31 @@ function DotSep() {
 }
 const dotSepStyle = { opacity: 0.5 } as const
 
+function latestPassiveSignalFromList(
+  signals: AtlasPassiveSignal[],
+  signalType: string,
+): AtlasPassiveSignal | null {
+  let latest: AtlasPassiveSignal | null = null
+  let latestTime = 0
+
+  for (const signal of signals) {
+    if (signal.signal_type !== signalType) continue
+    const time = passiveSignalTime(signal)
+    if (!latest || time > latestTime) {
+      latest = signal
+      latestTime = time
+    }
+  }
+
+  return latest
+}
+
+function passiveSignalTime(signal: AtlasPassiveSignal): number {
+  const value = signal.ended_at ?? signal.started_at ?? signal.created_at
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
 /**
  * CodexPressable · Pressable com transição animada de press state.
  * Opacity 1→0.55 (220ms in · 360ms out) + scale 1→0.985.
@@ -175,6 +207,8 @@ function CodexPressable({
 }
 
 export default function HomeScreen() {
+  const visibleStartedAt = useMemo(() => nowMs(), [])
+  const visibleMetricRecordedRef = useRef(false)
   const c = usePalette()
   const router = useRouter()
   const openSettings = useOverlays((s) => s.openSettings)
@@ -194,7 +228,7 @@ export default function HomeScreen() {
   const [energyLevel, setEnergyLevel] = useState<number | null>(null)
   const [moodLevel, setMoodLevel] = useState<number | null>(null)
   const [checkinEditing, setCheckinEditing] = useState(false)
-  const [agenda, setAgenda] = useState<AtlasTaskAgendaResponse | null>(null)
+  const [agenda, setAgenda] = useState<AtlasTaskAgendaResponse | null>(() => readCachedAgenda())
   const [agendaLoading, setAgendaLoading] = useState(false)
   const [selectedTask, setSelectedTask] = useState<AtlasAgendaTask | null>(null)
   const [taskDraft, setTaskDraft] = useState<TaskEditDraft>(() => emptyTaskDraft())
@@ -205,15 +239,20 @@ export default function HomeScreen() {
   const [agendaPlanning, setAgendaPlanning] = useState(false)
   const [weekPlanning, setWeekPlanning] = useState(false)
   const [agendaExpanded, setAgendaExpanded] = useState(false)
-  const [memoryReviewQueue, setMemoryReviewQueue] = useState<AtlasMemoryReviewQueue | null>(null)
+  const [memoryReviewQueue, setMemoryReviewQueue] = useState<AtlasMemoryReviewQueue | null>(() => readCachedMemoryReviewQueue())
+  const hadCachedAgenda = useMemo(() => agenda != null, [])
+  const hadCachedMemory = useMemo(() => memoryReviewQueue != null, [])
   const [memoryReviewLoading, setMemoryReviewLoading] = useState(false)
   const [memoryReviewUnavailable, setMemoryReviewUnavailable] = useState(false)
+  const [editionWarmupReady, setEditionWarmupReady] = useState(false)
 
   const captureCountToday = useMemo(() => {
-    const today = new Date().toDateString()
-    return visibleCaptures({ captures, queuedCaptures })
-      .filter((capture) => new Date(capture.captured_at).toDateString() === today)
-      .length
+    const today = todayDate()
+    let count = 0
+    for (const capture of visibleCaptures({ captures, queuedCaptures })) {
+      if (dateOnlyFromIso(capture.captured_at) === today) count += 1
+    }
+    return count
   }, [captures, queuedCaptures])
   const latestState = useMemo(
     () => latestCheckin({ checkins, queuedCheckins }),
@@ -241,12 +280,12 @@ export default function HomeScreen() {
     [allSignals, checkinsForReadiness, latestState],
   )
   const sleep = useMemo(
-    () => latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'sleep_duration_hours'),
-    [passiveSignals, queuedPassiveSignals],
+    () => latestPassiveSignalFromList(allSignals, 'sleep_duration_hours'),
+    [allSignals],
   )
   const hrv = useMemo(
-    () => latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'hrv_ms'),
-    [passiveSignals, queuedPassiveSignals],
+    () => latestPassiveSignalFromList(allSignals, 'hrv_ms'),
+    [allSignals],
   )
   // Pergunta-norte do dia · prioridade dupla:
   //   1. mission.metadata.question — pergunta explícita da missão (Curator/user
@@ -286,14 +325,41 @@ export default function HomeScreen() {
         limit: 12,
       })
       setAgenda(response)
+      writeCachedAgenda(response)
     } catch {
-      setAgenda(null)
+      setAgenda((current) => current ?? readCachedAgenda())
     } finally {
       setAgendaLoading(false)
     }
   }
 
   useEffect(() => {
+    let cancelled = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    const task = InteractionManager.runAfterInteractions(() => {
+      timeout = setTimeout(() => {
+        if (!cancelled) {
+          setEditionWarmupReady(true)
+          if (!visibleMetricRecordedRef.current) {
+            visibleMetricRecordedRef.current = true
+            recordPerformanceDuration('edition_visible_ms', visibleStartedAt, {
+              cached_agenda: hadCachedAgenda,
+              cached_memory: hadCachedMemory,
+            })
+          }
+        }
+      }, 500)
+    })
+
+    return () => {
+      cancelled = true
+      if (timeout) clearTimeout(timeout)
+      task.cancel()
+    }
+  }, [hadCachedAgenda, hadCachedMemory, visibleStartedAt])
+
+  useEffect(() => {
+    if (!editionWarmupReady) return
     let mounted = true
 
     void resolveCurrentCity().then((city) => {
@@ -303,9 +369,10 @@ export default function HomeScreen() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [editionWarmupReady])
 
   useEffect(() => {
+    if (!editionWarmupReady) return
     let mounted = true
 
     setAgendaLoading(true)
@@ -320,10 +387,11 @@ export default function HomeScreen() {
         limit: 12,
       }))
       .then((response) => {
+        writeCachedAgenda(response)
         if (mounted) setAgenda(response)
       })
       .catch(() => {
-        if (mounted) setAgenda(null)
+        if (mounted) setAgenda((current) => current ?? readCachedAgenda())
       })
       .finally(() => {
         if (mounted) setAgendaLoading(false)
@@ -332,14 +400,16 @@ export default function HomeScreen() {
     return () => {
       mounted = false
     }
-  }, [currentLevelState?.energy_level])
+  }, [currentLevelState?.energy_level, editionWarmupReady])
 
   useEffect(() => {
+    if (!editionWarmupReady) return
     let mounted = true
 
     setMemoryReviewLoading(true)
     void listAtlasMemoryReviewQueue({ limit: 6 })
       .then((response) => {
+        writeCachedMemoryReviewQueue(response.review_queue)
         if (!mounted) return
         setMemoryReviewQueue(response.review_queue)
         setMemoryReviewUnavailable(false)
@@ -354,7 +424,7 @@ export default function HomeScreen() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [editionWarmupReady])
 
   const saveCheckin = async () => {
     if (!checkinState || !energyLevel || !moodLevel) return
@@ -1529,8 +1599,8 @@ function bodyStatusLine({
   energy,
   readiness,
 }: {
-  sleep: ReturnType<typeof latestPassiveSignal>
-  hrv: ReturnType<typeof latestPassiveSignal>
+  sleep: AtlasPassiveSignal | null
+  hrv: AtlasPassiveSignal | null
   energy: number | null
   readiness: string
 }): string {
@@ -1558,8 +1628,8 @@ function inboxValue(count: number): string {
 }
 
 function healthValue(
-  sleep: ReturnType<typeof latestPassiveSignal>,
-  hrv: ReturnType<typeof latestPassiveSignal>,
+  sleep: AtlasPassiveSignal | null,
+  hrv: AtlasPassiveSignal | null,
 ): string {
   const sleepLabel = formatPassiveSignal(sleep)
   const hrvLabel = formatPassiveSignal(hrv)

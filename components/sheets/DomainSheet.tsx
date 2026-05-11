@@ -8,6 +8,11 @@ import { domainColor, type DomainKey } from '../../lib/domains'
 import { useAtlasStore } from '../../lib/atlasStore'
 import { CreateDomainPanel } from '../domains/CreateDomainPanel'
 import { SectionHead, DestinoItem } from '../editorial'
+import {
+  getAtlasDecide,
+  prefetchAtlasDecide,
+  type AtlasDecideResult,
+} from '../../lib/atlasDecide'
 
 interface DomainGlyph {
   key: DomainKey
@@ -48,6 +53,8 @@ const GLYPHS: DomainGlyph[] = [
 export function DomainSheet() {
   const open = useOverlays((s) => s.open)
   const cb = useOverlays((s) => s.onPickDomain)
+  const captureId = useOverlays((s) => s.domainSheetCaptureId)
+  const prePicked = useOverlays((s) => s.domainSheetPrePicked)
   const close = useOverlays((s) => s.close)
   const visible = open === 'domain'
 
@@ -57,12 +64,60 @@ export function DomainSheet() {
   // Vocabulário: "tap em Atlas + fechar = salva como Atlas, como se tivesse
   // tap em Apenas salvar". Don Corleone "ato é ato, escolha é escolha".
   const [pickedDomain, setPickedDomain] = useState<DomainKey>('outro')
+  const [decided, setDecided] = useState<AtlasDecideResult | null>(null)
 
-  // Reset pickedDomain pra default 'outro' quando sheet reabre · próxima
-  // captura começa limpa, sem herdar escolha de captura anterior.
+  // Reset + pre-populate quando sheet reabre. Três estratégias em ordem:
+  //   1. Se há captureId no contexto: consulta Atlas Decide cache (LLM
+  //      server-side via clarifyCapture). Se não tem cache, dispara prefetch
+  //      e atualiza quando chegar — não-bloqueante.
+  //   2. Se há prePicked (heurística client-side via inferAtlasDecide): usa
+  //      como pickedDomain + destino sugerido. Fluxo de criação de captura.
+  //   3. Default: pickedDomain 'outro', sem destino sugerido.
   useEffect(() => {
-    if (visible) setPickedDomain('outro')
-  }, [visible])
+    if (!visible) return
+
+    if (captureId) {
+      const cached = getAtlasDecide(captureId)
+      if (cached) {
+        setPickedDomain(cached.domain)
+        setDecided(cached)
+        return
+      }
+      // Sem cache · prefetch não-bloqueante
+      setPickedDomain(prePicked?.domain ?? 'outro')
+      setDecided(
+        prePicked
+          ? { domain: prePicked.domain, destino: prePicked.destino, confidence: 0, capture: null }
+          : null,
+      )
+      let cancelled = false
+      void prefetchAtlasDecide(captureId).then((result) => {
+        if (cancelled) return
+        setPickedDomain(result.domain)
+        setDecided(result)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (prePicked) {
+      // Pré-classificação heurística client-side · usada no fluxo de criação
+      // (capture.tsx + Dock long-press) quando ainda não há captureId.
+      setPickedDomain(prePicked.domain)
+      setDecided({
+        domain: prePicked.domain,
+        destino: prePicked.destino,
+        confidence: 0,
+        capture: null,
+      })
+      return
+    }
+
+    // Default · sem captureId nem prePicked
+    setPickedDomain('outro')
+    setDecided(null)
+  }, [visible, captureId, prePicked])
 
   const finish = (d: DomainKey | null, destino?: DomainDestino) => {
     cb?.(d, destino)
@@ -72,16 +127,18 @@ export function DomainSheet() {
   return (
     <BottomSheet
       visible={visible}
-      // ✅ Drag down auto-save · usa pickedDomain currente + destino 'salvar'.
+      // ✅ Drag down auto-save · usa pickedDomain currente + destino sugerido
+      // pelo Atlas Decide quando disponível, ou 'salvar' como fallback canon.
       // Se user não tap em nada antes, fica 'outro' (default). Se tap em
       // qualquer domain, usa esse. Comportamento consistente com Atlas
       // Decide Sheet (configuração também auto-save on close).
-      onClose={() => finish(pickedDomain, 'salvar')}
+      onClose={() => finish(pickedDomain, decided?.destino ?? 'salvar')}
       height="85%"
     >
       <Body
         pickedDomain={pickedDomain}
         setPickedDomain={setPickedDomain}
+        suggestedDestino={decided?.destino ?? null}
         onPick={finish}
       />
     </BottomSheet>
@@ -91,10 +148,12 @@ export function DomainSheet() {
 function Body({
   pickedDomain,
   setPickedDomain,
+  suggestedDestino,
   onPick,
 }: {
   pickedDomain: DomainKey
   setPickedDomain: (key: DomainKey) => void
+  suggestedDestino: DomainDestino | null
   onPick: (d: DomainKey | null, destino?: DomainDestino) => void
 }) {
   const { c } = useTheme()
@@ -173,31 +232,49 @@ function Body({
 
       {/* ii. O QUE FAZER? · canon mockup · 4 destinos editoriais.
           Tap = confirma com pickedDomain currente. ✦ Conversar é signature
-          Atlas (exception fundamentada · "Atlas em ato cognitivo"). */}
+          Atlas (exception fundamentada · "Atlas em ato cognitivo").
+          Quando Atlas Decide sugere um destino, ele aparece com peso visual
+          extra (sufixo " · sugerido" no subtitle) — user confirma ou troca. */}
       <View style={styles.section}>
         <SectionHead numeral="ii" title="O que fazer?" />
         <DestinoItem
           glyph="✦"
           label="Conversar com Atlas"
-          subtitle="abre o sheet com a captura como contexto"
+          subtitle={
+            suggestedDestino === 'conversar'
+              ? 'abre o sheet com a captura como contexto · sugerido'
+              : 'abre o sheet com a captura como contexto'
+          }
           onPress={() => onPick(pickedDomain, 'conversar')}
         />
         <DestinoItem
           glyph="—"
           label="Estruturar como tarefa"
-          subtitle="Atlas propõe título, contexto, prazo"
+          subtitle={
+            suggestedDestino === 'tarefa'
+              ? 'Atlas propõe título, contexto, prazo · sugerido'
+              : 'Atlas propõe título, contexto, prazo'
+          }
           onPress={() => onPick(pickedDomain, 'tarefa')}
         />
         <DestinoItem
           glyph="—"
           label="Estruturar como projeto"
-          subtitle="Atlas propõe escopo, etapas, missões"
+          subtitle={
+            suggestedDestino === 'projeto'
+              ? 'Atlas propõe escopo, etapas, missões · sugerido'
+              : 'Atlas propõe escopo, etapas, missões'
+          }
           onPress={() => onPick(pickedDomain, 'projeto')}
         />
         <DestinoItem
           glyph="·"
           label="Apenas salvar"
-          subtitle="vai pro inbox raw, decide depois"
+          subtitle={
+            suggestedDestino === 'salvar'
+              ? 'vai pro inbox raw, decide depois · sugerido'
+              : 'vai pro inbox raw, decide depois'
+          }
           isLast
           onPress={() => onPick(pickedDomain, 'salvar')}
         />
