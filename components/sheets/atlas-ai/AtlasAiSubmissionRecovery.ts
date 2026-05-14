@@ -63,8 +63,9 @@ export async function clearPendingSubmission(clientId?: string): Promise<void> {
   }
 }
 
-export function shouldKeepPendingSubmission(error: unknown): boolean {
+export function shouldKeepPendingSubmission(error: unknown, hasAttachments = false): boolean {
   if (!(error instanceof AtlasApiError)) return true
+  if (hasAttachments && error.status >= 500) return false
   return error.status === 408 || error.status === 429 || error.status >= 500
 }
 

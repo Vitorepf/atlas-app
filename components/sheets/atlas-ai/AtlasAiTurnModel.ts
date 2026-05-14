@@ -13,6 +13,15 @@ import type { FeedbackAction } from './AtlasAiQualityFeedback'
 import type { TurnBody } from './AtlasAiTurnBody'
 import { providerWord } from './threadHistoryModel'
 
+export interface YouTubeSourceSummary {
+  key: string
+  title: string
+  status: string
+  source: string
+  detail: string
+  progress?: number | null
+}
+
 export function bodyFromTrace(
   trace: AtlasAiTrace,
   onFeedback: (trace: AtlasAiTrace, action: FeedbackAction) => void,
@@ -22,6 +31,19 @@ export function bodyFromTrace(
   pinned: boolean,
 ): TurnBody {
   if (isAtlasTraceActive(trace)) {
+    const streamedText = pickResponseText(trace).trim()
+    if (streamedText) {
+      return {
+        kind: 'streaming',
+        text: streamedText,
+        startedAtMs: new Date(trace.created_at).getTime(),
+        provider: providerWord(trace.provider),
+        detail: thinkingDetail(trace),
+        trace,
+        onOpenExecution,
+      }
+    }
+
     return {
       kind: 'thinking',
       startedAtMs: new Date(trace.created_at).getTime(),
@@ -43,6 +65,7 @@ export function bodyFromTrace(
     text: pickResponseText(trace) || '—',
     attribution: attribution(trace),
     trace,
+    youtubeSources: youtubeSourcesFromTrace(trace),
     onFeedback,
     onRunQualityAction,
     onOpenExecution,
@@ -66,6 +89,59 @@ export function attachmentsFromTrace(trace: AtlasAiTrace): AtlasAiAttachment[] {
   return attachments.filter((attachment) => {
     if (seen.has(attachment.id)) return false
     seen.add(attachment.id)
+    return true
+  })
+}
+
+export function youtubeSourcesFromTrace(trace: AtlasAiTrace): YouTubeSourceSummary[] {
+  const jobs = trace.jobs?.length ? trace.jobs : trace.job ? [trace.job] : []
+  const sources: YouTubeSourceSummary[] = []
+
+  for (const job of jobs) {
+    const ingestion = recordValue(job.payload?.youtube_ingestion)
+    const videos = Array.isArray(ingestion?.videos) ? ingestion.videos : []
+    for (const item of videos) {
+      const video = recordValue(item)
+      if (!video) continue
+      const metadata = recordValue(video.metadata)
+      const caption = recordValue(video.caption)
+      const fallback = recordValue(video.audio_fallback)
+      const processing = recordValue(video.processing) ?? recordValue(recordValue(video.diagnostics)?.processing)
+      const url = stringValue(video.url)
+      const title = stringValue(metadata?.title) ?? stringValue(video.url) ?? 'YouTube'
+      const status = stringValue(video.status) ?? 'unknown'
+      const source = sourceLabel(
+        stringValue(metadata?.metadata_source),
+        stringValue(caption?.kind),
+        stringValue(fallback?.status),
+        Boolean(video.cache_hit),
+        status,
+      )
+      const progress = numberValue(processing?.progress)
+      const eta = numberValue(processing?.estimated_remaining_seconds)
+      const detail = [
+        statusLabel(status),
+        stringValue(metadata?.channel),
+        durationLabel(numberValue(metadata?.duration_seconds)),
+        eta ? `~${durationLabel(eta) ?? `${Math.round(eta)}s`}` : null,
+        Boolean(video.cache_hit) ? 'cache' : null,
+      ].filter(Boolean).join(' · ')
+
+      sources.push({
+        key: url ?? `${job.id}:${sources.length}`,
+        title,
+        status,
+        source,
+        detail,
+        progress,
+      })
+    }
+  }
+
+  const seen = new Set<string>()
+  return sources.filter((source) => {
+    if (seen.has(source.key)) return false
+    seen.add(source.key)
     return true
   })
 }
@@ -244,6 +320,53 @@ function isAtlasAiAttachment(value: unknown): value is AtlasAiAttachment {
   return typeof attachment.id === 'string'
     && typeof attachment.name === 'string'
     && typeof attachment.kind === 'string'
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function sourceLabel(metadataSource: string | null, captionKind: string | null, fallbackStatus: string | null, cacheHit: boolean, status?: string): string {
+  if (cacheHit) return 'YouTube · cache pronto'
+  if (status === 'processing') return 'YouTube · transcrevendo áudio'
+  if (captionKind === 'whisper_audio') return 'YouTube · Whisper'
+  if (captionKind) return `YouTube · ${captionKind === 'asr' || captionKind === 'automatic' ? 'legenda automática' : 'legenda'}`
+  if (fallbackStatus) return `YouTube · áudio ${statusLabel(fallbackStatus).toLowerCase()}`
+  if (metadataSource?.includes('youtube_data_api')) return 'YouTube · metadados oficiais'
+  return 'YouTube'
+}
+
+function durationLabel(seconds: number | null): string | null {
+  if (seconds == null || seconds <= 0) return null
+  const mins = Math.round(seconds / 60)
+  if (mins < 60) return `${mins} min`
+  const hours = Math.floor(mins / 60)
+  const rest = mins % 60
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
+}
+
+function statusLabel(status: string): string {
+  if (status === 'ready') return 'transcrição pronta'
+  if (status === 'processing' || status === 'queued') return 'processando'
+  if (status === 'caption_unavailable') return 'sem legenda'
+  if (status === 'transcript_empty') return 'transcrição vazia'
+  if (status === 'metadata_unavailable') return 'metadados indisponíveis'
+  if (status === 'skipped_duration') return 'vídeo longo'
+  if (status === 'download_failed') return 'download falhou'
+  if (status === 'runtime_missing') return 'runtime ausente'
+  if (status === 'disabled') return 'desativado'
+  if (status === 'failed' || status === 'caption_failed') return 'falhou'
+  return status.replace(/[_-]+/g, ' ')
 }
 
 function formatLatency(ms: number): string {

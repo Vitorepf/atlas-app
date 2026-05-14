@@ -4,7 +4,7 @@ import Animated, { Easing, FadeIn, FadeOut, LinearTransition } from 'react-nativ
 import { InboxCard, type InboxItem } from '../InboxCard'
 import { InboxSkeleton } from '../InboxSkeleton'
 import { EmptyInbox } from '../EmptyInbox'
-import { SectionHeader } from '../SectionHeader'
+import { TimelineLabel } from './TimelineLabel'
 import { isNavigableDestination } from '../../lib/inboxCaptureModels'
 import type { DateGroup } from '../../lib/inboxCaptureModels'
 import type { InboxFilter } from '../../lib/inboxTypes'
@@ -60,12 +60,9 @@ export function InboxCaptureList({
 
   return (
     <View>
-      {groups.map((group, idx) => (
+      {groups.map((group) => (
         <View key={group.key}>
-          <SectionHeader
-            label={group.label}
-            style={idx === 0 ? styles.firstSection : undefined}
-          />
+          <TimelineLabel label={group.label} />
           <View style={styles.list}>
             {group.items.map((item, cardIdx) => (
               <InboxCaptureRow
@@ -74,6 +71,7 @@ export function InboxCaptureList({
                 cardIdx={cardIdx}
                 fresh={freshIds.has(item.id)}
                 item={item}
+                lastInGroup={cardIdx === group.items.length - 1}
                 onArchive={onArchive}
                 onCreateProject={onCreateProject}
                 onCreateTask={onCreateTask}
@@ -100,6 +98,7 @@ const InboxCaptureRow = memo(function InboxCaptureRow({
   cardIdx,
   fresh,
   item,
+  lastInGroup,
   onArchive,
   onCreateProject,
   onCreateTask,
@@ -115,6 +114,7 @@ const InboxCaptureRow = memo(function InboxCaptureRow({
   cardIdx: number
   fresh: boolean
   item: InboxItem
+  lastInGroup: boolean
   onArchive: (item: InboxItem) => void
   onCreateProject: (item: InboxItem) => void
   onCreateTask: (item: InboxItem) => void
@@ -161,6 +161,7 @@ const InboxCaptureRow = memo(function InboxCaptureRow({
           selected={selected}
           selectionMode={selectionMode}
           isFresh={fresh}
+          lastInGroup={lastInGroup}
           onPress={open}
           onPromote={promote}
           onCreateTask={createTask}

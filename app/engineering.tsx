@@ -1,4 +1,4 @@
-import { Image, RefreshControl, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
+import { Alert, Image, RefreshControl, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
@@ -14,6 +14,7 @@ import {
   configureAtlasToolAuthorityPolicy,
   ensureDefaultEngineeringBenchmarkSuite,
   evaluateAtlasToolGate,
+  fetchAtlasStructureMotherAudit,
   approveAtlasTool,
   fetchAtlasToolsAuthority,
   fetchAtlasToolsAuthorityPolicies,
@@ -25,7 +26,6 @@ import {
   fetchEngineeringBenchmarkRun,
   fetchEngineeringBenchmarkSuite,
   fetchEngineeringBenchmarkTrends,
-  fetchEngineeringFairClaudeReport,
   fetchEngineeringHarnessabilityCalibration,
   fetchEngineeringKnowledge,
   fetchEngineeringKnowledgeItem,
@@ -36,6 +36,7 @@ import {
   listEngineeringTestRunArtifacts,
   listEngineeringBenchmarkSuites,
   indexEngineeringCodeKnowledge,
+  replayAtlasMobilePush,
   replayEngineeringRun,
   replayEngineeringRunAttempt,
   revokeAtlasToolAuthorityPolicy,
@@ -52,7 +53,9 @@ import {
   type AtlasEngineeringBenchmarkSuiteResponse,
   type AtlasEngineeringBenchmarkSuiteSummary,
   type AtlasEngineeringBenchmarkTrendsResponse,
-  type AtlasEngineeringFairClaudeReportResponse,
+  type AtlasMobilePushReplayResponse,
+  type AtlasStructureMotherAuditAction,
+  type AtlasStructureMotherAuditResponse,
   type AtlasEngineeringCodeAuditResponse,
   type AtlasEngineeringCodeModuleResponse,
   type AtlasEngineeringCodeModulesResponse,
@@ -107,7 +110,8 @@ export default function EngineeringScreen() {
   const [selectedSuite, setSelectedSuite] = useState<string | null>(null)
   const [suiteDetail, setSuiteDetail] = useState<AtlasEngineeringBenchmarkSuiteResponse | null>(null)
   const [trends, setTrends] = useState<AtlasEngineeringBenchmarkTrendsResponse | null>(null)
-  const [rivalsReport, setRivalsReport] = useState<AtlasEngineeringFairClaudeReportResponse | null>(null)
+  const [structureAudit, setStructureAudit] = useState<AtlasStructureMotherAuditResponse | null>(null)
+  const [pushReplay, setPushReplay] = useState<AtlasMobilePushReplayResponse | null>(null)
   const [selectedRun, setSelectedRun] = useState<AtlasEngineeringBenchmarkRunResponse | null>(null)
   const [selectedEngineeringRunId, setSelectedEngineeringRunId] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState('')
@@ -124,7 +128,8 @@ export default function EngineeringScreen() {
   const [providerDockerService, setProviderDockerService] = useState('backend')
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [rivalsLoading, setRivalsLoading] = useState(false)
+  const [structureAuditLoading, setStructureAuditLoading] = useState(false)
+  const [pushReplayRunning, setPushReplayRunning] = useState<'dry_run' | 'apply' | null>(null)
   const [running, setRunning] = useState(false)
   const [seeding, setSeeding] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
@@ -233,18 +238,64 @@ export default function EngineeringScreen() {
     }
   }, [showToast])
 
-  const loadRivalsReport = useCallback(async () => {
-    setRivalsLoading(true)
+  const loadStructureAudit = useCallback(async (workspaceInput = '') => {
+    setStructureAuditLoading(true)
     try {
-      const response = await fetchEngineeringFairClaudeReport('atlas-fair-claude-v1', { limit: 20 })
-      setRivalsReport(response)
+      const resolvedWorkspace = workspaceInput.trim()
+      const response = await fetchAtlasStructureMotherAudit({
+        hours: 720,
+        workspace: resolvedWorkspace || null,
+      })
+      setStructureAudit(response)
     } catch {
-      setRivalsReport(null)
-      showToast('Não consegui carregar Atlas Rivals')
+      setStructureAudit(null)
+      showToast('Não consegui carregar estrutura mãe')
     } finally {
-      setRivalsLoading(false)
+      setStructureAuditLoading(false)
     }
   }, [showToast])
+
+  const replayPendingMobilePush = useCallback(async (apply: boolean) => {
+    if (apply && (!pushReplay?.push_replay.dry_run || pushReplay.push_replay.candidate_count <= 0)) {
+      showToast('Rode o dry-run e revise os candidatos antes de aplicar')
+      return
+    }
+
+    const run = async () => {
+      setPushReplayRunning(apply ? 'apply' : 'dry_run')
+      try {
+        const response = await replayAtlasMobilePush({
+          limit: 50,
+          apply,
+          confirm_external_dispatch: apply,
+          reason: apply ? 'Engineering app operator confirmed pending push replay' : null,
+        })
+        setPushReplay(response)
+        await loadStructureAudit(workspace)
+        showToast(apply
+          ? `${response.push_replay.dispatched_count} push reprocessado(s)`
+          : `${response.push_replay.candidate_count} push pendente(s) no dry-run`)
+      } catch {
+        showToast(apply ? 'Replay de push não foi aplicado' : 'Dry-run de push falhou')
+      } finally {
+        setPushReplayRunning(null)
+      }
+    }
+
+    if (!apply) {
+      await run()
+      return
+    }
+
+    Alert.alert(
+      'Disparar push pendente?',
+      'Isso pode enviar notificações reais para dispositivos registrados. Use apenas depois de revisar o dry-run.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Disparar', style: 'destructive', onPress: () => { void run() } },
+      ],
+    )
+  }, [loadStructureAudit, pushReplay, showToast, workspace])
 
   const loadHarnessCalibration = useCallback(async () => {
     try {
@@ -565,11 +616,11 @@ export default function EngineeringScreen() {
 
   useEffect(() => {
     void loadSuites()
-    void loadRivalsReport()
+    void loadStructureAudit()
     void loadHarnessCalibration()
     void loadToolRuntime()
     void loadKnowledge()
-  }, [loadSuites, loadRivalsReport, loadHarnessCalibration, loadKnowledge, loadToolRuntime])
+  }, [loadSuites, loadStructureAudit, loadHarnessCalibration, loadKnowledge, loadToolRuntime])
 
   useEffect(() => {
     void loadCodeKnowledge()
@@ -595,7 +646,7 @@ export default function EngineeringScreen() {
     await Promise.all([
       loadSuites(),
       loadSuite(selectedSuite),
-      loadRivalsReport(),
+      loadStructureAudit(workspace),
       loadHarnessCalibration(),
       loadToolRuntime(workspace, toolGateMode),
       loadKnowledge(),
@@ -747,6 +798,9 @@ export default function EngineeringScreen() {
             <Sans weight="sb" size={23} lineHeight={29} color={c.ink}>
               Atlas-Bench
             </Sans>
+            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+              Laboratório interno de qualidade, regressão, gates e promoção de cases.
+            </Mono>
           </View>
           <StatusPill status={aggregate.status} />
         </View>
@@ -761,15 +815,28 @@ export default function EngineeringScreen() {
       </CodexReveal>
 
       <CodexReveal index={2}>
-        <RivalsReportCard
-          report={rivalsReport}
-          loading={rivalsLoading}
-          onOpenReport={() => router.push('/rivals')}
-          onRefresh={() => { void loadRivalsReport() }}
+        <BenchMissionCard
+          aggregate={aggregate}
+          latestRun={latestRun}
+          suitesCount={suites.length}
+          onOpenRivals={() => router.push('/rivals')}
         />
       </CodexReveal>
 
       <CodexReveal index={3}>
+        <StructureMotherActionPlanCard
+          audit={structureAudit}
+          pushReplay={pushReplay}
+          loading={structureAuditLoading}
+          pushReplayRunning={pushReplayRunning}
+          onRefresh={() => { void loadStructureAudit(workspace) }}
+          onOpenInbox={() => router.push('/inbox')}
+          onOpenRivals={() => router.push('/rivals')}
+          onReplayPush={(apply) => { void replayPendingMobilePush(apply) }}
+        />
+      </CodexReveal>
+
+      <CodexReveal index={4}>
         <HarnessabilityCalibrationCard
           calibration={harnessCalibration}
           calibrating={calibratingHarness}
@@ -945,7 +1012,7 @@ export default function EngineeringScreen() {
                 />
               </>
             ) : null}
-            <Label>Provider</Label>
+            <Label>Runtime de execução</Label>
             <Segmented
               value={runMode}
               options={[
@@ -955,11 +1022,11 @@ export default function EngineeringScreen() {
               ]}
               onChange={(value) => setRunMode(value as 'sensors' | 'host' | 'docker')}
             />
-            <Label>Modelo</Label>
+            <Label>Modelo do runner Atlas</Label>
             <TextInput
               value={model}
               onChangeText={setModel}
-              placeholder="sonnet, opus, spark ou id do modelo"
+              placeholder="modelo usado pelo runner interno"
               placeholderTextColor={c.ink3}
               autoCapitalize="none"
               autoCorrect={false}
@@ -1034,7 +1101,7 @@ export default function EngineeringScreen() {
                 ]}
               >
                 <Sans weight="sb" size={13} lineHeight={18} color={c.onInk}>
-                  {running ? 'Executando' : 'Rodar benchmark'}
+                  {running ? 'Executando' : 'Rodar Bench interno'}
                 </Sans>
               </Pressable>
               <Pressable
@@ -1146,83 +1213,215 @@ function SuiteButton({
   )
 }
 
-function RivalsReportCard({
-  report,
-  loading,
-  onOpenReport,
-  onRefresh,
+function BenchMissionCard({
+  aggregate,
+  latestRun,
+  onOpenRivals,
+  suitesCount,
 }: {
-  report: AtlasEngineeringFairClaudeReportResponse | null
-  loading: boolean
-  onOpenReport: () => void
-  onRefresh: () => void
+  aggregate: { status: string; passRate: number | null; averageScore: number | null }
+  latestRun: AtlasEngineeringBenchmarkRunSummary | null
+  onOpenRivals: () => void
+  suitesCount: number
 }) {
   const c = usePalette()
-  const readiness = report?.readiness
-  const scorecard = report?.paired_scorecard
-  const runs = report?.runs ?? []
-  const blockingReasons = readiness?.blocking_reasons ?? []
-  const ready = Boolean(readiness?.ready_for_claim)
+  const qualityDebtValue = latestRun ? qualityDebt(latestRun) : null
+  const failedTests = latestRun?.failed_test_count ?? 0
+  const failedControls = (latestRun?.failed_control_count ?? 0) + (latestRun?.blocked_control_count ?? 0)
+  const decision = latestRun
+    ? latestRun.release_gate_status === 'passed'
+      ? 'Bench interno saudável para esta suite.'
+      : 'Bench encontrou dívida interna antes de qualquer claim.'
+    : 'Sem run interno recente para medir regressão.'
 
   return (
-    <View style={[styles.panel, { borderColor: ready ? c.moss : c.border, backgroundColor: c.surface }]}>
+    <View style={[styles.panel, { borderColor: statusColor(aggregate.status, c), backgroundColor: c.surface }]}>
       <View style={styles.panelTop}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Rivals</Label>
-          <Sans weight="sb" size={16} lineHeight={22} color={c.ink}>
-            Atlas vs Claude Code
+          <Label>Atlas-Bench</Label>
+          <Sans weight="sb" size={17} lineHeight={23} color={c.ink}>
+            Qualidade interna, regressão e release gates
           </Sans>
-          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
-            {report?.suite.slug ?? 'atlas-fair-claude-v1'} · {report?.generated_at ? dateLabel(report.generated_at) : (loading ? 'carregando' : 'sem report')}
-          </Mono>
+          <Sans size={12} lineHeight={17} color={c.ink2}>
+            Bench não compara Atlas contra rivais. Ele mede se o próprio Atlas está correto, repetível, auditável e pronto para evoluir.
+          </Sans>
         </View>
-        <View style={styles.statusStack}>
-          <StatusPill status={readiness?.status ?? (loading ? 'running' : 'missing')} />
-          <StatusPill status={ready ? 'release_ready' : 'needs_review'} compact />
-        </View>
+        <StatusPill status={aggregate.status} />
       </View>
 
       <View style={styles.metricsCompact}>
-        <Metric label="Atlas wins" value={String(readiness?.atlas_win_count ?? 0)} tone={ready ? 'passed' : 'pending'} />
-        <Metric label="Claude wins" value={String(readiness?.claude_code_baseline_win_count ?? 0)} tone={readiness?.claude_code_baseline_win_count ? 'warning' : 'passed'} />
-        <Metric label="ties" value={String(readiness?.tie_count ?? 0)} />
+        <Metric label="suites" value={String(suitesCount)} />
+        <Metric label="pass rate" value={aggregate.passRate == null ? '-' : `${aggregate.passRate}%`} tone={aggregate.status} />
+        <Metric label="score" value={aggregate.averageScore == null ? '-' : String(aggregate.averageScore)} />
       </View>
       <View style={styles.metricsCompact}>
-        <Metric label="cases" value={String(readiness?.comparable_count ?? 0)} tone={readiness?.comparable_count ? 'passed' : 'pending'} />
-        <Metric label="protocol" value={percentValue(scorecard?.protocol_validity_rate)} tone={scorecard?.protocol_validity_rate === 100 ? 'passed' : 'warning'} />
-        <Metric label="pass humano 0" value={percentValue(scorecard?.pass_without_human_rate_medium_hard ?? scorecard?.pass_without_human_rate)} tone={scorecard?.pass_without_human_rate ? 'passed' : 'pending'} />
-      </View>
-      <View style={styles.metricsCompact}>
-        <Metric label="baseline" value={report?.claude_code_baseline.enabled ? String(report.claude_code_baseline.case_count) : 'off'} tone={report?.claude_code_baseline.enabled ? 'passed' : 'missing'} />
-        <Metric label="replay" value={report?.replay_manifest.enabled ? String(report.replay_manifest.packet_count) : 'off'} tone={report?.replay_manifest.enabled ? 'passed' : 'missing'} />
-        <Metric label="runs" value={String(report?.run_count ?? 0)} tone={report?.run_count ? 'passed' : 'pending'} />
+        <Metric label="dívida" value={qualityDebtValue == null ? '-' : String(qualityDebtValue)} tone={qualityDebtValue ? 'warning' : 'passed'} />
+        <Metric label="testes falhos" value={String(failedTests)} tone={failedTests ? 'failed' : 'passed'} />
+        <Metric label="controles" value={String(failedControls)} tone={failedControls ? 'failed' : 'passed'} />
       </View>
 
-      {blockingReasons.length ? (
-        <View style={[styles.gateBox, { borderColor: c.bronze, backgroundColor: c.bg }]}>
-          <Label>Bloqueios</Label>
-          {blockingReasons.slice(0, 5).map((reason) => (
-            <Mono key={reason} size={10.5} lineHeight={15} letterSpacing={0.1} color={c.bronze}>
-              {reason}
-            </Mono>
-          ))}
-        </View>
-      ) : null}
+      <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
+        <Label>Como usar</Label>
+        <Sans size={11.8} lineHeight={17} color={c.ink2}>
+          Use Atlas-Bench para validar mudanças do Atlas, detectar regressões, calibrar harnessability, promover runs reais para cases e bloquear release quando gates internos falham.
+        </Sans>
+        <Sans weight="sb" size={12.2} lineHeight={17} color={statusColor(latestRun?.release_gate_status ?? aggregate.status, c)}>
+          {decision}
+        </Sans>
+      </View>
 
       <View style={styles.rivalsActions}>
         <Pressable
-          onPress={onOpenReport}
+          onPress={onOpenRivals}
           style={({ pressed }) => [
             styles.inlineButton,
             {
-              borderColor: c.bronze,
+              borderColor: c.border,
               backgroundColor: pressed ? c.premium : c.surface,
               opacity: pressed ? 0.82 : 1,
             },
           ]}
         >
           <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
-            Relatório
+            Abrir Atlas Rivals
+          </Sans>
+        </Pressable>
+        <Sans size={11.2} lineHeight={16} color={c.ink2} style={{ flex: 1 }}>
+          Rivals é a arena comparativa contra provedores; Bench é o laboratório interno.
+        </Sans>
+      </View>
+    </View>
+  )
+}
+
+function StructureMotherActionPlanCard({
+  audit,
+  pushReplay,
+  loading,
+  pushReplayRunning,
+  onRefresh,
+  onOpenInbox,
+  onOpenRivals,
+  onReplayPush,
+}: {
+  audit: AtlasStructureMotherAuditResponse | null
+  pushReplay: AtlasMobilePushReplayResponse | null
+  loading: boolean
+  pushReplayRunning: 'dry_run' | 'apply' | null
+  onRefresh: () => void
+  onOpenInbox: () => void
+  onOpenRivals: () => void
+  onReplayPush: (apply: boolean) => void
+}) {
+  const c = usePalette()
+  const report = audit?.structure_mother_audit
+  const summary = report?.summary
+  const plan = report?.operator_action_plan
+  const actionSummary = plan?.action_summary
+  const actions = plan?.actions ?? []
+  const blockers = report?.blockers ?? []
+  const status = report?.status ?? (loading ? 'running' : 'missing')
+  const pushAction = actions.find((action) => action.id === 'replay_pending_mobile_push_dispatches')
+  const criticalAction = actions.find((action) => action.id === 'review_critical_proactive_insights')
+  const rivalsAction = actions.find((action) => action.id === 'record_real_rivals_review_when_due')
+  const diagnostics = objectValue(pushAction?.diagnostics)
+
+  return (
+    <View style={[styles.panel, { borderColor: statusColor(status, c), backgroundColor: c.surface }]}>
+      <View style={styles.panelTop}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Label>Estrutura mãe</Label>
+          <Sans weight="sb" size={16} lineHeight={22} color={c.ink}>
+            Plano operacional
+          </Sans>
+          <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+            {report?.generated_at ? dateLabel(report.generated_at) : (loading ? 'carregando' : 'sem auditoria')}
+          </Mono>
+        </View>
+        <View style={styles.statusStack}>
+          <StatusPill status={status} />
+          <StatusPill status={report?.completion_gate.update_goal_allowed ? 'release_ready' : 'blocked'} compact />
+        </View>
+      </View>
+
+      <View style={styles.metricsCompact}>
+        <Metric label="módulos prontos" value={`${summary?.ready_count ?? 0}/${summary?.module_count ?? 8}`} tone={summary?.ready_count === summary?.module_count ? 'passed' : 'warning'} />
+        <Metric label="bloqueios" value={String(summary?.operational_blocker_count ?? blockers.length)} tone={blockers.length ? 'blocked' : 'passed'} />
+        <Metric label="ações" value={String(plan?.action_count ?? actions.length)} tone={actions.length ? 'warning' : 'passed'} />
+      </View>
+      <View style={styles.metricsCompact}>
+        <Metric label="insights" value={String(numberValue(criticalAction?.critical_item_count) ?? numberValue(criticalAction?.critical_active_count) ?? 0)} tone={criticalAction ? 'blocked' : 'passed'} />
+        <Metric label="agora" value={String(actionSummary?.actionable_now_count ?? actions.filter((action) => action.actionable_now === true).length)} tone={(actionSummary?.actionable_now_count ?? 0) > 0 ? 'warning' : 'passed'} />
+        <Metric label="calendário" value={String(actionSummary?.calendar_wait_count ?? (rivalsAction ? 1 : 0))} tone={(actionSummary?.calendar_wait_count ?? 0) > 0 ? 'pending' : 'passed'} />
+      </View>
+      {pushAction ? (
+        <View style={styles.metricsCompact}>
+          <Metric label="push pendente" value={String(numberValue(diagnostics.push_token_device_count) ?? '-')} tone="warning" />
+          <Metric label="efeito externo" value={String(actionSummary?.external_effect_action_count ?? 1)} tone="warning" />
+          <Metric label="próximo prazo" value={actionSummary?.next_calendar_due_at ? dateLabel(actionSummary.next_calendar_due_at) : '-'} tone={rivalsAction ? 'pending' : 'passed'} />
+        </View>
+      ) : null}
+
+      {actions.length ? (
+        <View style={styles.auditSection}>
+          <View style={styles.sectionHead}>
+            <Label>Ações pendentes</Label>
+            <Mono size={10.5} lineHeight={14} color={c.ink2}>{actions.length}</Mono>
+          </View>
+          {actions.slice(0, 5).map((action) => (
+            <StructureMotherActionRow
+              key={action.id}
+              action={action}
+              pushReplayRunning={pushReplayRunning}
+              canApplyPushReplay={Boolean(pushReplay?.push_replay.dry_run && pushReplay.push_replay.candidate_count > 0)}
+              onOpenInbox={onOpenInbox}
+              onOpenRivals={onOpenRivals}
+              onReplayPush={onReplayPush}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={[styles.gateBox, { borderColor: c.moss, backgroundColor: c.bg }]}>
+          <Sans size={11.5} lineHeight={16} color={c.ink2}>
+            Sem ação humana pendente nesta auditoria.
+          </Sans>
+        </View>
+      )}
+
+      {blockers.length ? (
+        <View style={[styles.gateBox, { borderColor: c.bronze, backgroundColor: c.bg }]}>
+          <Label>Bloqueios reais</Label>
+          {blockers.slice(0, 6).map((blocker) => (
+            <Mono key={`${blocker.module_id}:${blocker.blocker}`} size={10.3} lineHeight={14} letterSpacing={0.1} color={c.bronze}>
+              {blocker.module}: {blocker.blocker}
+            </Mono>
+          ))}
+        </View>
+      ) : null}
+
+      {pushReplay ? (
+        <View style={[styles.gateBox, { borderColor: pushReplay.push_replay.dry_run ? c.bronze : c.moss, backgroundColor: c.bg }]}>
+          <Label>Replay push</Label>
+          <Mono size={10.4} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
+            {pushReplay.push_replay.dry_run ? 'dry-run' : 'aplicado'} · candidatos {pushReplay.push_replay.candidate_count} · enviados {pushReplay.push_replay.dispatched_count}
+          </Mono>
+        </View>
+      ) : null}
+
+      <View style={styles.rivalsActions}>
+        <Pressable
+          onPress={onOpenInbox}
+          style={({ pressed }) => [
+            styles.inlineButton,
+            {
+              borderColor: c.border,
+              backgroundColor: pressed ? c.premium : c.surface,
+              opacity: pressed ? 0.82 : 1,
+            },
+          ]}
+        >
+          <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
+            Inbox crítico
           </Sans>
         </Pressable>
         <Pressable
@@ -1238,40 +1437,128 @@ function RivalsReportCard({
           ]}
         >
           <Sans weight="sb" size={12.5} lineHeight={17} color={c.ink}>
-            {loading ? 'Atualizando' : 'Atualizar'}
+            {loading ? 'Auditando' : 'Atualizar'}
           </Sans>
         </Pressable>
       </View>
+    </View>
+  )
+}
 
-      <View style={styles.rivalsHistory}>
-        <View style={styles.sectionHead}>
-          <Label>Histórico Rivals</Label>
-          <Mono size={10.5} lineHeight={14} color={c.ink2}>
-            {runs.length}
+function StructureMotherActionRow({
+  action,
+  pushReplayRunning,
+  canApplyPushReplay,
+  onOpenInbox,
+  onOpenRivals,
+  onReplayPush,
+}: {
+  action: AtlasStructureMotherAuditAction
+  pushReplayRunning: 'dry_run' | 'apply' | null
+  canApplyPushReplay: boolean
+  onOpenInbox: () => void
+  onOpenRivals: () => void
+  onReplayPush: (apply: boolean) => void
+}) {
+  const c = usePalette()
+  const command = action.dry_run_command ?? action.list_command ?? action.list_missing_command ?? action.record_command ?? null
+  const metaParts = [
+    action.type,
+    action.due_at ?? action.review_due_at ?? action.current_due_at ? `vence ${dateLabel(action.due_at ?? action.review_due_at ?? action.current_due_at)}` : null,
+    action.operator_required ? 'humano obrigatório' : null,
+  ].filter(Boolean)
+  const target = action.id === 'review_critical_proactive_insights'
+    ? 'inbox'
+    : (action.id === 'record_real_rivals_review_when_due' ? 'rivals' : null)
+
+  return (
+    <View style={[styles.auditRow, { borderColor: c.border, backgroundColor: c.bg }]}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Sans weight="med" size={12.2} lineHeight={17} color={c.ink} numberOfLines={1}>
+          {structureActionTitle(action)}
+        </Sans>
+        <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
+          {metaParts.join(' · ') || action.id}
+        </Mono>
+        {command ? (
+          <Mono size={10} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={2}>
+            {command}
           </Mono>
-        </View>
-        {runs.length ? runs.slice(0, 6).map((run) => (
-          <View key={run.id} style={[styles.trendRow, { borderColor: c.border, backgroundColor: c.bg }]}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Sans weight="med" size={12.5} lineHeight={18} color={c.ink} numberOfLines={1}>
-                {run.status} · {run.passed_cases}/{run.total_cases} cases
+        ) : null}
+      </View>
+      <View style={styles.rowActions}>
+        <StatusPill status={action.status} compact />
+        {action.id === 'replay_pending_mobile_push_dispatches' ? (
+          <>
+            <Pressable
+              disabled={Boolean(pushReplayRunning)}
+              onPress={() => onReplayPush(false)}
+              style={({ pressed }) => [
+                styles.inlineButtonTiny,
+                {
+                  borderColor: c.border,
+                  backgroundColor: pushReplayRunning === 'dry_run' ? c.bg : (pressed ? c.premium : c.surface),
+                  opacity: pushReplayRunning ? 0.55 : 1,
+                },
+              ]}
+            >
+              <Sans weight="sb" size={10.5} lineHeight={14} color={c.ink}>
+                {pushReplayRunning === 'dry_run' ? 'Checando' : 'Dry-run'}
               </Sans>
-              <Mono size={10.2} lineHeight={14} letterSpacing={0.1} color={c.ink2} numberOfLines={1}>
-                {dateLabel(run.finished_at ?? run.created_at)} · score {run.average_score ?? '-'} · gate {statusLabel(run.release_gate_status ?? 'unknown')} · replay {textValue(objectValue(run.summary).replay_manifest ? textValue(objectValue(objectValue(run.summary).replay_manifest).kind, 'on') : null, 'off')}
-              </Mono>
-            </View>
-            <StatusPill status={run.release_gate_status ?? run.status} compact />
-          </View>
-        )) : (
-          <View style={[styles.gateBox, { borderColor: c.border, backgroundColor: c.bg }]}>
-            <Sans size={11.5} lineHeight={16} color={c.ink2}>
-              Nenhuma bateria Rivals concluída ainda.
+            </Pressable>
+            <Pressable
+              disabled={Boolean(pushReplayRunning) || !canApplyPushReplay}
+              onPress={() => onReplayPush(true)}
+              style={({ pressed }) => [
+                styles.inlineButtonTiny,
+                {
+                  borderColor: c.recRed,
+                  backgroundColor: pushReplayRunning === 'apply' ? c.bg : (pressed ? c.premium : c.surface),
+                  opacity: pushReplayRunning || !canApplyPushReplay ? 0.45 : 1,
+                },
+              ]}
+            >
+              <Sans weight="sb" size={10.5} lineHeight={14} color={c.recRed}>
+                {pushReplayRunning === 'apply' ? 'Enviando' : 'Aplicar'}
+              </Sans>
+            </Pressable>
+          </>
+        ) : null}
+        {target ? (
+          <Pressable
+            onPress={target === 'inbox' ? onOpenInbox : onOpenRivals}
+            style={({ pressed }) => [
+              styles.inlineButtonTiny,
+              {
+                borderColor: c.border,
+                backgroundColor: pressed ? c.premium : c.surface,
+                opacity: pressed ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Sans weight="sb" size={10.5} lineHeight={14} color={c.ink}>
+              Abrir
             </Sans>
-          </View>
-        )}
+          </Pressable>
+        ) : null}
       </View>
     </View>
   )
+}
+
+function structureActionTitle(action: AtlasStructureMotherAuditAction): string {
+  switch (action.id) {
+    case 'review_critical_proactive_insights':
+      return `Revisar ${numberValue(action.critical_item_count) ?? numberValue(action.critical_active_count) ?? 0} insights críticos`
+    case 'replay_pending_mobile_push_dispatches':
+      return 'Reprocessar push pendente'
+    case 'record_real_rivals_review_when_due':
+      return 'Registrar revisão real do Rivals'
+    case 'configure_missing_provider_cost_rates':
+      return `Configurar ${action.missing_rate_count ?? 0} custos de provider`
+    default:
+      return action.id.replaceAll('_', ' ')
+  }
 }
 
 function CalibrationCard({ calibration }: { calibration: Record<string, unknown> }) {
@@ -3279,6 +3566,17 @@ function aggregateSuites(suites: AtlasEngineeringBenchmarkSuiteSummary[]): {
     passRate: passRates.length ? Math.round(passRates.reduce((sum, value) => sum + value, 0) / passRates.length) : null,
     averageScore: scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : null,
   }
+}
+
+function corpusNumber(manifest: Record<string, unknown> | null | undefined, key: string): number {
+  const value = manifest?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function corpusReleaseCount(manifest: Record<string, unknown> | null | undefined): number {
+  const subsets = objectValue(manifest?.official_subsets)
+  const release = numberValue(subsets.release)
+  return release ?? 0
 }
 
 function statusLabel(status: string): string {

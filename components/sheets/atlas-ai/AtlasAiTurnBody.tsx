@@ -19,6 +19,7 @@ import {
 import {
   processingPhrase,
   queuePhrase,
+  type YouTubeSourceSummary,
 } from './AtlasAiTurnModel'
 import { providerWord } from './threadHistoryModel'
 
@@ -36,15 +37,52 @@ export type TurnBody =
       text: string
       attribution: string
       trace: AtlasAiTrace
+      youtubeSources?: YouTubeSourceSummary[]
       onFeedback: (trace: AtlasAiTrace, action: FeedbackAction) => void
       onRunQualityAction: (action: AtlasAiQualityAction) => void
       onOpenExecution: (trace: AtlasAiTrace) => void
       onTogglePin: (trace: AtlasAiTrace) => void
       pinned: boolean
     }
+  | {
+      kind: 'streaming'
+      text: string
+      startedAtMs: number
+      provider?: string
+      detail?: string
+      trace?: AtlasAiTrace
+      onOpenExecution?: (trace: AtlasAiTrace) => void
+    }
   | { kind: 'error'; message: string; onRetry?: () => void }
 
 export function TurnBodyView({ body, onCopyResponse }: { body: TurnBody; onCopyResponse: (text: string) => void }) {
+  if (body.kind === 'streaming') {
+    return (
+      <>
+        <Pressable
+          onLongPress={() => onCopyResponse(body.text)}
+          delayLongPress={380}
+          style={({ pressed }) => ({ opacity: pressed ? 0.65 : 1 })}
+          accessibilityRole="button"
+          accessibilityLabel="copiar resposta parcial do atlas"
+          accessibilityHint="pressionar e segurar copia o texto já recebido"
+        >
+          <PageResponse text={body.text} />
+        </Pressable>
+        <ThinkingState startedAtMs={body.startedAtMs} provider={body.provider} />
+        {body.detail && <CaptionWhisper text={body.detail} />}
+        {body.trace && <TraceProgress trace={body.trace} />}
+        {body.trace && body.onOpenExecution && (
+          <View style={styles.feedbackRow}>
+            <FeedbackButton
+              label="execução"
+              onPress={() => body.onOpenExecution?.(body.trace as AtlasAiTrace)}
+            />
+          </View>
+        )}
+      </>
+    )
+  }
   if (body.kind === 'thinking') {
     return (
       <>
@@ -78,6 +116,7 @@ export function TurnBodyView({ body, onCopyResponse }: { body: TurnBody; onCopyR
         <PageResponse text={body.text} />
       </Pressable>
       <CaptionWhisper text={body.attribution} />
+      <YouTubeSourceBadge sources={body.youtubeSources ?? []} />
       <OpenBrainTraceBadge trace={body.trace} />
       <QualityBar
         trace={body.trace}
@@ -96,6 +135,43 @@ export function TurnBodyView({ body, onCopyResponse }: { body: TurnBody; onCopyR
       </View>
       <FeedbackRow trace={body.trace} onFeedback={body.onFeedback} />
     </>
+  )
+}
+
+function YouTubeSourceBadge({ sources }: { sources: YouTubeSourceSummary[] }) {
+  const { c } = useTheme()
+  if (sources.length === 0) return null
+
+  const ready = sources.filter((source) => source.status === 'ready').length
+  const color = ready > 0 ? c.moss : c.bronze
+  const primary = sources[0]
+  const extra = sources.length > 1 ? ` +${sources.length - 1}` : ''
+
+  return (
+    <View style={[styles.youtubeBadge, { borderTopColor: c.border }]}>
+      <View style={[styles.youtubeDot, { backgroundColor: color }]} />
+      <View style={styles.youtubeText}>
+        <Sans weight="med" size={11} lineHeight={16} color={color}>
+          {primary.source}{extra}
+        </Sans>
+        <Sans size={11} lineHeight={16} color={c.ink2} numberOfLines={2}>
+          {primary.detail ? `${primary.detail} · ${primary.title}` : primary.title}
+        </Sans>
+        {primary.status === 'processing' && typeof primary.progress === 'number' ? (
+          <View style={[styles.youtubeProgressTrack, { backgroundColor: c.border }]}>
+            <View
+              style={[
+                styles.youtubeProgressFill,
+                {
+                  backgroundColor: color,
+                  width: `${Math.max(8, Math.min(88, primary.progress * 100))}%`,
+                },
+              ]}
+            />
+          </View>
+        ) : null}
+      </View>
+    </View>
   )
 }
 
@@ -306,5 +382,32 @@ const styles = StyleSheet.create({
   },
   openBrainText: {
     flexShrink: 1,
+  },
+  youtubeBadge: {
+    marginTop: 10,
+    paddingTop: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  youtubeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 5,
+  },
+  youtubeText: {
+    flex: 1,
+    gap: 1,
+  },
+  youtubeProgressTrack: {
+    marginTop: 4,
+    height: 2,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  youtubeProgressFill: {
+    height: 2,
   },
 })

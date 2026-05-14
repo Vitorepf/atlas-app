@@ -109,9 +109,10 @@
     },
     "extra": {
       "atlas": {
-        "apiHost": "macbook-pro-de-vitor",
+        "apiHost": "127.0.0.1",
         "apiPort": 3737,
-        "apiToken": "local-development-atlas-token-change-me"
+        "apiToken": "local-development-atlas-token-change-me",
+        "liveKitUrl": "ws://127.0.0.1:7880"
       },
       "router": {},
       "eas": {

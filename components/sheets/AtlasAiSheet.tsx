@@ -17,6 +17,7 @@ import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
+import * as Speech from 'expo-speech'
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -35,6 +36,32 @@ import { Frau, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import { useShell } from '../AtlasShell'
 import { useOverlays } from '../../lib/overlays'
+import { sha256Hex } from '../../lib/sha256'
+import {
+  createAtlasSpeechVoiceResolver,
+  mobileVoiceDispatchFailureFromResult,
+  mobileVoiceDispatchTraceFromResult,
+  mobileVoiceEmptyResponseFailure,
+  mobileVoiceInterruptionStage,
+  mobileVoiceMetricMs,
+  mobileVoiceOpenBlockReason,
+  mobileVoiceReadinessSummary,
+  mobileVoiceRecordingBlockReason,
+  mobileVoiceRecordingValidationFailure,
+  mobileVoiceSessionCloseStrategy,
+  mobileVoiceSessionDeferredCloseOutcome,
+  mobileVoiceLiveKitSessionFromStartResponse,
+  mobileVoiceSessionStartOutcome,
+  mobileVoiceShouldRecordInterruption,
+  mobileVoiceSpeechChunkTimeoutMs,
+  mobileVoiceStaleDispatchFailure,
+  mobileVoiceTraceTerminalFailure,
+  mobileVoiceTraceLookupPollFailureSignal,
+  newMobileVoiceRuntimeId,
+  splitAtlasSpeechText,
+  mobileVoiceUiWatchdogDecision,
+  type MobileVoiceLiveKitSession,
+} from '../../lib/atlasVoiceRuntime'
 import {
   AtlasApiError,
   type AiInteractionUploadProgress,
@@ -50,8 +77,10 @@ import {
   type AtlasAiQualityAction,
   type AtlasAiQualityEvaluation,
   type AtlasAiSessionState,
+  type AtlasAiStreamEvent,
   type AtlasAiThread,
   type AtlasAiTrace,
+  type AtlasVoiceSessionResponse,
   type AiThreadsResponse,
   cancelAiJob,
   compactAiThread,
@@ -64,13 +93,24 @@ import {
   getAiProvidersStatus,
   getAiThread,
   getAiThreadState,
+  getMobileVoiceReadiness,
+  getMobileDeviceSession,
+  getApiBase,
+  getAtlasAuthHeaders,
+  interruptMobileVoiceTurn,
   listAiInteractions,
+  listCaptures,
   listAiQualityActions,
   listAiThreadSnapshots,
   listAiThreads,
   retryMobileInboxDiscussionBootstrap,
   retryAiJob,
+  recordMobileVoiceRuntimeFailed,
+  recordMobileVoiceTurnPlayed,
+  recordMobileVoiceTurnSynthesized,
+  recoverMobileDeviceSession,
   runAiQualityAction,
+  streamAiInteraction,
   startMobileVoiceSession,
   endMobileVoiceSession,
   switchAiThreadProvider,
@@ -146,6 +186,9 @@ import {
   compactDomainSelectionPayloadPatch,
 } from './atlas-ai/AtlasAiDomainSelectionModel'
 import {
+  prepareLongMessageForAtlas,
+} from './atlas-ai/AtlasAiLongMessageModel'
+import {
   numberFromRecord,
   stringFromRecord,
 } from './atlas-ai/AtlasAiRecordModel'
@@ -204,6 +247,7 @@ import {
   ROUTING_DEFAULT,
   StatusRouting,
   sanitizeRoutingState,
+  type RoutingDomain,
   type RoutingExecutor,
   type RoutingMode,
   type RoutingState,
@@ -261,6 +305,19 @@ import {
 import {
   selectAtlasAiDomainFlow,
 } from '../../lib/atlasAiDomainCatalog'
+
+type VoiceRuntimeTurn = {
+  sessionId: string
+  turnId: string
+  envelopeId?: string
+  receiptId?: string
+  startedAt?: number
+}
+
+type MobileVoiceInterruptPayload = Parameters<typeof interruptMobileVoiceTurn>[0]
+type MobileVoiceRuntimeFailedPayload = Parameters<typeof recordMobileVoiceRuntimeFailed>[0]
+type MobileVoiceTurnPlayedPayload = Parameters<typeof recordMobileVoiceTurnPlayed>[0]
+type MobileVoiceTurnSynthesizedPayload = Parameters<typeof recordMobileVoiceTurnSynthesized>[0]
 
 interface AtlasAiSheetProps {
   /**
@@ -342,6 +399,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   // Mutex pra Send/Cancel · enterprise canon · evita ambos rodarem juntos
   // se user tap em sequência rápida.
   const recordOpInFlightRef = useRef(false)
+  const recordStartInFlightRef = useRef<Promise<boolean> | null>(null)
   // isMountedRef · evita setState em componente desmontado (React warning +
   // memory leak). Ativo em mount, false em cleanup. Setters checam antes.
   const isMountedRef = useRef(true)
@@ -351,6 +409,27 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   // diretamente. Vocabulário: "captura passa por curadoria editorial via
   // Domain Sheet · não vira conversa".
   const createTextCapture = useAtlasStore((s) => s.createTextCapture)
+  const [voiceModeOpen, setVoiceModeOpen] = useState(false)
+  const [voiceModeState, setVoiceModeState] = useState<VoiceModeState>('listening')
+  const [voiceSessionReady, setVoiceSessionReady] = useState(false)
+  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
+  const [voiceSessionEnvelopeId, setVoiceSessionEnvelopeId] = useState<string | null>(null)
+  const [voiceSessionReceiptId, setVoiceSessionReceiptId] = useState<string | null>(null)
+  const [voiceLiveKitSession, setVoiceLiveKitSession] = useState<MobileVoiceLiveKitSession | null>(null)
+  const [voiceStatusDetail, setVoiceStatusDetail] = useState<string | null>(null)
+  const [voiceTraceId, setVoiceTraceId] = useState<string | null>(null)
+  const [pendingVoiceAiInteraction, setPendingVoiceAiInteraction] = useState<{
+    traceId: string
+    threadId: string | null
+  } | null>(null)
+  const [pendingVoiceTraceLookup, setPendingVoiceTraceLookup] = useState<{
+    clientId: string
+    captureClientId?: string | null
+    threadId: string | null
+    runtimeTurn: VoiceRuntimeTurn
+    startedAt: number
+  } | null>(null)
+  const [voiceTraceRuntimeTurns, setVoiceTraceRuntimeTurns] = useState<Record<string, VoiceRuntimeTurn>>({})
 
   // Mount tracking · setado true no mount, false no unmount.
   useEffect(() => {
@@ -366,6 +445,166 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   }, [])
   const safeSetRecordingPaused = useCallback((value: boolean) => {
     if (isMountedRef.current) setRecordingPaused(value)
+  }, [])
+
+  function resetVoiceRuntimeRefs(options: {
+    stopSpeech?: boolean
+    resetSessionStartPromise?: boolean
+  } = {}) {
+    if (voiceSessionStartWatchdogRef.current) {
+      clearTimeout(voiceSessionStartWatchdogRef.current)
+      voiceSessionStartWatchdogRef.current = null
+    }
+    voiceSessionStartTimedOutRef.current = false
+    voiceSynthesisRecordedRef.current.clear()
+    voicePlaybackRecordedRef.current.clear()
+    voiceInterruptionRecordedRef.current.clear()
+    voiceTerminalFailureRecordedRef.current.clear()
+    voiceFirstAssistantDeltaRecordedRef.current.clear()
+    voiceTraceRuntimeTurnsRef.current = {}
+    voicePlaybackStartedAtRef.current.clear()
+    voiceSpeechLifecycleRef.current = null
+    if (options.resetSessionStartPromise === true) {
+      voiceSessionStartPromiseRef.current = null
+    }
+    if (options.stopSpeech !== false) {
+      void Speech.stop().catch(() => {})
+    }
+  }
+
+  const recordVoiceReadinessSnapshot = useCallback(async (
+    phase: 'open' | 'close' | 'foreground',
+    sessionId?: string | null,
+  ) => {
+    try {
+      const readiness = await getMobileVoiceReadiness({ hours: 24 })
+      const summary = mobileVoiceReadinessSummary(readiness)
+      await recordAtlasAiEvent({
+        eventName: 'mobile_voice_readiness_snapshot',
+        metadata: {
+          phase,
+          session_id: sessionId ?? null,
+          status: summary.status,
+          score: summary.score,
+          ready: summary.ready,
+          ready_for_promotion: summary.readyForPromotion,
+          healthy_loop_ready: summary.healthyLoopReady,
+          interruption_drill_recorded: summary.interruptionDrillRecorded,
+          redacted_failure_drill_recorded: summary.redactedFailureDrillRecorded,
+          latency_slo_clean: summary.latencySloClean,
+          missing_events: summary.missingEvents,
+          missing_promotion_events: summary.missingPromotionEvents,
+          recommended_action: summary.recommendedAction,
+        },
+      })
+    } catch (error) {
+      await recordAtlasAiEvent({
+        eventName: 'mobile_voice_readiness_snapshot_failed',
+        metadata: {
+          phase,
+          session_id: sessionId ?? null,
+          error_class: errorClassFromUnknown(error),
+        },
+      })
+    }
+  }, [])
+  const recordMobileVoiceInterruption = useCallback((
+    payload: MobileVoiceInterruptPayload,
+    metadata: { source: 'barge_in' | 'close'; traceId?: string | null; pendingStage?: string | null },
+  ) => {
+    const startedAt = Date.now()
+    void interruptMobileVoiceTurn(payload)
+      .then(() => recordAtlasAiEvent({
+        eventName: 'mobile_voice_turn_interruption_recorded',
+        trace_id: metadata.traceId ?? undefined,
+        metadata: {
+          source: metadata.source,
+          session_id: payload.session_id,
+          turn_id: payload.turn_id,
+          reason: payload.reason ?? null,
+          interrupted_stage: payload.interrupted_stage ?? null,
+          pending_stage: metadata.pendingStage ?? null,
+          played_duration_ms: payload.played_duration_ms ?? null,
+          callback_latency_ms: payload.latency_ms ?? null,
+          latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        },
+      }))
+      .catch((error) => {
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_turn_interruption_failed',
+          trace_id: metadata.traceId ?? undefined,
+          metadata: {
+            source: metadata.source,
+            session_id: payload.session_id,
+            turn_id: payload.turn_id,
+            reason: payload.reason ?? null,
+            interrupted_stage: payload.interrupted_stage ?? null,
+            pending_stage: metadata.pendingStage ?? null,
+            error_class: errorClassFromUnknown(error),
+            latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+          },
+        })
+      })
+  }, [])
+  const recordMobileVoiceSynthesis = useCallback((
+    payload: MobileVoiceTurnSynthesizedPayload,
+    metadata: { traceId?: string | null } = {},
+  ) => {
+    const startedAt = Date.now()
+    void recordMobileVoiceTurnSynthesized(payload)
+      .then(() => recordAtlasAiEvent({
+        eventName: 'mobile_voice_turn_synthesis_recorded',
+        trace_id: metadata.traceId ?? undefined,
+        metadata: {
+          session_id: payload.session_id,
+          turn_id: payload.turn_id,
+          tts_provider: payload.tts_provider ?? null,
+          audio_duration_ms: payload.audio_duration_ms ?? null,
+          callback_latency_ms: payload.latency_ms ?? null,
+          response_text_hash_present: typeof payload.response_text_hash === 'string' && payload.response_text_hash.trim().length > 0,
+          latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        },
+      }))
+      .catch((error) => {
+        void recordMobileVoiceRuntimeFailedWithError({
+          session_id: payload.session_id,
+          envelope_id: payload.envelope_id,
+          receipt_id: payload.receipt_id,
+          turn_id: payload.turn_id,
+          failure_code: 'mobile_voice_synthesis_receipt_failed',
+          error_class: errorClassFromUnknown(error),
+          latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        }, error).catch(() => {})
+      })
+  }, [])
+  const recordMobileVoicePlayback = useCallback((
+    payload: MobileVoiceTurnPlayedPayload,
+    metadata: { traceId?: string | null } = {},
+  ) => {
+    const startedAt = Date.now()
+    void recordMobileVoiceTurnPlayed(payload)
+      .then(() => recordAtlasAiEvent({
+        eventName: 'mobile_voice_turn_playback_recorded',
+        trace_id: metadata.traceId ?? undefined,
+        metadata: {
+          session_id: payload.session_id,
+          turn_id: payload.turn_id,
+          played_duration_ms: payload.played_duration_ms ?? null,
+          callback_latency_ms: payload.latency_ms ?? null,
+          latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        },
+      }))
+      .catch((error) => {
+        void recordMobileVoiceRuntimeFailedWithError({
+          session_id: payload.session_id,
+          envelope_id: payload.envelope_id,
+          receipt_id: payload.receipt_id,
+          turn_id: payload.turn_id,
+          failure_code: 'mobile_voice_playback_receipt_failed',
+          error_class: errorClassFromUnknown(error),
+          latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        }, error).catch(() => {})
+      })
   }, [])
   const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [pending, setPending] = useState<PendingTurn | null>(null)
@@ -411,30 +650,47 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   // de qualquer await · evita duplicate recordings se long-press disparar
   // múltiplas vezes em sequência (ex: user nervoso). Subsequent calls são
   // ignoradas pelo guard inicial.
-  const handleComposerRecordStart = useCallback(async () => {
-    if (recordingActiveRef.current) return
+  const handleComposerRecordStart = useCallback(async (): Promise<boolean> => {
+    if (recordingActiveRef.current || recordStartInFlightRef.current) return false
     // ✅ FIX RACE CONDITION · marca como ativo IMEDIATAMENTE (síncrono)
     // Próximas chamadas vão sair no guard acima · zero duplicação.
     recordingActiveRef.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
 
-    try {
-      const permission = await requestRecordingPermissionsAsync()
-      if (!permission.granted) {
-        recordingActiveRef.current = false  // rollback
-        showToast('Permissão de microfone necessária pra gravar')
-        return
+    const start = (async (): Promise<boolean> => {
+      try {
+        const permission = await requestRecordingPermissionsAsync()
+        if (!permission.granted) {
+          recordingActiveRef.current = false  // rollback
+          showToast('Permissão de microfone necessária pra gravar')
+          return false
+        }
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
+        await composerRecorder.prepareToRecordAsync()
+        if (!recordingActiveRef.current) {
+          void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+          return false
+        }
+        composerRecorder.record()
+        setRecordingActive(true)
+        setRecordingPaused(false)
+        return true
+      } catch (err) {
+        recordingActiveRef.current = false  // rollback em caso de erro
+        const msg = err instanceof Error ? err.message : 'Falha ao iniciar gravação'
+        showToast(msg)
+        void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+        return false
       }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })
-      await composerRecorder.prepareToRecordAsync()
-      composerRecorder.record()
-      setRecordingActive(true)
-      setRecordingPaused(false)
-    } catch (err) {
-      recordingActiveRef.current = false  // rollback em caso de erro
-      const msg = err instanceof Error ? err.message : 'Falha ao iniciar gravação'
-      showToast(msg)
-      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+    })()
+
+    recordStartInFlightRef.current = start
+    try {
+      return await start
+    } finally {
+      if (recordStartInFlightRef.current === start) {
+        recordStartInFlightRef.current = null
+      }
     }
   }, [composerRecorder, showToast])
 
@@ -463,6 +719,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (recordOpInFlightRef.current) return
     recordOpInFlightRef.current = true
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    await recordStartInFlightRef.current?.catch(() => {})
     safeSetRecordingActive(false)
     safeSetRecordingPaused(false)
     if (!recordingActiveRef.current) {
@@ -486,6 +743,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     // ✅ FIX MUTEX · evita rodar concurrently com Cancel
     if (recordOpInFlightRef.current) return
     recordOpInFlightRef.current = true
+    await recordStartInFlightRef.current?.catch(() => {})
 
     if (!recordingActiveRef.current) {
       safeSetRecordingActive(false)
@@ -528,8 +786,27 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       void (async () => {
         const finalDomain = picked ?? 'outro'
         const finalDestino = destino ?? 'salvar'
+        const voiceTurnId = newMobileVoiceRuntimeId('mobile_voice_turn')
+        const voiceClientId = voiceSessionId ? `voice:${voiceSessionId}:${voiceTurnId}` : null
+        const voiceStartedAt = Date.now()
         try {
-          await createAudioCapture({
+          if (voiceSessionId && finalDestino === 'conversar') {
+            if (voiceClientId) {
+              setPendingVoiceTraceLookup({
+                clientId: voiceClientId,
+                threadId: currentThreadId,
+                runtimeTurn: {
+                  sessionId: voiceSessionId,
+                  turnId: voiceTurnId,
+                  envelopeId: voiceSessionEnvelopeId ?? undefined,
+                  receiptId: voiceSessionReceiptId ?? undefined,
+                  startedAt: voiceStartedAt,
+                },
+                startedAt: voiceStartedAt,
+              })
+            }
+          }
+          const captureClientId = await createAudioCapture({
             domain: finalDomain,
             fileUri: fileUri!,
             durationMs,
@@ -538,16 +815,66 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
               captureSurface: 'atlas_ai_composer_long_press',
               source: 'modo_gravar_composer',
               destino: finalDestino,
+              voiceSessionId,
+              voice_realtime_dispatch: voiceSessionId && finalDestino === 'conversar'
+                ? {
+                    dispatch_to_ai: true,
+                    allow_transcript_persistence: true,
+                    session_id: voiceSessionId,
+                    envelope_id: voiceSessionEnvelopeId,
+                    receipt_id: voiceSessionReceiptId,
+                    turn_id: voiceTurnId,
+                    ai_thread_id: currentThreadId,
+                    domain_hint: finalDomain,
+                    flow_hint: 'voice.push_to_talk',
+                    language: 'pt-BR',
+                    client_surface: 'mobile',
+                    transport: 'mobile_push_to_talk',
+                    runtime: 'livekit_agents_sdk',
+                    privacy_class: 'p3_audio',
+                  }
+                : undefined,
             },
           })
-          showToast('Áudio capturado')
+          if (voiceSessionId && finalDestino === 'conversar' && voiceClientId) {
+            setPendingVoiceTraceLookup((current) =>
+              current?.clientId === voiceClientId
+                ? { ...current, captureClientId }
+                : current,
+            )
+          }
+          showToast(finalDestino === 'conversar' ? 'Turno de voz registrado' : 'Áudio capturado')
         } catch (err) {
+          if (voiceSessionId && finalDestino === 'conversar' && voiceClientId) {
+            setPendingVoiceTraceLookup((current) => current?.clientId === voiceClientId ? null : current)
+            void recordMobileVoiceRuntimeFailedWithError({
+              session_id: voiceSessionId,
+              envelope_id: voiceSessionEnvelopeId ?? undefined,
+              receipt_id: voiceSessionReceiptId ?? undefined,
+              turn_id: voiceTurnId,
+              failure_code: 'mobile_capture_dispatch_failed',
+              error_class: errorClassFromUnknown(err),
+              latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+            }, err).catch(() => {})
+          }
           const msg = err instanceof Error ? err.message : 'Falha ao salvar captura'
           showToast(msg)
         }
       })()
     })
-  }, [composerRecorder, composerRecorderState, createAudioCapture, openDomain, showToast, safeSetRecordingActive, safeSetRecordingPaused])
+  }, [
+    composerRecorder,
+    composerRecorderState,
+    createAudioCapture,
+    openDomain,
+    showToast,
+    safeSetRecordingActive,
+    safeSetRecordingPaused,
+    voiceSessionEnvelopeId,
+    voiceSessionId,
+    voiceSessionReceiptId,
+    currentThreadId,
+  ])
 
   // ✅ FIX 2 · Cleanup no unmount · garante que gravação ativa pare quando
   // AtlasAi desmonta (user navega, app vai pra background, etc). Evita
@@ -580,83 +907,596 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     }
   }, [recordingActive, recordingPaused, composerRecorderState.isRecording, safeSetRecordingPaused])
 
-  // Voice Mode state machine. A sessão real começa no Kernel via mobile
-  // gateway; enquanto LiveKit/STT/TTS não estiverem ligados no app, o modal
-  // mantém o ciclo visual local como fallback seguro.
-  const [voiceModeOpen, setVoiceModeOpen] = useState(false)
-  const [voiceModeState, setVoiceModeState] = useState<VoiceModeState>('listening')
-  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
-  const [voiceSessionEnvelopeId, setVoiceSessionEnvelopeId] = useState<string | null>(null)
-  const [voiceSessionReceiptId, setVoiceSessionReceiptId] = useState<string | null>(null)
-
-  // Cycle demonstrativo · simula loop natural de conversa por voz.
-  // listening (4s · usuário fala) → thinking (2s · Atlas processa) →
-  // speaking (3s · Atlas responde) → loop. Quando integrar STT/TTS real,
-  // remover este useEffect e substituir por hooks de eventos do provider.
-  useEffect(() => {
-    if (!voiceModeOpen) {
-      setVoiceModeState('listening')
-      return
-    }
-    const cycle: Array<{ next: VoiceModeState; duration: number }> = [
-      { next: 'thinking', duration: 4000 },
-      { next: 'speaking', duration: 2000 },
-      { next: 'listening', duration: 3000 },
-    ]
-    let idx = 0
-    const tick = () => {
-      const step = cycle[idx % cycle.length]
-      setVoiceModeState(step.next)
-      idx += 1
-    }
-    const interval = setInterval(tick, 4000)
-    return () => clearInterval(interval)
-  }, [voiceModeOpen])
-
-  const openVoiceMode = useCallback(() => {
-    if (recordingActiveRef.current) {
+  const openVoiceMode = useCallback(async () => {
+    const blockReason = mobileVoiceOpenBlockReason({
+      modeOpen: voiceModeOpen,
+      sessionId: voiceSessionId,
+      recordingActive: recordingActiveRef.current,
+      ending: voiceEndingRef.current,
+    })
+    if (blockReason) {
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_open_ignored',
+        metadata: {
+          reason: blockReason,
+          session_id: voiceSessionId,
+          session_ready: voiceSessionReadyRef.current,
+          recording_active: recordingActiveRef.current,
+        },
+      })
       return
     }
 
-    const sessionId = `mobile_voice_${Date.now()}`
-    const envelopeId = `mobile_voice_env_${Date.now()}`
-    const receiptId = `mobile_voice_receipt_${Date.now()}`
+    let mobileSession = getMobileDeviceSession()
+    if (!mobileSession) {
+      try {
+        mobileSession = await recoverMobileDeviceSession()
+      } catch (error) {
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_pairing_check_failed',
+          metadata: {
+            error_class: errorClassFromUnknown(error),
+            status: error instanceof AtlasApiError ? error.status : null,
+          },
+        })
+      }
+    }
+
+    if (!mobileSession) {
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_open_blocked',
+        metadata: { reason: 'mobile_pairing_required' },
+      })
+      Alert.alert(
+        'Pareamento necessário',
+        'Para usar a voz em tempo real, este iPhone precisa estar pareado com o Atlas Server.',
+        [
+          { text: 'Agora não', style: 'cancel' },
+          {
+            text: 'Parear agora',
+            onPress: () => {
+              router.push('/mobile-pairing')
+            },
+          },
+        ],
+      )
+      return
+    }
+
+    const sessionId = newMobileVoiceRuntimeId('mobile_voice')
+    const envelopeId = newMobileVoiceRuntimeId('mobile_voice_env')
+    const receiptId = newMobileVoiceRuntimeId('mobile_voice_receipt')
+    voiceSessionIdRef.current = sessionId
+    voiceSessionReadyRef.current = false
     setVoiceSessionId(sessionId)
     setVoiceSessionEnvelopeId(envelopeId)
     setVoiceSessionReceiptId(receiptId)
-    setVoiceModeState('listening')
+    setVoiceLiveKitSession(null)
+    setVoiceStatusDetail('Conectando ao Atlas Voice.')
+    setVoiceSessionReady(false)
+    setVoiceTraceId(null)
+    setPendingVoiceTraceLookup(null)
+    setPendingVoiceAiInteraction(null)
+    setVoiceTraceRuntimeTurns({})
+    resetVoiceRuntimeRefs()
+    if (voiceFailureTimerRef.current) {
+      clearTimeout(voiceFailureTimerRef.current)
+      voiceFailureTimerRef.current = null
+    }
+    setVoiceModeState('starting')
     setVoiceModeOpen(true)
+    void recordVoiceReadinessSnapshot('open', sessionId)
 
-    void startMobileVoiceSession({
+    const sessionStartedAt = Date.now()
+    const startPromise = startMobileVoiceSession({
       session_id: sessionId,
       envelope_id: envelopeId,
       receipt_id: receiptId,
       participant_identity: 'mobile:vitor',
-    }).catch((error) => {
-      showToast(humanAiError(error, 'Voz local aberta; Atlas Server ainda nao iniciou a sessao.'))
+      transport: 'livekit_webrtc',
     })
-  }, [showToast])
+    voiceSessionStartPromiseRef.current = startPromise
+    voiceSessionStartTimedOutRef.current = false
+    voiceSessionStartWatchdogRef.current = setTimeout(() => {
+      if (voiceSessionStartPromiseRef.current !== startPromise || voiceSessionIdRef.current !== sessionId) return
+      voiceSessionStartTimedOutRef.current = true
+      voiceSessionReadyRef.current = false
+      setVoiceSessionReady(false)
+      setVoiceLiveKitSession(null)
+      setVoiceStatusDetail(null)
+      setVoiceModeState('failed')
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_session_start_timeout',
+        metadata: {
+          session_id: sessionId,
+          latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+        },
+      })
+      showToast('Atlas ainda está preparando a voz. Tente abrir novamente em instantes.')
+    }, 12_000)
 
-  const closeVoiceMode = useCallback(() => {
+    void startPromise.then((response) => {
+      if (voiceSessionStartPromiseRef.current !== startPromise || voiceSessionIdRef.current !== sessionId) {
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_start_response_ignored',
+          metadata: {
+            session_id: sessionId,
+            current_session_id: voiceSessionIdRef.current,
+            promise_current: voiceSessionStartPromiseRef.current === startPromise,
+            latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+          },
+        })
+        return
+      }
+      const timedOut = voiceSessionStartTimedOutRef.current
+      if (voiceSessionStartWatchdogRef.current) {
+        clearTimeout(voiceSessionStartWatchdogRef.current)
+        voiceSessionStartWatchdogRef.current = null
+      }
+      const outcome = mobileVoiceSessionStartOutcome(response, {
+        requestedSessionId: sessionId,
+        timedOut,
+        startedAtMs: sessionStartedAt,
+      })
+      const telemetry = outcome.telemetry
+      const resolvedSessionId = outcome.resolvedSessionId
+      const liveKitSession = outcome.sessionReady ? mobileVoiceLiveKitSessionFromStartResponse(response) : null
+      setVoiceSessionId(resolvedSessionId)
+      voiceSessionReadyRef.current = outcome.sessionReady
+      setVoiceSessionReady(outcome.sessionReady)
+      setVoiceLiveKitSession(liveKitSession)
+      setVoiceStatusDetail(liveKitSession ? 'Conectando ao LiveKit.' : voiceSessionStartFailureDetail(telemetry.status, telemetry.tokenStatus))
+      setVoiceModeState(outcome.sessionReady ? 'connecting' : outcome.modeState)
+      void recordAtlasAiEvent({
+        eventName: outcome.eventName,
+        metadata: {
+          session_id: telemetry.sessionId,
+          status: telemetry.status,
+          latency_ms: telemetry.latencyMs,
+          runtime: telemetry.runtime,
+          transport: telemetry.transport,
+          room_name: telemetry.roomName,
+          token_status: telemetry.tokenStatus,
+          livekit_url_provided: telemetry.livekitUrlProvided,
+          participant_token_provided: telemetry.participantTokenProvided,
+        },
+      })
+      if (outcome.cleanupTimedOutSession) {
+        voiceSessionIdRef.current = null
+        setVoiceSessionId(null)
+        void endMobileVoiceSession({
+          session_id: resolvedSessionId,
+          envelope_id: envelopeId,
+          receipt_id: receiptId,
+          reason: 'session_start_timeout_cleanup',
+        }).then(() => recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_start_timeout_cleanup_succeeded',
+          metadata: {
+            session_id: resolvedSessionId,
+            latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+          },
+        })).catch((error) => {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_session_start_timeout_cleanup_failed',
+            metadata: {
+              session_id: resolvedSessionId,
+              error_class: errorClassFromUnknown(error),
+              latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+            },
+          })
+        })
+      }
+    }).catch((error) => {
+      if (voiceSessionStartPromiseRef.current !== startPromise || voiceSessionIdRef.current !== sessionId) {
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_start_error_ignored',
+          metadata: {
+            session_id: sessionId,
+            current_session_id: voiceSessionIdRef.current,
+            promise_current: voiceSessionStartPromiseRef.current === startPromise,
+            error_class: errorClassFromUnknown(error),
+            latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+          },
+        })
+        return
+      }
+      if (voiceSessionStartWatchdogRef.current) {
+        clearTimeout(voiceSessionStartWatchdogRef.current)
+        voiceSessionStartWatchdogRef.current = null
+      }
+      voiceSessionReadyRef.current = false
+      setVoiceSessionReady(false)
+      setVoiceModeState('failed')
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_session_start_failed',
+        metadata: {
+          session_id: sessionId,
+          latency_ms: Math.max(0, Math.round(Date.now() - sessionStartedAt)),
+          error_class: errorClassFromUnknown(error),
+          status: error instanceof AtlasApiError ? error.status : null,
+          message: error instanceof Error ? error.message : null,
+        },
+      })
+      if (error instanceof AtlasApiError && error.status === 401) {
+        showToast('Pareamento necessário para iniciar voz em tempo real.')
+        router.push('/mobile-pairing')
+      } else {
+        showToast(humanAiError(error, 'LiveKit não iniciou a sessão de voz.'))
+      }
+    }).finally(() => {
+      if (voiceSessionStartWatchdogRef.current) {
+        clearTimeout(voiceSessionStartWatchdogRef.current)
+        voiceSessionStartWatchdogRef.current = null
+      }
+      if (voiceSessionStartPromiseRef.current === startPromise) {
+        voiceSessionStartPromiseRef.current = null
+      }
+    })
+  }, [recordVoiceReadinessSnapshot, router, showToast, voiceModeOpen, voiceSessionId])
+
+  const endVoiceMode = useCallback(async (reason: 'operator_closed_mobile_voice' | 'app_backgrounded_mobile_voice' | 'atlas_ai_sheet_hidden_mobile_voice') => {
+    if (voiceEndingRef.current) {
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_session_close_ignored',
+        metadata: {
+          reason,
+          ignore_reason: 'close_already_in_progress',
+          session_id: voiceSessionIdRef.current,
+        },
+      })
+      return
+    }
+    voiceEndingRef.current = true
+
     const sessionId = voiceSessionId
+    const sessionStartPromise = voiceSessionStartPromiseRef.current
+    let closeStrategy = mobileVoiceSessionCloseStrategy({
+      sessionId,
+      sessionReady: voiceSessionReadyRef.current,
+      startInFlight: sessionStartPromise != null,
+    })
     const envelopeId = voiceSessionEnvelopeId ?? undefined
     const receiptId = voiceSessionReceiptId ?? undefined
+    const closeStartedAt = Date.now()
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_session_close_requested',
+      metadata: {
+        session_id: sessionId,
+        reason,
+        close_strategy: closeStrategy,
+        session_ready: voiceSessionReadyRef.current,
+        start_in_flight: sessionStartPromise != null,
+        recording_active: recordingActiveRef.current,
+      },
+    })
+    const traceId = voiceTraceId
+    const runtimeTurn = traceId ? voiceTraceRuntimeTurns[traceId] : null
+    const pendingLookupRuntimeTurn = pendingVoiceTraceLookup?.runtimeTurn ?? null
+    const pendingAiRuntimeTurn = pendingVoiceAiInteraction?.traceId
+      ? voiceTraceRuntimeTurns[pendingVoiceAiInteraction.traceId]
+      : null
+    const closeRuntimeTurn = runtimeTurn ?? pendingAiRuntimeTurn ?? pendingLookupRuntimeTurn
+    const trace = traceId ? activeTraceRef.current : null
+    const jobs = trace?.id === traceId
+      ? trace.jobs?.length
+        ? trace.jobs
+        : trace.job
+          ? [trace.job]
+          : []
+      : []
+    const cancellableJobs = jobs.filter((job) => ['queued', 'processing', 'awaiting_user_choice'].includes(job.status))
+
+    if (recordingActiveRef.current) {
+      const discardedTurnId = newMobileVoiceRuntimeId('mobile_voice_turn_discarded')
+      const discardStartedAt = Date.now()
+      recordingActiveRef.current = false
+      safeSetRecordingActive(false)
+      safeSetRecordingPaused(false)
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_discard_on_close_requested',
+        metadata: {
+          session_id: sessionId,
+          turn_id: discardedTurnId,
+          reason,
+          close_strategy: closeStrategy,
+        },
+      })
+      void composerRecorder.stop()
+        .then(() => recordAtlasAiEvent({
+          eventName: 'mobile_voice_recording_discard_on_close_succeeded',
+          metadata: {
+            session_id: sessionId,
+            turn_id: discardedTurnId,
+            reason,
+            latency_ms: Math.max(0, Math.round(Date.now() - discardStartedAt)),
+          },
+        }))
+        .catch((error) => {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_recording_discard_on_close_failed',
+            metadata: {
+              session_id: sessionId,
+              turn_id: discardedTurnId,
+              reason,
+              error_class: errorClassFromUnknown(error),
+              latency_ms: Math.max(0, Math.round(Date.now() - discardStartedAt)),
+            },
+          })
+        })
+      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+    }
+
     setVoiceModeOpen(false)
+    voiceSessionIdRef.current = null
+    voiceSessionReadyRef.current = false
+    setVoiceSessionReady(false)
     setVoiceSessionId(null)
     setVoiceSessionEnvelopeId(null)
     setVoiceSessionReceiptId(null)
+    setVoiceLiveKitSession(null)
+    setVoiceStatusDetail(null)
+    setVoiceTraceId(null)
+    setPendingVoiceTraceLookup(null)
+    setPendingVoiceAiInteraction(null)
+    setVoiceTraceRuntimeTurns({})
+    if (voiceFailureTimerRef.current) {
+      clearTimeout(voiceFailureTimerRef.current)
+      voiceFailureTimerRef.current = null
+    }
 
-    if (!sessionId) return
+    if (closeStrategy === 'skip_no_session' || !sessionId) {
+      resetVoiceRuntimeRefs()
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_session_close_skipped',
+        metadata: {
+          session_id: sessionId,
+          reason,
+          close_strategy: closeStrategy,
+          latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+        },
+      })
+      voiceEndingRef.current = false
+      return
+    }
 
-    void endMobileVoiceSession({
-      session_id: sessionId,
-      envelope_id: envelopeId,
-      receipt_id: receiptId,
-      reason: 'operator_closed_mobile_voice',
-    }).catch(() => {
-      // O fechamento visual é local e deve continuar funcionando offline.
+    const lifecycleKey = traceId && runtimeTurn ? voiceTurnLifecycleKey(runtimeTurn, traceId) : null
+    const shouldRecordCloseInterruption = mobileVoiceShouldRecordInterruption({
+      hasRuntimeTurn: closeRuntimeTurn != null,
+      hasLifecycleKey: lifecycleKey != null,
+      assistantActive: cancellableJobs.length > 0,
+      pendingTraceLookup: pendingVoiceTraceLookup != null,
+      pendingAiInteraction: pendingVoiceAiInteraction != null,
+      state: voiceModeState,
+      playbackRecorded: lifecycleKey ? voicePlaybackRecordedRef.current.has(lifecycleKey) : false,
+      interruptionRecorded: lifecycleKey ? voiceInterruptionRecordedRef.current.has(lifecycleKey) : false,
     })
-  }, [voiceSessionEnvelopeId, voiceSessionId, voiceSessionReceiptId])
+    if (closeRuntimeTurn && shouldRecordCloseInterruption) {
+      let playedDurationMs: number | undefined
+      let latencyMs: number | undefined
+      if (lifecycleKey) {
+        const playbackStartedAt = voicePlaybackStartedAtRef.current.get(lifecycleKey)
+        if (playbackStartedAt != null) {
+          playedDurationMs = Math.max(0, Math.round(Date.now() - playbackStartedAt))
+          voicePlaybackStartedAtRef.current.delete(lifecycleKey)
+        }
+        if (voiceSpeechLifecycleRef.current === lifecycleKey) {
+          const stopRequestedAt = Date.now()
+          voiceSpeechLifecycleRef.current = null
+          await Speech.stop().catch(() => {})
+          latencyMs = Math.max(0, Math.round(Date.now() - stopRequestedAt))
+        }
+        voicePlaybackRecordedRef.current.add(lifecycleKey)
+        voiceInterruptionRecordedRef.current.add(lifecycleKey)
+      }
+      if (pendingVoiceTraceLookup) {
+        latencyMs = Math.max(0, Math.round(Date.now() - pendingVoiceTraceLookup.startedAt))
+      } else if (pendingAiRuntimeTurn?.startedAt != null) {
+        latencyMs = Math.max(0, Math.round(Date.now() - pendingAiRuntimeTurn.startedAt))
+      }
+      recordMobileVoiceInterruption({
+        session_id: closeRuntimeTurn.sessionId,
+        envelope_id: closeRuntimeTurn.envelopeId ?? envelopeId,
+        receipt_id: closeRuntimeTurn.receiptId ?? receiptId,
+        turn_id: closeRuntimeTurn.turnId,
+        reason,
+        interrupted_stage: mobileVoiceInterruptionStage({
+          assistantStreaming: cancellableJobs.length > 0,
+          transcriptionPending: pendingVoiceTraceLookup != null,
+          assistantThinking: pendingVoiceAiInteraction != null,
+          state: voiceModeState,
+        }),
+        interruption_source: 'mobile',
+        played_duration_ms: playedDurationMs,
+        latency_ms: latencyMs,
+      }, {
+        source: 'close',
+        traceId,
+        pendingStage: pendingVoiceTraceLookup ? 'trace_lookup' : pendingVoiceAiInteraction ? 'ai_interaction' : null,
+      })
+    }
+
+    if (cancellableJobs.length > 0) {
+      currentStreamRunIdRef.current += 1
+      streamCancelRef.current?.()
+      streamCancelRef.current = null
+      if (currentStreamTraceIdRef.current) {
+        streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+        currentStreamTraceIdRef.current = null
+      }
+      void Promise.all(cancellableJobs.map((job) => cancelAiJob(job.id))).catch(() => {})
+    }
+
+    resetVoiceRuntimeRefs()
+
+    try {
+      if (closeStrategy === 'wait_for_start' && sessionStartPromise) {
+        let sessionStartSettled = false
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_close_waiting_for_start',
+          metadata: {
+            session_id: sessionId,
+            reason,
+          },
+        })
+        const sessionStartConfirmed = await Promise.race([
+          sessionStartPromise
+            .then(() => {
+              sessionStartSettled = true
+              return true
+            })
+            .catch(() => {
+              sessionStartSettled = true
+              return false
+            }),
+          new Promise<boolean>((resolve) => {
+            setTimeout(() => resolve(false), 3500)
+          }),
+        ])
+        if (!sessionStartSettled) {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_session_close_deferred_cleanup',
+            metadata: {
+              session_id: sessionId,
+              reason,
+              wait_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+            },
+          })
+          void sessionStartPromise
+            .then(() => endMobileVoiceSession({
+              session_id: sessionId,
+              envelope_id: envelopeId,
+              receipt_id: receiptId,
+              reason,
+            }))
+            .then(() => recordAtlasAiEvent({
+              eventName: 'mobile_voice_session_close_deferred_cleanup_succeeded',
+              metadata: {
+                session_id: sessionId,
+                reason,
+                latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+              },
+            }))
+            .catch((error) => {
+              void recordAtlasAiEvent({
+                eventName: 'mobile_voice_session_close_deferred_cleanup_failed',
+                metadata: {
+                  session_id: sessionId,
+                  reason,
+                  error_class: errorClassFromUnknown(error),
+                  latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+                },
+              })
+            })
+        }
+        const deferredOutcome = mobileVoiceSessionDeferredCloseOutcome({
+          startConfirmed: sessionStartConfirmed,
+          startSettled: sessionStartSettled,
+        })
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_close_wait_result',
+          metadata: {
+            session_id: sessionId,
+            reason,
+            outcome: deferredOutcome,
+            latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+          },
+        })
+        closeStrategy = sessionStartConfirmed ? 'end_now' : 'skip_no_session'
+      }
+      if (closeStrategy === 'end_now') {
+        await endMobileVoiceSession({
+          session_id: sessionId,
+          envelope_id: envelopeId,
+          receipt_id: receiptId,
+          reason,
+        })
+        void recordAtlasAiEvent({
+          eventName: 'mobile_voice_session_close_succeeded',
+          metadata: {
+            session_id: sessionId,
+            reason,
+            latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+          },
+        })
+      }
+    } catch (error) {
+      // O fechamento visual é local e deve continuar funcionando offline.
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_session_close_failed',
+        metadata: {
+          session_id: sessionId,
+          reason,
+          close_strategy: closeStrategy,
+          error_class: errorClassFromUnknown(error),
+          latency_ms: Math.max(0, Math.round(Date.now() - closeStartedAt)),
+        },
+      })
+    } finally {
+      if (voiceSessionStartPromiseRef.current === sessionStartPromise) {
+        voiceSessionStartPromiseRef.current = null
+      }
+      void recordVoiceReadinessSnapshot('close', sessionId)
+      voiceEndingRef.current = false
+    }
+  }, [
+    composerRecorder,
+    safeSetRecordingActive,
+    safeSetRecordingPaused,
+    pendingVoiceAiInteraction,
+    pendingVoiceTraceLookup,
+    voiceSessionEnvelopeId,
+    voiceSessionId,
+    voiceSessionReceiptId,
+    voiceTraceId,
+    voiceTraceRuntimeTurns,
+    voiceModeState,
+    recordMobileVoiceInterruption,
+    recordVoiceReadinessSnapshot,
+  ])
+  const closeVoiceMode = useCallback(() => {
+    void endVoiceMode('operator_closed_mobile_voice')
+  }, [endVoiceMode])
+
+  const handleVoiceLiveKitConnected = useCallback(() => {
+    if (!voiceSessionIdRef.current) return
+    setVoiceModeState('listening')
+    setVoiceStatusDetail('Atlas ao vivo.')
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_livekit_connected',
+      metadata: {
+        session_id: voiceSessionIdRef.current,
+        room_name: voiceLiveKitSession?.roomName ?? null,
+      },
+    })
+  }, [voiceLiveKitSession?.roomName])
+
+  const handleVoiceLiveKitDisconnected = useCallback((reason?: string) => {
+    if (!voiceModeOpenRef.current) return
+    setVoiceModeState('reconnecting')
+    setVoiceStatusDetail(reason ? `LiveKit desconectou: ${reason}.` : 'LiveKit reconectando.')
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_livekit_disconnected',
+      metadata: {
+        session_id: voiceSessionIdRef.current,
+        reason: reason ?? null,
+      },
+    })
+  }, [])
+
+  const handleVoiceLiveKitError = useCallback((message: string) => {
+    voiceSessionReadyRef.current = false
+    setVoiceSessionReady(false)
+    setVoiceModeState('failed')
+    setVoiceStatusDetail(message)
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_livekit_failed',
+      metadata: {
+        session_id: voiceSessionIdRef.current,
+        message,
+      },
+    })
+  }, [])
+
   const [turnFilter, setTurnFilter] = useState<AtlasAiTurnFilter>('all')
   const [copyToast, setCopyToast] = useState<string | null>(null)
   const copyToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -667,6 +1507,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const [attachmentBusy, setAttachmentBusy] = useState<string | null>(null)
   const [previewAttachment, setPreviewAttachment] = useState<ComposerImageAttachment | null>(null)
   const [previewHistoricalAttachment, setPreviewHistoricalAttachment] = useState<AtlasAiAttachment | null>(null)
+  const [previewHistoricalImage, setPreviewHistoricalImage] = useState<AtlasAiAttachment | null>(null)
   const [pendingThreadOrigin, setPendingThreadOrigin] = useState<Record<string, unknown> | null>(null)
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null)
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null)
@@ -687,6 +1528,27 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const threadViewVersionRef = useRef(0)
   const activeTraceRef = useRef<AtlasAiTrace | null>(null)
   const currentThreadIdRef = useRef<string | null>(currentThreadId)
+  const streamCancelRef = useRef<(() => void) | null>(null)
+  const currentStreamTraceIdRef = useRef<string | null>(null)
+  const currentStreamRunIdRef = useRef(0)
+  const streamedTraceIdsRef = useRef<Set<string>>(new Set())
+  const streamSequencesRef = useRef<Map<string, number>>(new Map())
+  const voiceSynthesisRecordedRef = useRef<Set<string>>(new Set())
+  const voicePlaybackRecordedRef = useRef<Set<string>>(new Set())
+  const voiceInterruptionRecordedRef = useRef<Set<string>>(new Set())
+  const voiceTerminalFailureRecordedRef = useRef<Set<string>>(new Set())
+  const voiceFirstAssistantDeltaRecordedRef = useRef<Set<string>>(new Set())
+  const voiceTraceRuntimeTurnsRef = useRef<Record<string, VoiceRuntimeTurn>>({})
+  const voicePlaybackStartedAtRef = useRef<Map<string, number>>(new Map())
+  const voiceSpeechLifecycleRef = useRef<string | null>(null)
+  const voiceEndingRef = useRef(false)
+  const voiceSessionReadyRef = useRef(false)
+  const voiceSessionStartPromiseRef = useRef<Promise<AtlasVoiceSessionResponse> | null>(null)
+  const voiceSessionStartTimedOutRef = useRef(false)
+  const voiceSessionStartWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const voiceFailureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const voiceModeOpenRef = useRef(voiceModeOpen)
+  const voiceSessionIdRef = useRef<string | null>(voiceSessionId)
   const visibleStartedAtRef = useRef<number | null>(visible ? nowMs() : null)
   const readyMetricRecordedRef = useRef(false)
 
@@ -746,6 +1608,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const hasActiveTrace = activeTrace != null
   const isPendingSending = pending?.status === 'sending'
   const interactionLocked = submitting || hasActiveTrace || isPendingSending
+  const composerLocked = submitting || isPendingSending
   const canClassifyDraftAsCapture = shouldClassifyAtlasAiDraft({
     currentThreadId,
     pending: pending != null,
@@ -769,8 +1632,37 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   }, [activeTrace])
 
   useEffect(() => {
+    voiceModeOpenRef.current = voiceModeOpen
+  }, [voiceModeOpen])
+
+  useEffect(() => {
+    voiceSessionIdRef.current = voiceSessionId
+  }, [voiceSessionId])
+
+  useEffect(() => {
+    voiceTraceRuntimeTurnsRef.current = voiceTraceRuntimeTurns
+  }, [voiceTraceRuntimeTurns])
+
+  useEffect(() => {
     currentThreadIdRef.current = currentThreadId
   }, [currentThreadId])
+
+  useEffect(() => () => {
+    currentStreamRunIdRef.current += 1
+    streamCancelRef.current?.()
+    streamCancelRef.current = null
+    if (currentStreamTraceIdRef.current) {
+      streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+      currentStreamTraceIdRef.current = null
+    }
+    voiceSessionReadyRef.current = false
+    voiceEndingRef.current = false
+    resetVoiceRuntimeRefs({ resetSessionStartPromise: true })
+    if (voiceFailureTimerRef.current) {
+      clearTimeout(voiceFailureTimerRef.current)
+      voiceFailureTimerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (!canClassifyDraftAsCapture && destinoOverride !== null) {
@@ -798,6 +1690,12 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (!routingHydrated) return
     void atlasStorage.setItem(ROUTING_KEY, JSON.stringify(routing))
   }, [routing, routingHydrated])
+
+  useEffect(() => {
+    if (!visible && voiceModeOpen) {
+      void endVoiceMode('atlas_ai_sheet_hidden_mobile_voice')
+    }
+  }, [endVoiceMode, visible, voiceModeOpen])
 
   useEffect(() => {
     if (!visible || !atlasWarmupReady) return
@@ -1086,6 +1984,13 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     // Antes, restaurar a última thread fazia 8 requests em Promise.all e
     // travava a UI por minutos quando o histórico era grande.
     threadViewVersionRef.current += 1
+    currentStreamRunIdRef.current += 1
+    streamCancelRef.current?.()
+    streamCancelRef.current = null
+    if (currentStreamTraceIdRef.current) {
+      streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+      currentStreamTraceIdRef.current = null
+    }
     setCurrentThreadId(requestedThreadId ?? null)
     setCurrentThread(null)
     setSessionState(null)
@@ -1149,14 +2054,20 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           })
         }
       }
+      if (previous === 'active' && nextState !== 'active' && voiceModeOpen) {
+        void endVoiceMode('app_backgrounded_mobile_voice')
+      }
       if (previous !== 'active' && nextState === 'active') {
         void flushAtlasAiTelemetry()
+        if (voiceSessionIdRef.current) {
+          void recordVoiceReadinessSnapshot('foreground', voiceSessionIdRef.current)
+        }
         void refresh({ silent: true })
       }
     })
 
     return () => subscription.remove()
-  }, [refresh, visible])
+  }, [endVoiceMode, recordVoiceReadinessSnapshot, refresh, visible, voiceModeOpen])
 
   useEffect(() => {
     if (!visible || !activeTrace) return
@@ -1444,14 +2355,1172 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }, [])
 
+  const openHistoricalAttachment = useCallback((attachment: AtlasAiAttachment) => {
+    if (attachment.kind === 'image' && attachment.content_url) {
+      setPreviewHistoricalImage(attachment)
+      return
+    }
+    setPreviewHistoricalAttachment(attachment)
+  }, [])
+
+  const startTraceStream = useCallback((trace: AtlasAiTrace, threadViewVersion: number) => {
+    if (streamedTraceIdsRef.current.has(trace.id)) return
+    if (currentStreamTraceIdRef.current) {
+      streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+      currentStreamTraceIdRef.current = null
+    }
+    const afterSequence = streamSequencesRef.current.get(trace.id) ?? 0
+    streamSequencesRef.current.set(trace.id, afterSequence)
+    const streamRunId = currentStreamRunIdRef.current + 1
+    currentStreamRunIdRef.current = streamRunId
+    streamCancelRef.current?.()
+    streamCancelRef.current = null
+    streamedTraceIdsRef.current.add(trace.id)
+    currentStreamTraceIdRef.current = trace.id
+
+    const stream = streamAiInteraction(trace.id, {
+      onEvent: (event: AtlasAiStreamEvent) => {
+        if (currentStreamRunIdRef.current !== streamRunId) return
+        if (threadViewVersionRef.current !== threadViewVersion) return
+        if (event.trace_id !== trace.id) return
+        if (event.channel && event.channel !== 'assistant') return
+        if (!['token', 'response'].includes(event.type)) return
+
+        const content = event.content ?? ''
+        if (!content) return
+
+        const lastSequence = streamSequencesRef.current.get(trace.id) ?? 0
+        if (event.sequence <= lastSequence) return
+        streamSequencesRef.current.set(trace.id, event.sequence)
+
+        const voiceRuntimeTurn = voiceTraceRuntimeTurnsRef.current[trace.id]
+        if (voiceRuntimeTurn?.startedAt != null && !voiceFirstAssistantDeltaRecordedRef.current.has(trace.id)) {
+          voiceFirstAssistantDeltaRecordedRef.current.add(trace.id)
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_first_assistant_delta_received',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? currentThreadIdRef.current,
+            metadata: {
+              session_id: voiceRuntimeTurn.sessionId,
+              turn_id: voiceRuntimeTurn.turnId,
+              sequence: event.sequence,
+              event_type: event.type,
+              latency_ms: Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt)),
+            },
+          })
+        }
+
+        setTraces((current) =>
+          current.map((item) => {
+            if (item.id !== trace.id) return item
+            const existing = item.response_text ?? ''
+            const responseText = event.type === 'response'
+              ? content
+              : `${existing}${content}`
+
+            return {
+              ...item,
+              response_text: responseText,
+              job: item.job ? { ...item.job, result_text: responseText } : item.job,
+            }
+          }),
+        )
+      },
+      onDone: () => {
+        if (currentStreamRunIdRef.current !== streamRunId) return
+        streamedTraceIdsRef.current.delete(trace.id)
+        if (currentStreamTraceIdRef.current === trace.id) {
+          currentStreamTraceIdRef.current = null
+        }
+        const voiceRuntimeTurn = voiceTraceRuntimeTurnsRef.current[trace.id]
+        if (voiceRuntimeTurn?.startedAt != null) {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_assistant_stream_done',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? currentThreadIdRef.current,
+            metadata: {
+              session_id: voiceRuntimeTurn.sessionId,
+              turn_id: voiceRuntimeTurn.turnId,
+              last_sequence: streamSequencesRef.current.get(trace.id) ?? null,
+              latency_ms: Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt)),
+            },
+          })
+        }
+        if (threadViewVersionRef.current === threadViewVersion) {
+          void loadThreadData(trace.thread_id ?? currentThreadIdRef.current, { silent: true })
+        }
+      },
+      onError: () => {
+        if (currentStreamRunIdRef.current !== streamRunId) return
+        streamedTraceIdsRef.current.delete(trace.id)
+        if (currentStreamTraceIdRef.current === trace.id) {
+          currentStreamTraceIdRef.current = null
+        }
+        const voiceRuntimeTurn = voiceTraceRuntimeTurnsRef.current[trace.id]
+        if (voiceRuntimeTurn?.startedAt != null) {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_assistant_stream_error',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? currentThreadIdRef.current,
+            metadata: {
+              session_id: voiceRuntimeTurn.sessionId,
+              turn_id: voiceRuntimeTurn.turnId,
+              last_sequence: streamSequencesRef.current.get(trace.id) ?? null,
+              latency_ms: Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt)),
+            },
+          })
+        }
+        // Polling continua como trilho de recuperação; stream é melhoria de latência.
+      },
+    }, { after: afterSequence })
+
+    streamCancelRef.current = stream.cancel
+  }, [loadThreadData])
+
+  const showVoiceFailureBriefly = useCallback(() => {
+    if (!voiceModeOpen) return
+    if (voiceFailureTimerRef.current) {
+      clearTimeout(voiceFailureTimerRef.current)
+    }
+    setVoiceModeState('failed')
+    voiceFailureTimerRef.current = setTimeout(() => {
+      voiceFailureTimerRef.current = null
+      setVoiceModeState((current) => (current === 'failed' ? 'listening' : current))
+    }, 1700)
+  }, [voiceModeOpen])
+
+  useEffect(() => {
+    if (!visible || !activeTrace) return
+    startTraceStream(activeTrace, threadViewVersionRef.current)
+  }, [activeTrace, startTraceStream, visible])
+
+  useEffect(() => {
+    if (!pendingVoiceAiInteraction) return
+    let cancelled = false
+    const { traceId, threadId } = pendingVoiceAiInteraction
+    const runtimeTurn = voiceTraceRuntimeTurns[traceId]
+    const interactionStillCurrent = () =>
+      !runtimeTurn || (voiceModeOpenRef.current && voiceSessionIdRef.current === runtimeTurn.sessionId)
+
+    setPendingVoiceAiInteraction(null)
+    setVoiceModeState('thinking')
+
+    if (threadId) {
+      setCurrentThreadId(threadId)
+    }
+
+    void (async () => {
+      try {
+        const response = await getAiInteraction(traceId)
+        if (cancelled || !interactionStillCurrent()) return
+        setTraces((current) => mergeAtlasTrace(response.trace, current))
+        startTraceStream(response.trace, threadViewVersionRef.current)
+        await loadThreadData(response.trace.thread_id ?? threadId, { silent: true })
+      } catch (error) {
+        if (cancelled || !interactionStillCurrent()) return
+        if (runtimeTurn) {
+          const lifecycleKey = `${voiceTurnLifecycleKey(runtimeTurn, traceId)}:fetch_failed`
+          if (!voiceTerminalFailureRecordedRef.current.has(lifecycleKey)) {
+            voiceTerminalFailureRecordedRef.current.add(lifecycleKey)
+            void recordMobileVoiceRuntimeFailedWithError({
+              session_id: runtimeTurn.sessionId,
+              envelope_id: runtimeTurn.envelopeId,
+              receipt_id: runtimeTurn.receiptId,
+              turn_id: runtimeTurn.turnId,
+              failure_code: 'mobile_voice_trace_fetch_failed',
+              error_class: errorClassFromUnknown(error),
+              latency_ms: runtimeTurn.startedAt != null
+                ? Math.max(0, Math.round(Date.now() - runtimeTurn.startedAt))
+                : undefined,
+            }, error).catch(() => {})
+            showVoiceFailureBriefly()
+          }
+        }
+        if (threadId) {
+          await loadThreadData(threadId, { silent: true }).catch(() => {})
+        } else {
+          setVoiceModeState('listening')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadThreadData, pendingVoiceAiInteraction, showVoiceFailureBriefly, startTraceStream, voiceTraceRuntimeTurns])
+
+  useEffect(() => {
+    if (!pendingVoiceTraceLookup) return
+    let cancelled = false
+    let pollTimeout: ReturnType<typeof setTimeout> | null = null
+    let consecutivePollFailures = 0
+    let lastPollFailureEventAt = 0
+    const deadlineMs = pendingVoiceTraceLookup.startedAt + 5 * 60 * 1000
+    const lookupStillCurrent = () =>
+      voiceModeOpenRef.current
+      && voiceSessionIdRef.current === pendingVoiceTraceLookup.runtimeTurn.sessionId
+
+    const poll = async () => {
+      if (cancelled || !lookupStillCurrent()) return
+      if (Date.now() > deadlineMs) {
+        if (!lookupStillCurrent()) return
+        setPendingVoiceTraceLookup((current) =>
+          current?.clientId === pendingVoiceTraceLookup.clientId ? null : current,
+        )
+        void recordMobileVoiceRuntimeFailedWithTelemetry({
+          session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+          envelope_id: pendingVoiceTraceLookup.runtimeTurn.envelopeId,
+          receipt_id: pendingVoiceTraceLookup.runtimeTurn.receiptId,
+          turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+          failure_code: 'mobile_voice_trace_lookup_timeout',
+          latency_ms: Date.now() - pendingVoiceTraceLookup.startedAt,
+        }, { source: 'trace_lookup_timeout' })
+        showVoiceFailureBriefly()
+        return
+      }
+
+      try {
+        if (pendingVoiceTraceLookup.captureClientId) {
+          const capturesResponse = await listCaptures({
+            client_id: pendingVoiceTraceLookup.captureClientId,
+            kind: 'audio',
+            limit: 1,
+          })
+          if (cancelled || !lookupStillCurrent()) return
+          const capture = capturesResponse.captures[0]
+          const dispatchResult = capture?.metadata?.voice_realtime_dispatch_result
+          const dispatchTrace = mobileVoiceDispatchTraceFromResult(dispatchResult)
+          if (dispatchTrace) {
+            setPendingVoiceTraceLookup((current) =>
+              current?.clientId === pendingVoiceTraceLookup.clientId ? null : current,
+            )
+            setVoiceTraceId(dispatchTrace.trace_id)
+            setVoiceTraceRuntimeTurns((current) => ({
+              ...current,
+              [dispatchTrace.trace_id]: pendingVoiceTraceLookup.runtimeTurn,
+            }))
+            void recordAtlasAiEvent({
+              eventName: 'mobile_voice_ai_trace_linked',
+              trace_id: dispatchTrace.trace_id,
+              thread_id: dispatchTrace.thread_id ?? pendingVoiceTraceLookup.threadId,
+              metadata: {
+                source: 'capture_dispatch_result',
+                session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+                turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+                latency_ms: Math.max(0, Math.round(Date.now() - pendingVoiceTraceLookup.startedAt)),
+              },
+            })
+            setPendingVoiceAiInteraction({
+              traceId: dispatchTrace.trace_id,
+              threadId: dispatchTrace.thread_id ?? pendingVoiceTraceLookup.threadId,
+            })
+            return
+          }
+
+          const dispatchFailure = mobileVoiceDispatchFailureFromResult(dispatchResult)
+          if (dispatchFailure) {
+            setPendingVoiceTraceLookup((current) =>
+              current?.clientId === pendingVoiceTraceLookup.clientId ? null : current,
+            )
+            void recordMobileVoiceRuntimeFailedWithTelemetry({
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              envelope_id: pendingVoiceTraceLookup.runtimeTurn.envelopeId,
+              receipt_id: pendingVoiceTraceLookup.runtimeTurn.receiptId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              failure_code: dispatchFailure.failure_code,
+              error_class: dispatchFailure.error_class,
+              error_message_hash: dispatchFailure.error_message_hash,
+              latency_ms: Date.now() - pendingVoiceTraceLookup.startedAt,
+            }, { source: 'dispatch_result_failure' })
+            showVoiceFailureBriefly()
+            return
+          }
+          if (capture?.transcription_status === 'failed') {
+            const dispatchResult = recordFromUnknown(capture.metadata?.voice_realtime_dispatch_result)
+            setPendingVoiceTraceLookup((current) =>
+              current?.clientId === pendingVoiceTraceLookup.clientId ? null : current,
+            )
+            void recordMobileVoiceRuntimeFailedWithTelemetry({
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              envelope_id: pendingVoiceTraceLookup.runtimeTurn.envelopeId,
+              receipt_id: pendingVoiceTraceLookup.runtimeTurn.receiptId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              failure_code: 'mobile_voice_transcription_failed',
+              error_class: stringFromRecord(dispatchResult, 'error_class') ?? 'TranscriptionFailed',
+              error_message_hash: stringFromRecord(dispatchResult, 'error_message_hash') ?? undefined,
+              latency_ms: Date.now() - pendingVoiceTraceLookup.startedAt,
+            }, { source: 'transcription_failed' })
+            showVoiceFailureBriefly()
+            return
+          }
+          const staleDispatchFailure = mobileVoiceStaleDispatchFailure({
+            result: dispatchResult,
+            transcription_status: capture?.transcription_status,
+            updated_at: capture?.updated_at,
+          })
+          if (staleDispatchFailure) {
+            setPendingVoiceTraceLookup((current) =>
+              current?.clientId === pendingVoiceTraceLookup.clientId ? null : current,
+            )
+            void recordMobileVoiceRuntimeFailedWithTelemetry({
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              envelope_id: pendingVoiceTraceLookup.runtimeTurn.envelopeId,
+              receipt_id: pendingVoiceTraceLookup.runtimeTurn.receiptId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              failure_code: staleDispatchFailure.failure_code,
+              error_class: staleDispatchFailure.error_class,
+              latency_ms: Date.now() - pendingVoiceTraceLookup.startedAt,
+            }, { source: 'stale_dispatch_failure' })
+            showVoiceFailureBriefly()
+            return
+          }
+        }
+
+        const response = await listAiInteractions({
+          client_id: pendingVoiceTraceLookup.clientId,
+          limit: 1,
+        })
+        if (cancelled || !lookupStillCurrent()) return
+        const trace = response.traces[0]
+        if (trace?.id) {
+          setPendingVoiceTraceLookup(null)
+          setVoiceTraceId(trace.id)
+          setVoiceTraceRuntimeTurns((current) => ({
+            ...current,
+            [trace.id]: pendingVoiceTraceLookup.runtimeTurn,
+          }))
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_ai_trace_linked',
+            trace_id: trace.id,
+            thread_id: trace.thread_id ?? pendingVoiceTraceLookup.threadId,
+            metadata: {
+              source: 'ai_interactions_fallback',
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              latency_ms: Math.max(0, Math.round(Date.now() - pendingVoiceTraceLookup.startedAt)),
+            },
+          })
+          setPendingVoiceAiInteraction({
+            traceId: trace.id,
+            threadId: trace.thread_id ?? pendingVoiceTraceLookup.threadId,
+          })
+          return
+        }
+        if (consecutivePollFailures > 0) {
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_trace_lookup_poll_recovered',
+            metadata: {
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              previous_failures: consecutivePollFailures,
+              latency_ms: Math.max(0, Math.round(Date.now() - pendingVoiceTraceLookup.startedAt)),
+            },
+          })
+        }
+        consecutivePollFailures = 0
+      } catch (error) {
+        // A captura/transcrição pode ainda estar offline; tentamos de novo.
+        consecutivePollFailures += 1
+        const signal = mobileVoiceTraceLookupPollFailureSignal({ consecutiveFailures: consecutivePollFailures })
+        const now = Date.now()
+        if (signal && now - lastPollFailureEventAt > 10_000) {
+          lastPollFailureEventAt = now
+          void recordAtlasAiEvent({
+            eventName: 'mobile_voice_trace_lookup_poll_failed',
+            metadata: {
+              session_id: pendingVoiceTraceLookup.runtimeTurn.sessionId,
+              turn_id: pendingVoiceTraceLookup.runtimeTurn.turnId,
+              signal,
+              consecutive_failures: consecutivePollFailures,
+              error_class: errorClassFromUnknown(error),
+              latency_ms: Math.max(0, Math.round(now - pendingVoiceTraceLookup.startedAt)),
+            },
+          })
+        }
+      }
+
+      if (cancelled || !lookupStillCurrent()) return
+      pollTimeout = setTimeout(poll, 3000)
+    }
+
+    setVoiceModeState('transcribing')
+    pollTimeout = setTimeout(poll, 1200)
+    return () => {
+      cancelled = true
+      if (pollTimeout) clearTimeout(pollTimeout)
+    }
+  }, [pendingVoiceTraceLookup, showVoiceFailureBriefly])
+
+  const voiceTrace = useMemo(
+    () => (voiceTraceId ? traces.find((item) => item.id === voiceTraceId) ?? null : null),
+    [traces, voiceTraceId],
+  )
+  const voiceTraceStatus = voiceTrace?.status ?? null
+  const voiceTraceResponseText = voiceTrace?.response_text?.trim() ?? ''
+  const voiceTraceActive = voiceTrace ? isAtlasTraceActive(voiceTrace) : false
+  const voiceRuntimeTurn = voiceTraceId ? voiceTraceRuntimeTurns[voiceTraceId] : undefined
+
+  useEffect(() => {
+    if (!voiceModeOpen) return
+    const decision = mobileVoiceUiWatchdogDecision(voiceModeState)
+    if (!decision) return
+
+    const state = voiceModeState
+    const startedAt = Date.now()
+    const timeout = setTimeout(() => {
+      if (!voiceModeOpenRef.current) return
+      const pendingAiRuntimeTurn = pendingVoiceAiInteraction?.traceId
+        ? voiceTraceRuntimeTurnsRef.current[pendingVoiceAiInteraction.traceId]
+        : undefined
+      const runtimeTurn = pendingVoiceTraceLookup?.runtimeTurn ?? voiceRuntimeTurn ?? pendingAiRuntimeTurn
+
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_ui_state_watchdog_timeout',
+        trace_id: voiceTraceId ?? pendingVoiceAiInteraction?.traceId ?? undefined,
+        metadata: {
+          state,
+          session_id: runtimeTurn?.sessionId ?? voiceSessionIdRef.current,
+          turn_id: runtimeTurn?.turnId ?? null,
+          timeout_ms: decision.timeoutMs,
+          elapsed_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+        },
+      })
+
+      if (runtimeTurn) {
+        void recordMobileVoiceRuntimeFailedWithTelemetry({
+          session_id: runtimeTurn.sessionId,
+          envelope_id: runtimeTurn.envelopeId,
+          receipt_id: runtimeTurn.receiptId,
+          turn_id: runtimeTurn.turnId,
+          failure_code: decision.failureCode,
+          error_class: decision.errorClass,
+          latency_ms: runtimeTurn.startedAt != null
+            ? Math.max(0, Math.round(Date.now() - runtimeTurn.startedAt))
+            : Math.max(0, Math.round(Date.now() - startedAt)),
+        }, {
+          source: 'ui_state_watchdog',
+          traceId: voiceTraceId ?? pendingVoiceAiInteraction?.traceId ?? null,
+        })
+      }
+
+      showVoiceFailureBriefly()
+    }, decision.timeoutMs)
+
+    return () => clearTimeout(timeout)
+  }, [
+    pendingVoiceAiInteraction,
+    pendingVoiceTraceLookup,
+    showVoiceFailureBriefly,
+    voiceModeState,
+    voiceModeOpen,
+    voiceModeState,
+    voiceRuntimeTurn,
+    voiceTraceId,
+  ])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !voiceTraceId || !voiceTraceStatus) return
+
+    if (voiceTraceActive) {
+      setVoiceModeState(voiceTraceResponseText ? 'speaking' : 'thinking')
+      return
+    }
+
+    if (voiceTraceStatus === 'succeeded' && voiceTraceResponseText) {
+      setVoiceModeState('speaking')
+      if (voiceRuntimeTurn) return
+      const timeout = setTimeout(() => setVoiceModeState('listening'), 1400)
+      return () => clearTimeout(timeout)
+    }
+
+    setVoiceModeState('listening')
+  }, [voiceModeOpen, voiceRuntimeTurn, voiceTraceActive, voiceTraceId, voiceTraceResponseText, voiceTraceStatus])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !voiceTraceId || !voiceRuntimeTurn || !voiceTrace) return
+    const terminalFailure = mobileVoiceTraceTerminalFailure({
+      status: voiceTraceStatus,
+      job: voiceTrace.job,
+      jobs: voiceTrace.jobs,
+    })
+    if (!terminalFailure) return
+
+    const lifecycleKey = voiceTurnLifecycleKey(voiceRuntimeTurn, voiceTraceId)
+    if (voiceTerminalFailureRecordedRef.current.has(lifecycleKey)) return
+    voiceTerminalFailureRecordedRef.current.add(lifecycleKey)
+
+    void recordMobileVoiceRuntimeFailedWithTelemetry({
+      session_id: voiceRuntimeTurn.sessionId,
+      envelope_id: voiceRuntimeTurn.envelopeId,
+      receipt_id: voiceRuntimeTurn.receiptId,
+      turn_id: voiceRuntimeTurn.turnId,
+      failure_code: terminalFailure.failure_code,
+      error_class: terminalFailure.error_class,
+      latency_ms: voiceRuntimeTurn.startedAt != null
+        ? Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt))
+        : undefined,
+    }, { source: 'trace_terminal_failure', traceId: voiceTraceId })
+    showVoiceFailureBriefly()
+  }, [
+    showVoiceFailureBriefly,
+    voiceModeOpen,
+    recordMobileVoicePlayback,
+    recordMobileVoiceSynthesis,
+    voiceRuntimeTurn,
+    voiceTrace,
+    voiceTraceId,
+    voiceTraceStatus,
+  ])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !voiceTraceId || !voiceRuntimeTurn) return
+    const emptyResponseFailure = mobileVoiceEmptyResponseFailure({
+      status: voiceTraceStatus,
+      response_text: voiceTraceResponseText,
+    })
+    if (!emptyResponseFailure) return
+
+    const lifecycleKey = `${voiceTurnLifecycleKey(voiceRuntimeTurn, voiceTraceId)}:empty_response`
+    if (voiceTerminalFailureRecordedRef.current.has(lifecycleKey)) return
+
+    const timeout = setTimeout(() => {
+      if (voiceTerminalFailureRecordedRef.current.has(lifecycleKey)) return
+      voiceTerminalFailureRecordedRef.current.add(lifecycleKey)
+      void recordMobileVoiceRuntimeFailedWithTelemetry({
+        session_id: voiceRuntimeTurn.sessionId,
+        envelope_id: voiceRuntimeTurn.envelopeId,
+        receipt_id: voiceRuntimeTurn.receiptId,
+        turn_id: voiceRuntimeTurn.turnId,
+        failure_code: emptyResponseFailure.failure_code,
+        error_class: emptyResponseFailure.error_class,
+        latency_ms: voiceRuntimeTurn.startedAt != null
+          ? Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt))
+          : undefined,
+      }, { source: 'empty_response', traceId: voiceTraceId })
+      showVoiceFailureBriefly()
+    }, 900)
+
+    return () => clearTimeout(timeout)
+  }, [
+    showVoiceFailureBriefly,
+    voiceModeOpen,
+    voiceRuntimeTurn,
+    voiceTraceId,
+    voiceTraceResponseText,
+    voiceTraceStatus,
+  ])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !voiceTraceId || !voiceRuntimeTurn || voiceTraceStatus !== 'succeeded' || voiceTraceResponseText === '') return
+
+    const runtimeTurn = voiceRuntimeTurn
+    const responseText = voiceTraceResponseText
+    const lifecycleKey = voiceTurnLifecycleKey(runtimeTurn, voiceTraceId)
+    const estimatedDurationMs = estimateSpokenResponseDurationMs(responseText)
+    const recordPlaybackCompleted = (playedDurationMs: number) => {
+      if (voicePlaybackRecordedRef.current.has(lifecycleKey)) return
+      voicePlaybackRecordedRef.current.add(lifecycleKey)
+      voicePlaybackStartedAtRef.current.delete(lifecycleKey)
+      recordMobileVoicePlayback({
+        session_id: runtimeTurn.sessionId,
+        envelope_id: runtimeTurn.envelopeId,
+        receipt_id: runtimeTurn.receiptId,
+        turn_id: runtimeTurn.turnId,
+        played_duration_ms: Math.max(0, Math.round(playedDurationMs)),
+      }, { traceId: voiceTraceId })
+    }
+
+    if (voiceSynthesisRecordedRef.current.has(lifecycleKey)) {
+      return
+    }
+    voiceSynthesisRecordedRef.current.add(lifecycleKey)
+
+    let cancelled = false
+    let synthesisCompleted = false
+    let speechCompleted = false
+
+    void (async () => {
+      const playbackStartedAt = Date.now()
+      try {
+        const startedAt = Date.now()
+        const responseTextHash = await sha256Hex(responseText)
+        if (cancelled) return
+
+        synthesisCompleted = true
+        recordMobileVoiceSynthesis({
+          session_id: runtimeTurn.sessionId,
+          envelope_id: runtimeTurn.envelopeId,
+          receipt_id: runtimeTurn.receiptId,
+          turn_id: runtimeTurn.turnId,
+          response_text_hash: responseTextHash,
+          tts_provider: 'expo_speech_mobile',
+          audio_duration_ms: estimatedDurationMs,
+          latency_ms: Date.now() - startedAt,
+        }, { traceId: voiceTraceId })
+
+        if (cancelled) return
+        voiceSpeechLifecycleRef.current = lifecycleKey
+        await Speech.stop().catch(() => {})
+        if (cancelled) return
+        voicePlaybackStartedAtRef.current.set(lifecycleKey, playbackStartedAt)
+        const speechResult = await speakAtlasVoiceResponse(
+          responseText,
+          () => !cancelled && voiceSpeechLifecycleRef.current === lifecycleKey,
+        )
+        if (speechResult !== 'done') {
+          if (!cancelled && voiceSpeechLifecycleRef.current === lifecycleKey && speechResult === 'stopped') {
+            const stoppedLifecycleKey = `${lifecycleKey}:tts_stopped`
+            voiceSpeechLifecycleRef.current = null
+            voicePlaybackStartedAtRef.current.delete(lifecycleKey)
+            if (!voiceTerminalFailureRecordedRef.current.has(stoppedLifecycleKey)) {
+              voiceTerminalFailureRecordedRef.current.add(stoppedLifecycleKey)
+              void recordMobileVoiceRuntimeFailedWithTelemetry({
+                session_id: runtimeTurn.sessionId,
+                envelope_id: runtimeTurn.envelopeId,
+                receipt_id: runtimeTurn.receiptId,
+                turn_id: runtimeTurn.turnId,
+                failure_code: 'mobile_voice_tts_playback_stopped',
+                error_class: 'AtlasVoicePlaybackStopped',
+                latency_ms: Date.now() - playbackStartedAt,
+              }, { source: 'tts_playback_stopped', traceId: voiceTraceId })
+              showVoiceFailureBriefly()
+            }
+          }
+          return
+        }
+        speechCompleted = true
+        if (cancelled) return
+        if (voiceSpeechLifecycleRef.current !== lifecycleKey) return
+        voiceSpeechLifecycleRef.current = null
+        recordPlaybackCompleted(Date.now() - playbackStartedAt)
+        setVoiceModeState('listening')
+      } catch (error) {
+        voicePlaybackStartedAtRef.current.delete(lifecycleKey)
+        if (voiceSpeechLifecycleRef.current === lifecycleKey) {
+          voiceSpeechLifecycleRef.current = null
+        }
+        if (!cancelled) {
+          void recordMobileVoiceRuntimeFailedWithError({
+            session_id: runtimeTurn.sessionId,
+            envelope_id: runtimeTurn.envelopeId,
+            receipt_id: runtimeTurn.receiptId,
+            turn_id: runtimeTurn.turnId,
+            failure_code: 'mobile_voice_tts_playback_failed',
+            error_class: errorClassFromUnknown(error),
+            latency_ms: Date.now() - playbackStartedAt,
+          }, error).catch(() => {})
+          showVoiceFailureBriefly()
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (voiceSpeechLifecycleRef.current === lifecycleKey) {
+        voiceSpeechLifecycleRef.current = null
+        void Speech.stop().catch(() => {})
+      }
+      if (!synthesisCompleted || !speechCompleted) {
+        voiceSynthesisRecordedRef.current.delete(lifecycleKey)
+      }
+    }
+  }, [
+    showVoiceFailureBriefly,
+    voiceModeOpen,
+    voiceRuntimeTurn,
+    voiceTraceId,
+    voiceTraceResponseText,
+    voiceTraceStatus,
+  ])
+
+  const interruptActiveTrace = useCallback(async (reason: 'barge_in' | 'cancel_button' = 'barge_in'): Promise<boolean> => {
+    const trace = activeTraceRef.current
+    if (!trace) return true
+
+    const jobs = trace.jobs?.length
+      ? trace.jobs
+      : trace.job
+        ? [trace.job]
+        : []
+    const cancellableJobs = jobs.filter((job) => ['queued', 'processing', 'awaiting_user_choice'].includes(job.status))
+    if (cancellableJobs.length === 0) return false
+
+    currentStreamRunIdRef.current += 1
+    streamCancelRef.current?.()
+    streamCancelRef.current = null
+    if (currentStreamTraceIdRef.current) {
+      streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+      currentStreamTraceIdRef.current = null
+    }
+
+    setOperationBusy(`interrupt:${trace.id}`)
+    try {
+      await Promise.all(cancellableJobs.map((job) => cancelAiJob(job.id)))
+      setTraces((current) =>
+        current.map((item) =>
+          item.id === trace.id
+            ? {
+                ...item,
+                status: 'cancelled',
+                completed_at: new Date().toISOString(),
+                metadata: {
+                  ...item.metadata,
+                  interrupted_by: reason,
+                },
+                job: item.job ? { ...item.job, status: 'cancelled' } : item.job,
+                jobs: item.jobs?.map((job) =>
+                  cancellableJobs.some((cancelledJob) => cancelledJob.id === job.id)
+                    ? { ...job, status: 'cancelled' }
+                    : job,
+                ),
+              }
+            : item,
+        ),
+      )
+      if (currentThreadIdRef.current) {
+        void loadThreadData(currentThreadIdRef.current, { silent: true })
+      }
+      void recordAtlasAiEvent({
+        eventName: 'active_trace_interrupted',
+        trace_id: trace.id,
+        thread_id: trace.thread_id ?? currentThreadIdRef.current,
+        metadata: {
+          reason,
+          cancelled_jobs: cancellableJobs.length,
+        },
+      })
+      return true
+    } catch (interruptError) {
+      showToast(humanAiError(interruptError, 'Nao consegui interromper o Atlas agora.'))
+      return false
+    } finally {
+      setOperationBusy(null)
+    }
+  }, [loadThreadData, showToast])
+
+  const handleVoiceModeRecordStart = useCallback(async () => {
+    const recordingBlockReason = mobileVoiceRecordingBlockReason({
+      modeOpen: voiceModeOpen,
+      sessionId: voiceSessionId,
+      sessionReady: voiceSessionReady,
+      state: voiceModeState,
+      recordingActive: recordingActiveRef.current,
+      operationInFlight: recordOpInFlightRef.current,
+      ending: voiceEndingRef.current,
+    })
+    if (recordingBlockReason) {
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_start_ignored',
+        metadata: {
+          reason: recordingBlockReason,
+          session_id: voiceSessionId,
+          session_ready: voiceSessionReady,
+          state: voiceModeState,
+          recording_active: recordingActiveRef.current,
+          operation_in_flight: recordOpInFlightRef.current,
+        },
+      })
+      return
+    }
+
+    const activeVoiceSessionId = voiceSessionId
+    if (!activeVoiceSessionId) return
+
+    const interruptedTraceId = voiceTraceId
+    const interruptedRuntimeTurn = interruptedTraceId ? voiceTraceRuntimeTurns[interruptedTraceId] : null
+    const interruptedLifecycleKey = interruptedTraceId && interruptedRuntimeTurn
+      ? voiceTurnLifecycleKey(interruptedRuntimeTurn, interruptedTraceId)
+      : null
+    const activeVoiceTrace = activeTraceRef.current?.id === interruptedTraceId ? activeTraceRef.current : null
+    const shouldRecordBargeIn = mobileVoiceShouldRecordInterruption({
+      hasRuntimeTurn: interruptedRuntimeTurn != null,
+      hasLifecycleKey: interruptedLifecycleKey != null,
+      assistantActive: activeVoiceTrace != null,
+      pendingTraceLookup: pendingVoiceTraceLookup != null,
+      pendingAiInteraction: pendingVoiceAiInteraction?.traceId === interruptedTraceId,
+      state: voiceModeState,
+      playbackRecorded: interruptedLifecycleKey ? voicePlaybackRecordedRef.current.has(interruptedLifecycleKey) : false,
+      interruptionRecorded: interruptedLifecycleKey ? voiceInterruptionRecordedRef.current.has(interruptedLifecycleKey) : false,
+    })
+    const interruptedStage = mobileVoiceInterruptionStage({
+      assistantStreaming: activeVoiceTrace != null,
+      transcriptionPending: pendingVoiceTraceLookup != null,
+      assistantThinking: pendingVoiceAiInteraction?.traceId === interruptedTraceId,
+      state: voiceModeState,
+    })
+    let playedDurationMs: number | undefined
+    let latencyMs: number | undefined
+    if (interruptedLifecycleKey) {
+      const playbackStartedAt = voicePlaybackStartedAtRef.current.get(interruptedLifecycleKey)
+      if (playbackStartedAt != null) {
+        playedDurationMs = Math.max(0, Math.round(Date.now() - playbackStartedAt))
+        voicePlaybackStartedAtRef.current.delete(interruptedLifecycleKey)
+      }
+      if (voiceSpeechLifecycleRef.current === interruptedLifecycleKey) {
+        const stopRequestedAt = Date.now()
+        voiceSpeechLifecycleRef.current = null
+        await Speech.stop().catch(() => {})
+        latencyMs = Math.max(0, Math.round(Date.now() - stopRequestedAt))
+      }
+    }
+    if (activeVoiceTrace) {
+      const interrupted = await interruptActiveTrace('barge_in')
+      if (!interrupted) return
+    }
+
+    if (pendingVoiceTraceLookup) {
+      const runtimeTurn = pendingVoiceTraceLookup.runtimeTurn
+      setPendingVoiceTraceLookup(null)
+      recordMobileVoiceInterruption({
+        session_id: runtimeTurn.sessionId,
+        envelope_id: runtimeTurn.envelopeId,
+        receipt_id: runtimeTurn.receiptId,
+        turn_id: runtimeTurn.turnId,
+        reason: 'barge_in',
+        interrupted_stage: 'transcription_pending',
+        interruption_source: 'mobile',
+        latency_ms: Math.max(0, Math.round(Date.now() - pendingVoiceTraceLookup.startedAt)),
+      }, {
+        source: 'barge_in',
+        traceId: interruptedTraceId,
+        pendingStage: 'trace_lookup',
+      })
+    }
+
+    if (pendingVoiceAiInteraction) {
+      setPendingVoiceAiInteraction(null)
+    }
+
+    if (interruptedTraceId && interruptedRuntimeTurn && interruptedLifecycleKey && shouldRecordBargeIn) {
+      voicePlaybackRecordedRef.current.add(interruptedLifecycleKey)
+      voiceInterruptionRecordedRef.current.add(interruptedLifecycleKey)
+      recordMobileVoiceInterruption({
+        session_id: interruptedRuntimeTurn.sessionId,
+        envelope_id: interruptedRuntimeTurn.envelopeId,
+        receipt_id: interruptedRuntimeTurn.receiptId,
+        turn_id: interruptedRuntimeTurn.turnId,
+        reason: 'barge_in',
+        interrupted_stage: interruptedStage,
+        interruption_source: 'mobile',
+        played_duration_ms: playedDurationMs,
+        latency_ms: latencyMs,
+      }, {
+        source: 'barge_in',
+        traceId: interruptedTraceId,
+        pendingStage: pendingVoiceAiInteraction ? 'ai_interaction' : null,
+      })
+    }
+
+    setVoiceModeState('listening')
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_recording_start_requested',
+      metadata: {
+        session_id: activeVoiceSessionId,
+        state: voiceModeState,
+        interrupted_trace_id: interruptedTraceId,
+        pending_trace_lookup: pendingVoiceTraceLookup != null,
+        pending_ai_interaction: pendingVoiceAiInteraction != null,
+      },
+    })
+    const recordingStartRequestedAt = Date.now()
+    const started = await handleComposerRecordStart()
+    if (!started) {
+      void recordMobileVoiceRuntimeFailedWithTelemetry({
+        session_id: activeVoiceSessionId,
+        envelope_id: voiceSessionEnvelopeId ?? undefined,
+        receipt_id: voiceSessionReceiptId ?? undefined,
+        turn_id: newMobileVoiceRuntimeId('mobile_voice_turn_start_failed'),
+        failure_code: 'mobile_voice_recording_start_failed',
+        error_class: 'MobileVoiceRecordingStartFailed',
+        latency_ms: Math.max(0, Math.round(Date.now() - recordingStartRequestedAt)),
+      }, { source: 'local_recording_start' })
+      showVoiceFailureBriefly()
+    } else {
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_start_succeeded',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          latency_ms: Math.max(0, Math.round(Date.now() - recordingStartRequestedAt)),
+        },
+      })
+    }
+  }, [
+    handleComposerRecordStart,
+    interruptActiveTrace,
+    pendingVoiceAiInteraction,
+    pendingVoiceTraceLookup,
+    recordMobileVoiceInterruption,
+    showVoiceFailureBriefly,
+    voiceSessionEnvelopeId,
+    voiceModeOpen,
+    voiceModeState,
+    voiceSessionReady,
+    voiceSessionId,
+    voiceSessionReceiptId,
+    voiceTraceId,
+    voiceTraceRuntimeTurns,
+  ])
+
+  const handleVoiceModeRecordEnd = useCallback(async () => {
+    if (!voiceModeOpen || !voiceSessionId || !voiceSessionReady) return
+    if (recordOpInFlightRef.current) return
+    const activeVoiceSessionId = voiceSessionId
+    if (!activeVoiceSessionId) return
+
+    recordOpInFlightRef.current = true
+    await recordStartInFlightRef.current?.catch(() => {})
+
+    if (!recordingActiveRef.current) {
+      safeSetRecordingActive(false)
+      safeSetRecordingPaused(false)
+      recordOpInFlightRef.current = false
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_end_ignored',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          reason: 'no_active_recording',
+          session_ready: voiceSessionReady,
+          state: voiceModeState,
+        },
+      })
+      return
+    }
+
+    const voiceTurnId = newMobileVoiceRuntimeId('mobile_voice_turn')
+    const voiceStartedAt = Date.now()
+    const durationMs = composerRecorderState.durationMillis
+    const recordingStopRequestedAt = Date.now()
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_recording_stop_requested',
+      metadata: {
+        session_id: activeVoiceSessionId,
+        turn_id: voiceTurnId,
+        duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+      },
+    })
+    safeSetRecordingActive(false)
+    safeSetRecordingPaused(false)
+    recordingActiveRef.current = false
+
+    let fileUri: string | null = null
+    try {
+      if (composerRecorderState.isRecording || composerRecorderState.url) {
+        await composerRecorder.stop()
+      }
+      fileUri = (() => {
+        try { return composerRecorder.uri } catch { return null }
+      })() ?? composerRecorderState.url
+    } catch (err) {
+      void recordMobileVoiceRuntimeFailedWithError({
+        session_id: activeVoiceSessionId,
+        envelope_id: voiceSessionEnvelopeId ?? undefined,
+        receipt_id: voiceSessionReceiptId ?? undefined,
+        turn_id: voiceTurnId,
+        failure_code: 'mobile_voice_recording_stop_failed',
+        error_class: errorClassFromUnknown(err),
+        latency_ms: Math.max(0, Math.round(Date.now() - recordingStopRequestedAt)),
+      }, err).catch(() => {})
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_stop_failed',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          turn_id: voiceTurnId,
+          error_class: errorClassFromUnknown(err),
+          duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+          latency_ms: Math.max(0, Math.round(Date.now() - recordingStopRequestedAt)),
+        },
+      })
+      showToast(err instanceof Error ? err.message : 'Falha ao parar gravação')
+    } finally {
+      void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+      recordOpInFlightRef.current = false
+    }
+
+    if (!voiceModeOpenRef.current || voiceSessionIdRef.current !== activeVoiceSessionId) {
+      return
+    }
+
+    const recordLocalVoiceFailure = (failureCode: string, errorClass: string) => {
+      void recordMobileVoiceRuntimeFailedWithTelemetry({
+        session_id: activeVoiceSessionId,
+        envelope_id: voiceSessionEnvelopeId ?? undefined,
+        receipt_id: voiceSessionReceiptId ?? undefined,
+        turn_id: voiceTurnId,
+        failure_code: failureCode,
+        error_class: errorClass,
+        latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+      }, { source: 'local_recording_validation' })
+    }
+
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_recording_stopped',
+      metadata: {
+        session_id: activeVoiceSessionId,
+        turn_id: voiceTurnId,
+        file_uri_present: typeof fileUri === 'string' && fileUri.trim().length > 0,
+        duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+        latency_ms: Math.max(0, Math.round(Date.now() - recordingStopRequestedAt)),
+      },
+    })
+
+    const validationFailure = mobileVoiceRecordingValidationFailure({ fileUri, durationMs })
+    if (validationFailure) {
+      recordLocalVoiceFailure(validationFailure.failure_code, validationFailure.error_class)
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_recording_validation_failed',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          turn_id: voiceTurnId,
+          failure_code: validationFailure.failure_code,
+          duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+          file_uri_present: typeof fileUri === 'string' && fileUri.trim().length > 0,
+          latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+        },
+      })
+      showVoiceFailureBriefly()
+      return
+    }
+
+    const validatedFileUri = fileUri
+    if (!validatedFileUri) return
+
+    const voiceClientId = `voice:${activeVoiceSessionId}:${voiceTurnId}`
+    const voiceDomain = captureDomainForVoiceRouting(routing.domain)
+
+    setPendingVoiceTraceLookup({
+      clientId: voiceClientId,
+      threadId: currentThreadId,
+      runtimeTurn: {
+        sessionId: activeVoiceSessionId,
+        turnId: voiceTurnId,
+        envelopeId: voiceSessionEnvelopeId ?? undefined,
+        receiptId: voiceSessionReceiptId ?? undefined,
+        startedAt: voiceStartedAt,
+      },
+      startedAt: voiceStartedAt,
+    })
+    setVoiceModeState('transcribing')
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_capture_dispatch_requested',
+      metadata: {
+        session_id: activeVoiceSessionId,
+        turn_id: voiceTurnId,
+        client_id: voiceClientId,
+        domain_hint: voiceDomain,
+        thread_id: currentThreadId,
+        duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+      },
+    })
+
+    try {
+      const captureClientId = await createAudioCapture({
+        domain: voiceDomain,
+        fileUri: validatedFileUri,
+        durationMs,
+        metadata: {
+          captureMode: 'audio',
+          captureSurface: 'atlas_ai_voice_mode',
+          source: 'modo_voz_fullscreen',
+          destino: 'conversar',
+          voiceSessionId: activeVoiceSessionId,
+          voice_realtime_dispatch: {
+            dispatch_to_ai: true,
+            allow_transcript_persistence: true,
+            session_id: activeVoiceSessionId,
+            envelope_id: voiceSessionEnvelopeId,
+            receipt_id: voiceSessionReceiptId,
+            turn_id: voiceTurnId,
+            ai_thread_id: currentThreadId,
+            domain_hint: voiceDomain,
+            flow_hint: 'voice.push_to_talk.fullscreen',
+            language: 'pt-BR',
+            client_surface: 'mobile',
+            transport: 'mobile_push_to_talk',
+            runtime: 'livekit_agents_sdk',
+            privacy_class: 'p3_audio',
+          },
+        },
+      })
+      setPendingVoiceTraceLookup((current) =>
+        current?.clientId === voiceClientId
+          ? { ...current, captureClientId }
+          : current,
+      )
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_capture_dispatch_succeeded',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          turn_id: voiceTurnId,
+          client_id: voiceClientId,
+          capture_client_id: captureClientId,
+          latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+        },
+      })
+    } catch (error) {
+      setPendingVoiceTraceLookup((current) => current?.clientId === voiceClientId ? null : current)
+      showVoiceFailureBriefly()
+      void recordMobileVoiceRuntimeFailedWithError({
+        session_id: activeVoiceSessionId,
+        envelope_id: voiceSessionEnvelopeId ?? undefined,
+        receipt_id: voiceSessionReceiptId ?? undefined,
+        turn_id: voiceTurnId,
+        failure_code: 'mobile_capture_dispatch_failed',
+        error_class: errorClassFromUnknown(error),
+        latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+      }, error).catch(() => {})
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_capture_dispatch_failed',
+        metadata: {
+          session_id: activeVoiceSessionId,
+          turn_id: voiceTurnId,
+          client_id: voiceClientId,
+          error_class: errorClassFromUnknown(error),
+          latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
+        },
+      })
+      showToast(humanAiError(error, 'Falha ao enviar turno de voz.'))
+    }
+  }, [
+    composerRecorder,
+    composerRecorderState,
+    createAudioCapture,
+    currentThreadId,
+    routing.domain,
+    safeSetRecordingActive,
+    safeSetRecordingPaused,
+    showToast,
+    showVoiceFailureBriefly,
+    voiceModeState,
+    voiceModeOpen,
+    voiceSessionReady,
+    voiceSessionEnvelopeId,
+    voiceSessionId,
+    voiceSessionReceiptId,
+  ])
+
   const submitText = useCallback(
     async (input: string, options: SubmitTextOptions = {}) => {
       const attachments = options.attachments ?? []
-      const fileAttachments = options.fileAttachments ?? []
+      let fileAttachments = options.fileAttachments ?? []
       input = input.trim() || attachmentOnlyPrompt(attachments, fileAttachments)
       if (!input || submitting) return
-      if (hasActiveTrace || isPendingSending) {
+      if (isPendingSending) {
         showToast('Atlas ainda está pensando')
+        return
+      }
+      if (activeTraceRef.current) {
+        const interrupted = await interruptActiveTrace('barge_in')
+        if (!interrupted) return
+      }
+
+      const originalInputChars = input.length
+      let longMessagePayload: Record<string, unknown> | null = null
+      try {
+        const preparedLongMessage = await prepareLongMessageForAtlas(input, fileAttachments)
+        input = preparedLongMessage.input
+        fileAttachments = preparedLongMessage.fileAttachments
+        longMessagePayload = preparedLongMessage.metadata ?? null
+      } catch (prepareError) {
+        showToast(humanAiError(prepareError, 'falha ao preparar mensagem longa.'))
         return
       }
 
@@ -1479,6 +3548,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         domain: routingSnapshot.domain,
         recovered: options.recovered === true,
         input_chars: input.length,
+        original_input_chars: originalInputChars,
+        long_message_externalized: longMessagePayload !== null,
+        long_message_chunks: typeof longMessagePayload?.chunk_count === 'number' ? longMessagePayload.chunk_count : undefined,
         image_attachments: attachments.length,
         file_attachments: fileAttachments.length,
       }
@@ -1658,6 +3730,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
                   names: fileAttachments.map((attachment) => attachment.fileName).slice(0, MAX_DRAFT_FILES),
                 }
               : undefined,
+            long_message: longMessagePayload ?? undefined,
             response_style: routingSnapshot.style,
             response_policy: responsePolicy,
             task_type: routingSnapshot.task === 'debug' ? 'debug' : undefined,
@@ -1710,6 +3783,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             )
           }
           setTraces((current) => mergeAtlasTrace(response.trace, current))
+          startTraceStream(response.trace, threadViewVersion)
           setPending((curr) => (curr?.clientId === clientId ? null : curr))
           void recordAtlasAiEvent({
             eventName: 'trace_visible_in_ui',
@@ -1737,7 +3811,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           })
         }
       } catch (submitError) {
-        const keepPending = shouldKeepPendingSubmission(submitError)
+        const keepPending = shouldKeepPendingSubmission(submitError, hasAttachments)
         void recordAtlasAiEvent({
           eventName: 'interaction_request_failed',
           correlation_id: correlationId,
@@ -1772,6 +3846,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       submitting,
       hasActiveTrace,
       isPendingSending,
+      interruptActiveTrace,
       showToast,
       traces,
       currentThreadId,
@@ -1779,6 +3854,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       pendingThreadOrigin,
       pinnedTraceIds,
       loadThreadData,
+      startTraceStream,
       providerStatus,
       domainCatalog,
     ],
@@ -2524,6 +4600,18 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   // FlatList encolhe pra acomodar (já é flex: 1) e Footer composer fica
   // visível logo acima do teclado · vocabulário "Don Corleone scrivendo carta".
   const keyboardOffset = keyboardHeight > 0 ? Math.max(0, keyboardHeight - insets.bottom) : 0
+  const voiceRecordingBlockReason = recordingActive
+    ? null
+    : mobileVoiceRecordingBlockReason({
+        modeOpen: voiceModeOpen,
+        sessionId: voiceSessionId,
+        sessionReady: voiceSessionReady,
+        state: voiceModeState,
+        recordingActive,
+        operationInFlight: recordOpInFlightRef.current,
+        ending: voiceEndingRef.current,
+      })
+  const voiceRecordingEnabled = recordingActive || voiceRecordingBlockReason === null
 
   return renderContainer(
     <>
@@ -2650,7 +4738,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
                 />
                 <HistoricalAttachmentSummary
                   attachments={turn.historicalAttachments ?? []}
-                  onOpenAttachment={setPreviewHistoricalAttachment}
+                  onOpenAttachment={openHistoricalAttachment}
                 />
                 <View style={styles.afterQuote}>
                   <TurnBodyView
@@ -2669,7 +4757,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           draft={draft}
           onChangeDraft={setDraft}
           onSubmit={submit}
-          interactionLocked={interactionLocked}
+          interactionLocked={composerLocked}
           executor={routing.executor}
           destinoOverride={destinoOverride}
           decideEnabled={canClassifyDraftAsCapture}
@@ -2717,6 +4805,16 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         />
       ) : null}
 
+      {previewHistoricalImage?.content_url ? (
+        <AttachmentImageViewer
+          visible
+          imageUri={atlasMediaUrl(previewHistoricalImage.content_url)}
+          imageHeaders={getAtlasAuthHeaders()}
+          title={previewHistoricalImage.name || 'imagem anexada'}
+          onClose={() => setPreviewHistoricalImage(null)}
+        />
+      ) : null}
+
       {/* v18 · canon mockup atlas-home-editorial · 5 sections numeradas
           (modo · tarefa · domínio · executor · forma) com destino-list
           vertical. Substitui RoutingSheet (que tinha pílulas azuis SaaS
@@ -2742,7 +4840,15 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         <VoiceModeSheet
           visible
           state={voiceModeState}
-          onClose={closeVoiceMode}
+          recording={recordingActive}
+          recordingEnabled={voiceRecordingEnabled}
+          recordingUnavailableReason={voiceRecordingBlockReason}
+          liveKitSession={voiceLiveKitSession}
+          statusDetail={voiceStatusDetail}
+          onLiveKitConnected={handleVoiceLiveKitConnected}
+          onLiveKitDisconnected={handleVoiceLiveKitDisconnected}
+          onLiveKitError={handleVoiceLiveKitError}
+          onClose={() => closeVoiceMode()}
         />
       ) : null}
 
@@ -2752,7 +4858,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           Pausar toggleable · canon iOS Voice Memo. Enviar é único caminho
           de envio · ato editorial bronze. */}
       <RecordModeStrip
-        visible={recordingActive}
+        visible={recordingActive && !voiceModeOpen}
         durationMs={composerRecorderState.durationMillis}
         paused={recordingPaused}
         onCancel={() => { void handleComposerRecordCancel() }}
@@ -2851,3 +4957,160 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
 
 
 export type { RoutingExecutor }
+
+function atlasMediaUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return `${getApiBase()}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
+function estimateSpokenResponseDurationMs(text: string): number {
+  const wordCount = Math.max(1, text.trim().split(/\s+/).filter(Boolean).length)
+  const wordsPerMinute = 155
+  return Math.max(900, Math.min(20000, Math.round((wordCount / wordsPerMinute) * 60_000)))
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function errorClassFromUnknown(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : 'UnknownError'
+}
+
+function voiceSessionStartFailureDetail(status: string | null, tokenStatus: string | null): string {
+  if (status === 'session_started_scaffold') return 'Backend ainda retornou scaffold.'
+  if (tokenStatus === 'not_issued_missing_config') return 'LiveKit sem URL ou credenciais no backend.'
+  if (tokenStatus === 'blocked_by_eclipse') return 'Sessão bloqueada pela política de segurança.'
+  if (tokenStatus && tokenStatus !== 'issued') return `LiveKit token indisponível: ${tokenStatus}.`
+
+  return 'Sessão de voz não ficou pronta.'
+}
+
+async function recordMobileVoiceRuntimeFailedWithError(
+  input: MobileVoiceRuntimeFailedPayload,
+  error: unknown,
+): Promise<void> {
+  const errorMessageHash = input.error_message_hash ?? await errorMessageHashFromUnknown(error)
+  await recordMobileVoiceRuntimeFailedWithTelemetry({
+    ...input,
+    ...(errorMessageHash ? { error_message_hash: errorMessageHash } : {}),
+  }, {
+    source: 'exception',
+    errorClass: errorClassFromUnknown(error),
+  })
+}
+
+async function recordMobileVoiceRuntimeFailedWithTelemetry(
+  input: MobileVoiceRuntimeFailedPayload,
+  metadata: { source?: string; traceId?: string | null; errorClass?: string | null } = {},
+): Promise<void> {
+  const startedAt = Date.now()
+  try {
+    await recordMobileVoiceRuntimeFailed(input)
+    await recordAtlasAiEvent({
+      eventName: 'mobile_voice_runtime_failure_recorded',
+      trace_id: metadata.traceId ?? undefined,
+      metadata: {
+        source: metadata.source ?? 'runtime',
+        session_id: input.session_id,
+        turn_id: input.turn_id,
+        failure_code: input.failure_code ?? null,
+        error_class: input.error_class ?? metadata.errorClass ?? null,
+        error_message_hash_present: typeof input.error_message_hash === 'string' && input.error_message_hash.trim().length > 0,
+        callback_latency_ms: input.latency_ms ?? null,
+        latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+      },
+    })
+  } catch (error) {
+    await recordAtlasAiEvent({
+      eventName: 'mobile_voice_runtime_failure_record_failed',
+      trace_id: metadata.traceId ?? undefined,
+      metadata: {
+        source: metadata.source ?? 'runtime',
+        session_id: input.session_id,
+        turn_id: input.turn_id,
+        failure_code: input.failure_code ?? null,
+        error_class: input.error_class ?? metadata.errorClass ?? null,
+        record_error_class: errorClassFromUnknown(error),
+        latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
+      },
+    })
+  }
+}
+
+async function errorMessageHashFromUnknown(error: unknown): Promise<string | undefined> {
+  const message = error instanceof Error
+    ? error.message.trim()
+    : typeof error === 'string'
+      ? error.trim()
+      : ''
+
+  if (!message) return undefined
+
+  try {
+    return await sha256Hex(message)
+  } catch {
+    return undefined
+  }
+}
+
+function voiceTurnLifecycleKey(turn: VoiceRuntimeTurn, traceId: string): string {
+  return `${turn.sessionId}:${turn.turnId}:${traceId}`
+}
+
+function captureDomainForVoiceRouting(domain: RoutingDomain): string {
+  return ['atlas', 'saude', 'blackink', 'financas'].includes(domain) ? domain : 'atlas'
+}
+
+const resolveAtlasSpeechVoiceIdentifier = createAtlasSpeechVoiceResolver(() => Speech.getAvailableVoicesAsync())
+
+type AtlasVoiceSpeechResult = 'done' | 'stopped' | 'cancelled'
+
+async function speakAtlasVoiceResponse(text: string, shouldContinue: () => boolean): Promise<AtlasVoiceSpeechResult> {
+  const voice = await resolveAtlasSpeechVoiceIdentifier()
+  if (!shouldContinue()) return 'cancelled'
+  const maxSpeechLength = Number.isFinite(Speech.maxSpeechInputLength)
+    ? Speech.maxSpeechInputLength
+    : 900
+  const chunks = splitAtlasSpeechText(text, maxSpeechLength)
+  if (chunks.length === 0) return 'done'
+  for (const chunk of chunks) {
+    if (!shouldContinue()) return 'cancelled'
+    const result = await speakAtlasVoiceChunk(chunk, voice)
+    if (result === 'stopped') return 'stopped'
+    if (!shouldContinue()) return 'cancelled'
+  }
+  return 'done'
+}
+
+function speakAtlasVoiceChunk(text: string, voice?: string): Promise<Exclude<AtlasVoiceSpeechResult, 'cancelled'>> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timeout = setTimeout(() => {
+      const error = new Error('Atlas voice speech chunk timed out.')
+      error.name = 'AtlasVoiceSpeechTimeout'
+      void Speech.stop().catch(() => {})
+      settle('stopped', error)
+    }, mobileVoiceSpeechChunkTimeoutMs(text))
+    const settle = (result: Exclude<AtlasVoiceSpeechResult, 'cancelled'>, error?: unknown) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (error) {
+        reject(error instanceof Error ? error : new Error('Falha ao reproduzir voz do Atlas.'))
+        return
+      }
+      resolve(result)
+    }
+
+    Speech.speak(text, {
+      language: 'pt-BR',
+      ...(voice ? { voice } : {}),
+      pitch: 0.96,
+      rate: 0.92,
+      onDone: () => settle('done'),
+      onStopped: () => settle('stopped'),
+      onError: (error) => settle('stopped', error),
+    })
+  })
+}

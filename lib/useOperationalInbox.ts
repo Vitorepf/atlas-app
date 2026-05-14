@@ -5,6 +5,7 @@ import {
   AtlasApiError,
   dismissMobileInboxItem,
   discussMobileInboxItem,
+  getMobileCriticalInboxReview,
   getMobileDeviceSession,
   hydrateApiConfig,
   listMobileInbox,
@@ -12,6 +13,7 @@ import {
   respondMobileInboxItem,
   snoozeMobileInboxItem,
   type AtlasOperationalInboxItem,
+  type MobileCriticalInboxReviewResponse,
 } from './api/client'
 import {
   OPERATIONAL_PAGE_SIZE,
@@ -50,6 +52,7 @@ export function useOperationalInbox({
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mobilePaired, setMobilePaired] = useState<boolean | null>(null)
+  const [criticalReview, setCriticalReview] = useState<MobileCriticalInboxReviewResponse['critical_review'] | null>(null)
   const refreshSeq = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -63,15 +66,20 @@ export function useOperationalInbox({
         if (seq !== refreshSeq.current) return
         setItems([])
         setCursor(null)
+        setCriticalReview(null)
         setError(null)
         void syncAtlasBadge(0)
         setMobilePaired(false)
         return
       }
 
-      const response = await listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE })
+      const [response, criticalResponse] = await Promise.all([
+        listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE }),
+        getMobileCriticalInboxReview({ limit: 12 }),
+      ])
       if (seq !== refreshSeq.current) return
       setItems(response.items.filter(isActiveOperationalItem))
+      setCriticalReview(criticalResponse.critical_review)
       setCursor(response.next_cursor ?? null)
       setError(null)
       void syncAtlasBadge(response.unread_count)
@@ -82,6 +90,7 @@ export function useOperationalInbox({
       if (caught instanceof AtlasApiError && caught.status === 401) {
         setItems([])
         setCursor(null)
+        setCriticalReview(null)
         setError(null)
         void syncAtlasBadge(0)
         setMobilePaired(false)
@@ -200,6 +209,52 @@ export function useOperationalInbox({
     }
   }, [busyId, openAtlasAi, refresh, showToast])
 
+  const discussCriticalItem = useCallback(async (id: string) => {
+    if (busyId) return
+
+    setBusyId(id)
+    try {
+      const response = await discussMobileInboxItem(id)
+      const threadId = threadIdFromActionResult(response.result)
+      if (threadId) {
+        openAtlasAi(threadId)
+      } else {
+        showToast('Atlas aberto')
+      }
+      await refresh()
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : 'falha ao abrir discussão crítica')
+    } finally {
+      setBusyId(null)
+    }
+  }, [busyId, openAtlasAi, refresh, showToast])
+
+  const runCriticalReviewAction = useCallback(async (id: string, actionId: 'mark_read' | 'snooze' | 'dismiss') => {
+    if (busyId) return
+
+    setBusyId(id)
+    try {
+      if (actionId === 'mark_read') {
+        await respondMobileInboxItem(id, 'mark_read', {
+          reason: 'Operador revisou o insight crítico no painel mobile.',
+        })
+        showToast('insight marcado como revisado')
+      } else if (actionId === 'snooze') {
+        await snoozeMobileInboxItem(id, daysFromNowIso(7), 'Operador revisou e adiou o insight crítico por sete dias pelo painel mobile.')
+        showToast('insight crítico adiado por 7 dias')
+      } else {
+        await dismissMobileInboxItem(id, 'Operador revisou o insight crítico no painel mobile e decidiu descartar após avaliação humana.')
+        showToast('insight crítico descartado')
+      }
+
+      await refresh()
+    } catch (caught) {
+      showToast(caught instanceof Error ? caught.message : 'falha ao aplicar revisão crítica')
+    } finally {
+      setBusyId(null)
+    }
+  }, [busyId, refresh, showToast])
+
   const counts = useMemo(() => countOperationalItems(items), [items])
   const criticalCount = useMemo(
     () => items.filter((item) => item.severity === 'critical').length,
@@ -218,6 +273,7 @@ export function useOperationalInbox({
     busyId,
     counts,
     criticalCount,
+    criticalReview,
     cursor,
     error,
     filter,
@@ -226,7 +282,9 @@ export function useOperationalInbox({
     loadMore,
     loadingMore,
     mobilePaired,
+    discussCriticalItem,
     refresh,
+    runCriticalReviewAction,
     runAction,
     setFilter,
     showList,

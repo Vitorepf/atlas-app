@@ -35,7 +35,7 @@ export function attachmentOnlyPrompt(
 
 export async function attachmentFromClipboardImage(image: Clipboard.ClipboardImage): Promise<ComposerImageAttachment> {
   const parsed = parseImageDataUri(image.data)
-  const fileName = `atlas-clipboard-${Date.now()}.${extensionForMime(parsed.mimeType)}`
+  const fileName = uniqueAttachmentFileName('clipboard', parsed.mimeType)
   const cacheDir = FileSystem.cacheDirectory
   if (!cacheDir) {
     throw new Error('Cache local indisponível para salvar o print.')
@@ -45,12 +45,14 @@ export async function attachmentFromClipboardImage(image: Clipboard.ClipboardIma
   await FileSystem.writeAsStringAsync(uri, parsed.base64, {
     encoding: FileSystem.EncodingType.Base64,
   })
+  const info = await FileSystem.getInfoAsync(uri)
 
   return {
     id: newAttachmentId(),
     uri,
     fileName,
     mimeType: parsed.mimeType,
+    size: info.exists && typeof info.size === 'number' ? info.size : null,
     width: image.size.width,
     height: image.size.height,
     source: 'clipboard',
@@ -59,11 +61,13 @@ export async function attachmentFromClipboardImage(image: Clipboard.ClipboardIma
 
 export function attachmentFromAsset(asset: ImagePicker.ImagePickerAsset, source: 'camera' | 'photos'): ComposerImageAttachment {
   const mimeType = asset.mimeType || 'image/jpeg'
+  const originalName = cleanFileName(asset.fileName)
   return {
     id: newAttachmentId(),
     uri: asset.uri,
-    fileName: asset.fileName || `atlas-${source}-${Date.now()}.${extensionForMime(mimeType)}`,
+    fileName: originalName || uniqueAttachmentFileName(source === 'camera' ? 'camera' : 'photo', mimeType),
     mimeType,
+    size: typeof asset.fileSize === 'number' ? asset.fileSize : null,
     width: asset.width,
     height: asset.height,
     source,
@@ -71,11 +75,12 @@ export function attachmentFromAsset(asset: ImagePicker.ImagePickerAsset, source:
 }
 
 export function attachmentFromDocumentAsset(asset: DocumentPicker.DocumentPickerAsset): ComposerFileAttachment {
+  const originalName = cleanFileName(asset.name)
   return {
     id: newAttachmentId(),
     uri: asset.uri,
-    fileName: asset.name || `atlas-file-${Date.now()}`,
-    mimeType: asset.mimeType || mimeForFileName(asset.name),
+    fileName: originalName || uniqueAttachmentFileName('file', asset.mimeType || 'application/octet-stream'),
+    mimeType: asset.mimeType || mimeForFileName(originalName),
     size: typeof asset.size === 'number' ? asset.size : null,
     source: 'files',
   }
@@ -88,11 +93,13 @@ export function isDocumentImageAsset(asset: DocumentPicker.DocumentPickerAsset):
 
 export function attachmentFromDocumentImageAsset(asset: DocumentPicker.DocumentPickerAsset): ComposerImageAttachment {
   const mimeType = asset.mimeType || mimeForFileName(asset.name)
+  const originalName = cleanFileName(asset.name)
   return {
     id: newAttachmentId(),
     uri: asset.uri,
-    fileName: asset.name || `atlas-file-image-${Date.now()}.${extensionForMime(mimeType)}`,
+    fileName: originalName || uniqueAttachmentFileName('file-image', mimeType),
     mimeType,
+    size: typeof asset.size === 'number' ? asset.size : null,
     width: null,
     height: null,
     source: 'files',
@@ -142,6 +149,29 @@ export function mimeForFileName(fileName: string): string {
 
 export function newAttachmentId(): string {
   return `att_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function uniqueAttachmentFileName(prefix: string, mimeType: string): string {
+  return `atlas-${prefix}-${timestampSlug()}-${Math.random().toString(36).slice(2, 6)}.${extensionForMime(mimeType)}`
+}
+
+function timestampSlug(date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join('') + '-' + [
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join('')
+}
+
+function cleanFileName(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const cleaned = value.split(/[\\/]/).pop()?.trim() ?? ''
+  return cleaned.length > 0 ? cleaned : ''
 }
 
 function parseImageDataUri(dataUri: string): { mimeType: string; base64: string } {

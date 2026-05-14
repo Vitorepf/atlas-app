@@ -342,6 +342,64 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 8,
   },
+  operationalCriticalReview: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 10,
+  },
+  operationalCriticalReviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  operationalCriticalReviewMetrics: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  operationalCriticalReviewAction: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  operationalCriticalReviewMetric: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    justifyContent: 'space-between',
+  },
+  operationalCriticalReviewItem: {
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 8,
+  },
+  operationalCriticalReviewItemBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  operationalCriticalReviewActions: {
+    flexDirection: 'row',
+    gap: 7,
+  },
+  operationalCriticalReviewInlineAction: {
+    flex: 1,
+    minHeight: 30,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
   // canon mockup op-empty / op-clean · hairline-top 1px @18% ink, padding-top
   // 28, mx 32, mt 56. Sem bg, sem radius, sem border lateral. Vocabulário
   // editorial puro · "página dentro da página".
@@ -387,5 +445,4 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   list: { gap: 10 },
-  firstSection: { marginTop: 18 },
 })

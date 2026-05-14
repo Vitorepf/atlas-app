@@ -4,6 +4,7 @@ set -euo pipefail
 MODE="${1:-lan}"
 PORT="${ATLAS_METRO_PORT:-8081}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
 
 cd "$ROOT_DIR"
 
@@ -26,7 +27,6 @@ fi
 if [ -n "$PORT" ] && command -v lsof >/dev/null 2>&1; then
   PIDS="$(lsof -ti "tcp:${PORT}" || true)"
   if [ -n "$PIDS" ]; then
-    LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
     echo "Metro ja esta rodando na porta ${PORT}: ${PIDS}"
     if [ -n "$LAN_IP" ]; then
       echo "URL manual no Development Build: http://${LAN_IP}:${PORT}"
@@ -54,14 +54,45 @@ case "$MODE" in
 esac
 
 export ATLAS_APPLE_TEAM_ID="${ATLAS_APPLE_TEAM_ID:-W28WF9A5A2}"
+export ATLAS_API_PORT="${ATLAS_API_PORT:-3737}"
+export ATLAS_LIVEKIT_PORT="${ATLAS_LIVEKIT_PORT:-7880}"
+
+if [ -z "${ATLAS_API_HOST:-}" ]; then
+  case "$MODE" in
+    localhost)
+      export ATLAS_API_HOST="127.0.0.1"
+      ;;
+    lan|tunnel)
+      export ATLAS_API_HOST="${LAN_IP:-127.0.0.1}"
+      ;;
+  esac
+fi
+
+if [ -z "${LIVEKIT_URL:-}" ] && [ -z "${ATLAS_LIVEKIT_URL:-}" ]; then
+  case "$MODE" in
+    localhost)
+      export LIVEKIT_URL="ws://127.0.0.1:${ATLAS_LIVEKIT_PORT}"
+      ;;
+    lan|tunnel)
+      export LIVEKIT_URL="ws://${LAN_IP:-127.0.0.1}:${ATLAS_LIVEKIT_PORT}"
+      ;;
+  esac
+fi
 
 echo "Atlas iOS dev"
 echo "Projeto: ${ROOT_DIR}"
 echo "Metro: ${MODE} porta ${PORT}"
-if [ "$MODE" = "lan" ]; then
-  LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+echo "API: http://${ATLAS_API_HOST}:${ATLAS_API_PORT}"
+echo "LiveKit: ${LIVEKIT_URL:-${ATLAS_LIVEKIT_URL:-nao configurado}}"
+if [ "$MODE" = "lan" ] || [ "$MODE" = "tunnel" ]; then
   if [ -n "$LAN_IP" ]; then
     echo "URL manual no Development Build: http://${LAN_IP}:${PORT}"
+  fi
+  if [ "$ATLAS_API_HOST" = "127.0.0.1" ]; then
+    echo "Aviso: nenhum IP LAN foi detectado; em iPhone fisico defina ATLAS_API_HOST manualmente."
+  fi
+  if [ "${LIVEKIT_URL:-}" = "ws://127.0.0.1:${ATLAS_LIVEKIT_PORT}" ]; then
+    echo "Aviso: LiveKit em 127.0.0.1 nao funciona no iPhone fisico; defina LIVEKIT_URL=ws://<ip-lan>:${ATLAS_LIVEKIT_PORT}."
   fi
 fi
 echo "App: abra o Atlas Development Build no iPhone e conecte neste servidor."

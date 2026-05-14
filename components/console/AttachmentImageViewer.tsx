@@ -7,6 +7,7 @@ import { useTheme } from '../../design/theme'
 interface AttachmentImageViewerProps {
   visible: boolean
   imageUri: string
+  imageHeaders?: Record<string, string>
   title?: string
   onClose: () => void
   onRemove?: () => void
@@ -15,6 +16,7 @@ interface AttachmentImageViewerProps {
 export function AttachmentImageViewer({
   visible,
   imageUri,
+  imageHeaders,
   title,
   onClose,
   onRemove,
@@ -35,14 +37,16 @@ export function AttachmentImageViewer({
   useEffect(() => {
     if (!imageUri) return
     setImageRatio(16 / 9)
-    Image.getSize(
-      imageUri,
-      (width, height) => {
-        if (width > 0 && height > 0) setImageRatio(width / height)
-      },
-      () => {},
-    )
-  }, [imageUri])
+    const onSize = (width: number, height: number) => {
+      if (width > 0 && height > 0) setImageRatio(width / height)
+    }
+    const onError = () => {}
+    if (imageHeaders && Object.keys(imageHeaders).length > 0 && 'getSizeWithHeaders' in Image) {
+      Image.getSizeWithHeaders(imageUri, imageHeaders, onSize, onError)
+      return
+    }
+    Image.getSize(imageUri, onSize, onError)
+  }, [imageHeaders, imageUri])
 
   return (
     <Modal
@@ -109,7 +113,7 @@ export function AttachmentImageViewer({
           >
             {imageUri ? (
               <Image
-                source={{ uri: imageUri }}
+                source={{ uri: imageUri, headers: imageHeaders }}
                 resizeMode="contain"
                 style={styles.image}
                 accessible

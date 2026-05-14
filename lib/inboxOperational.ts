@@ -52,6 +52,84 @@ export interface OpCardSpec {
   secondary: OpActionSpec[]
 }
 
+export interface OperationalBrief {
+  headline: string
+  kicker: string
+  statusLabel: string
+  tone: string
+  summary: string
+  whyItMatters: string
+  nextStep: string
+  recommendedActions: string[]
+  metrics: Array<{ label: string; value: string; tone: string }>
+}
+
+export function buildOperationalBrief(item: AtlasOperationalInboxItem): OperationalBrief {
+  const presentation = item.presentation
+  const fallbackSummary = item.summary ?? item.body ?? 'Sem resumo disponível.'
+  const reviewRequired = presentation?.review_required ?? item.severity === 'critical'
+  const tone = item.severity === 'critical'
+    ? 'critical'
+    : item.severity === 'warning'
+      ? 'warning'
+      : reviewRequired
+        ? 'warning'
+        : 'ok'
+  const metrics = presentation?.metrics?.length
+    ? presentation.metrics
+    : [
+        {
+          label: 'Prioridade',
+          value: String(Math.round(item.priority_score ?? 0)),
+          tone,
+        },
+        ...(item.confidence_score !== null && item.confidence_score !== undefined
+          ? [{
+              label: 'Confiança',
+              value: `${Math.round(item.confidence_score)}%`,
+              tone: item.confidence_score >= 70 ? 'ok' : 'warning',
+            }]
+          : []),
+      ]
+
+  return {
+    headline: presentation?.headline || item.title,
+    kicker: presentation?.category_label || humanizeType(item.type),
+    statusLabel: `${presentation?.severity_label || severityLabel(item.severity)} · ${presentation?.status_label || statusLabel(item.status)}`,
+    tone,
+    summary: presentation?.plain_summary || fallbackSummary,
+    whyItMatters: presentation?.why_this_matters || fallbackSummary,
+    nextStep: presentation?.operator_next_step || defaultNextStep(item),
+    recommendedActions: presentation?.recommended_actions?.length
+      ? presentation.recommended_actions
+      : item.available_actions.slice(0, 3).map((action) => action.label),
+    metrics,
+  }
+}
+
+function severityLabel(severity: string): string {
+  if (severity === 'critical') return 'crítico'
+  if (severity === 'warning') return 'atenção'
+  if (severity === 'info') return 'informativo'
+  return severity || 'status'
+}
+
+function statusLabel(status: string): string {
+  if (status === 'unread') return 'não lido'
+  if (status === 'read') return 'lido'
+  if (status === 'resolved') return 'resolvido'
+  if (status === 'dismissed') return 'descartado'
+  if (status === 'snoozed') return 'adiado'
+  return status || 'ativo'
+}
+
+function defaultNextStep(item: AtlasOperationalInboxItem): string {
+  if (item.severity === 'critical') return 'Revisar impacto, decidir ação e registrar evidência.'
+  if (item.type === 'job_result') return 'Abrir o trace, entender a falha e definir correção.'
+  if (item.type === 'proposal') return 'Revisar a proposta antes de aplicar qualquer mudança.'
+  return 'Ler o resumo, decidir se vira ação, discussão ou descarte.'
+}
+
 // ============================================================================
 // MAP de tipos → spec canônico
 // ============================================================================

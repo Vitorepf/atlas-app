@@ -3,13 +3,33 @@ import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as SecureStore from 'expo-secure-store'
 import type { DomainKey } from '../domains'
+import {
+  mobileVoiceInterruptIdempotencyKey,
+  mobileVoiceMetricMs,
+  mobileVoicePlayedIdempotencyKey,
+  mobileVoiceRuntimeFailureHash,
+  mobileVoiceRuntimeFailedIdempotencyKey,
+  mobileVoiceSessionEndIdempotencyKey,
+  mobileVoiceSessionStartIdempotencyKey,
+  mobileVoiceSynthesizedIdempotencyKey,
+  mobileVoiceTurnIdempotencyKey,
+  newMobileVoiceRuntimeId,
+} from '../atlasVoiceRuntime'
+import {
+  createAtlasAiInteractionStream,
+  type AtlasAiStreamDone,
+  type AtlasAiStreamEvent,
+} from '../atlasAiStreamRuntime'
+
+export type { AtlasAiStreamDone, AtlasAiStreamEvent } from '../atlasAiStreamRuntime'
 
 const extraAtlas = (Constants.expoConfig?.extra?.atlas ?? {}) as Partial<ApiConfig>
 
-const DEFAULT_HOST = extraAtlas.apiHost ?? 'vitors-macbook-pro-1'
+const DEFAULT_HOST = extraAtlas.apiHost ?? '127.0.0.1'
 const DEFAULT_PORT = Number(extraAtlas.apiPort ?? 3737)
 const DEFAULT_TOKEN = extraAtlas.apiToken ?? 'local-development-atlas-token-change-me'
 const LEGACY_PLACEHOLDER_TOKEN = 'local-development-atlas-token-change-me'
+const LEGACY_DEFAULT_HOSTS = new Set(['vitors-macbook-pro-1', 'macbook-pro-de-vitor'])
 
 const HOST_KEY = 'atlas-api.host'
 const PORT_KEY = 'atlas-api.port'
@@ -130,7 +150,7 @@ export interface ConstelacaoPositionsResponse {
 
 export interface AtlasVoiceSessionLease {
   schema_version: 'atlas.voice.session_lease.v1' | string
-  mode: 'mobile_push_to_talk' | 'livekit_webrtc' | string
+  mode: 'livekit_webrtc' | 'mobile_push_to_talk' | string
   room_name: string
   participant_identity: string
   token_status: 'not_issued_scaffold' | 'issued' | string
@@ -142,13 +162,13 @@ export interface AtlasVoiceSessionLease {
 }
 
 export interface AtlasVoiceSessionResponse {
-  schema_version: 'atlas.voice_realtime.scaffold.v1' | string
-  status: 'session_started_scaffold' | 'session_ended_scaffold' | string
+  schema_version: 'atlas.voice_realtime.v1' | 'atlas.voice_realtime.scaffold.v1' | string
+  status: 'session_ready' | 'session_blocked' | 'session_started_scaffold' | 'session_ended_scaffold' | string
   session: {
     session_id: string
     surface_id: 'voice_realtime' | string
     client_surface: 'mobile' | 'mac_edge' | string
-    transport: 'mobile_push_to_talk' | 'livekit_webrtc' | string
+    transport: 'livekit_webrtc' | 'mobile_push_to_talk' | string
     runtime: 'livekit_agents_sdk' | string
     room_name: string
     participant_identity: string
@@ -166,20 +186,146 @@ export interface AtlasVoiceSessionResponse {
     event_type: string
     event_id: string | null
   }
+  livekit_url?: string | null
+  room_name?: string | null
+  participant_identity?: string | null
+  participant_token?: string | null
+  agent_identity?: string | null
+}
+
+export interface AtlasVoiceTurnResponse extends AtlasVoiceSessionResponse {
+  status: 'turn_accepted_scaffold' | 'blocked_by_eclipse' | string
+  turn?: {
+    turn_id: string
+    provider_execution_enabled?: boolean
+    runtime_execution_enabled?: boolean
+    interruption_recorded?: boolean
+    interruption_source?: 'operator' | 'mobile' | 'runtime_callback' | string
+    reason?: string
+    interrupted_stage?: string
+    played_duration_ms?: number | null
+    latency_ms?: number | null
+    raw_text_persisted?: boolean
+    raw_audio_persisted?: boolean
+    event_type?: string
+    accepted_kernel_turn_required?: boolean
+    payload_contract_valid?: boolean
+    violations?: string[]
+    response_text_hash?: string
+    audio_hash?: string
+    audio_duration_ms?: number | null
+    tts_provider?: string | null
+    failure_code?: string
+    error_class?: string
+    error_message_hash?: string
+    operation_envelope?: {
+      envelope_id?: string
+      trace_id?: string
+      input_hash?: string
+      chain_hash?: string
+    }
+    decision_receipt?: {
+      receipt_id?: string
+      dry_run?: boolean
+      domain?: string
+      flow?: string
+      receipt_hash?: string
+      chain_hash?: string
+    }
+    ai_interaction?: {
+      dispatched?: boolean
+      status?: string
+      reason?: string
+      trace_id?: string | null
+      thread_id?: string | null
+      trace_status?: AtlasAiStatus | string
+      transcript_hash?: string
+      error_class?: string
+      error_message_hash?: string
+    }
+  }
 }
 
 export interface AtlasVoiceReadinessResponse {
   schema_version: 'atlas.voice.readiness.v1' | string
   available: boolean
   status: 'ready' | 'attention' | 'ledger_unavailable' | string
+  hours?: number
+  window?: {
+    since: string
+    until: string
+  }
   mobile_first: boolean
-  score: number
+  phase0_hardening?: Record<string, unknown>
+  product_loop_check?: {
+    schema_version?: string
+    status?: string
+    command?: string
+    promotion_allowed?: boolean
+    auto_promotion_allowed?: boolean
+    daemon_started?: boolean
+    required_gates?: string[]
+    [key: string]: unknown
+  }
+  enterprise_mobile_loop?: {
+    schema_version: 'atlas.voice_realtime.enterprise_mobile_loop.v1' | string
+    status: 'contract_ready' | 'needs_promotion_evidence' | 'promotion_evidence_ready' | 'blocked' | string
+    promotion_required_events: string[]
+    healthy_loop_events: string[]
+    required_drills_before_promotion: string[]
+    missing_promotion_events?: string[]
+    mobile_callbacks: {
+      turn_synthesized: string
+      turn_played: string
+      turn_interrupted: string
+      runtime_failed: string
+      [key: string]: string
+    }
+    privacy_invariants: {
+      raw_audio_persisted: boolean
+      raw_transcript_persisted: boolean
+      raw_response_text_persisted: boolean
+      runtime_errors_require_error_message_hash: boolean
+      hashes_normalized_lowercase: boolean
+      [key: string]: boolean
+    }
+    latency_slo_stages: string[]
+    gates?: {
+      healthy_loop_ready: boolean
+      interruption_drill_recorded: boolean
+      redacted_failure_drill_recorded: boolean
+      latency_slo_clean: boolean
+      raw_payload_persistence_forbidden: boolean
+      [key: string]: boolean
+    }
+  }
+  runtime_dependency_summary?: Record<string, unknown>
+  score: number | null
+  event_counts?: Record<string, number>
+  session_count?: number
+  turn_count?: number
+  slo?: {
+    observation_count: number
+    breach_count: number
+    stages: Record<string, number>
+  }
+  gates?: {
+    ledger_available?: boolean
+    required_events_present: boolean
+    latency_slo_clean: boolean
+    raw_audio_forbidden: boolean
+    kernel_decision_per_turn: boolean
+    rivals_voice_ready: boolean
+    [key: string]: boolean | undefined
+  }
+  required_events?: string[]
   missing_events: string[]
   review_signal: {
     status: string
     severity: string
     recommended_action: string
   }
+  next_action?: string
 }
 
 export interface AtlasInboxAction {
@@ -204,6 +350,32 @@ export type AtlasOperationalInboxType =
   | 'job_result'
   | 'self_diagnostic'
 
+export interface AtlasInboxPresentationMetric {
+  label: string
+  value: string
+  tone: 'critical' | 'warning' | 'ok' | 'neutral' | string
+}
+
+export interface AtlasInboxHumanPresentation {
+  schema_version: 'atlas.inbox_item.human_presentation.v1' | string
+  headline: string
+  severity_label: string
+  status_label: string
+  category_label: string
+  plain_summary: string
+  primary_metric: AtlasInboxPresentationMetric
+  metrics: AtlasInboxPresentationMetric[]
+  why_this_matters: string
+  operator_next_step: string
+  recommended_actions: string[]
+  review_required: boolean
+  auto_resolution_allowed: boolean
+  sections: Array<{
+    title: string
+    items: Array<Record<string, unknown>>
+  }>
+}
+
 export interface AtlasOperationalInboxItem {
   id: string
   user_id: string
@@ -224,6 +396,7 @@ export interface AtlasOperationalInboxItem {
   payload: Record<string, unknown>
   deep_link: string | null
   push_policy: Record<string, unknown>
+  presentation?: AtlasInboxHumanPresentation | null
   priority_score: number
   confidence_score: number | null
   expires_at: string | null
@@ -294,6 +467,77 @@ export interface MobileInboxResponse {
   unread_count: number
   next_cursor?: string | null
   generated_at: string
+}
+
+export interface AtlasCriticalInboxReviewItem {
+  id: string
+  deep_link: string
+  review_kind: 'health' | 'performance' | 'generic' | string
+  category: string | null
+  severity: string
+  status: string
+  status_label: string
+  created_at: string | null
+  headline: string
+  plain_summary: string | null
+  primary_metric: AtlasInboxPresentationMetric | null
+  metrics: AtlasInboxPresentationMetric[]
+  why_this_matters: string | null
+  operator_next_step: string
+  decision_options?: Array<{
+    id: string
+    label: string
+    action_id: string
+    recommended: boolean
+    requires_reason: boolean
+    requires_evidence: boolean
+    state_effect: string
+    status_after: string
+    allowed_for_agent: boolean
+    allowed_for_operator: boolean
+    explanation: string
+    [key: string]: unknown
+  }>
+  commands: Record<string, string>
+  safety: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface AtlasCriticalInboxReviewSummary {
+  schema_version: 'atlas.inbox.critical_review_summary.v1' | string
+  scope: string
+  active_critical_count: number
+  returned_item_count: number
+  unread_count: number
+  read_count: number
+  other_status_count: number
+  health_signal_count: number
+  performance_report_count: number
+  other_kind_count: number
+  cost_visibility_recovered_count: number
+  still_requires_operator_decision_count: number
+  priority_order: string[]
+  recommended_operator_flow: string[]
+  safety: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface MobileCriticalInboxReviewResponse {
+  critical_review: {
+    schema_version: 'atlas.inbox.critical_review.v1' | string
+    status: string
+    active_critical_count: number
+    returned_item_count: number
+    operator_required: boolean
+    agent_auto_resolve_allowed: boolean
+    agent_auto_dismiss_allowed: boolean
+    raw_payload_exposed: boolean
+    review_summary: AtlasCriticalInboxReviewSummary
+    items: AtlasCriticalInboxReviewItem[]
+    completion_recheck_command?: string
+    generated_at?: string
+    [key: string]: unknown
+  }
 }
 
 export interface MobileInboxActionResponse {
@@ -1547,6 +1791,27 @@ export interface AtlasEngineeringBenchmarkRunInput {
   provider?: string | null
   model?: string | null
   model_policy?: 'fixed' | 'off' | 'auto' | 'balanced' | 'best_quality' | 'best-quality' | 'fastest' | 'cheapest' | string | null
+  fair_mode?: boolean | null
+  claude_only?: boolean | null
+  single_provider?: boolean | null
+  no_decide?: boolean | null
+  fallback_disabled?: boolean | null
+  require_pass_without_human?: boolean | null
+  claude_code_baseline?: 'off' | 'plan' | 'run' | boolean | number | string | null
+  claude_code_baseline_mode?: 'off' | 'plan' | 'run' | string | null
+  claude_code_baseline_model?: string | null
+  claude_code_baseline_binary?: string | null
+  claude_code_baseline_workspace?: string | null
+  claude_code_baseline_timeout?: number | null
+  claude_code_baseline_validation_timeout?: number | null
+  baseline_runner?: 'off' | 'plan' | 'run' | string | null
+  baseline_model?: string | null
+  baseline_timeout_seconds?: number | null
+  baseline_validation_timeout_seconds?: number | null
+  rivals_battery_mode?: 'official_fair' | 'same_model' | 'max' | string | null
+  rivals_battery_plan_hash?: string | null
+  operator_plan_reviewed?: boolean | null
+  operator_cost_acknowledged?: boolean | null
   permission?: 'auto' | 'read' | 'write' | 'danger' | string | null
   sandbox?: 'workspace' | 'worktree' | 'docker' | string | null
   docker_service?: string | null
@@ -1589,6 +1854,190 @@ export interface AtlasEngineeringBenchmarkRunInput {
   case_codes?: string[]
   tags?: string[]
   runner_options?: Record<string, unknown>
+}
+
+export interface AtlasEngineeringRivalsBatteryPlanInput {
+  mode: 'official_fair' | 'same_model' | 'max' | string
+  workspace?: string | null
+  baseline_workspace?: string | null
+  provider?: string | null
+  model?: string | null
+  limit?: number | null
+}
+
+export interface AtlasEngineeringRivalsBatteryPlanResponse {
+  battery_plan: {
+    schema_version: 'atlas.rivals.battery_plan.v1' | string
+    mode: string
+    status: string
+    ready: boolean
+    blockers: string[]
+    operator_required: boolean
+    cost_acknowledgement_required: boolean
+    agent_auto_execution_allowed: boolean
+    provider_dispatch_required: boolean
+    external_cost_possible: boolean
+    synthetic_scores_allowed: boolean
+    plan_review_required: boolean
+    plan_hash: string
+    selection_contract?: {
+      schema_version: 'atlas.rivals.battery_selection_contract.v1' | string
+      allowed_modes?: Array<{
+        id: string
+        label?: string | null
+        description?: string | null
+        requires_provider?: boolean | null
+        requires_model?: boolean | null
+        requires_baseline_workspace?: boolean | null
+        fair_claim_eligible?: boolean | null
+        max_capability_run?: boolean | null
+        recommended_provider?: string | null
+        recommended_model?: string | null
+      }>
+      provider_model_options?: Array<{
+        provider: string
+        label?: string | null
+        allow_auto?: boolean | null
+        allow_manual?: boolean | null
+        models?: Array<{
+          model: string
+          label?: string | null
+          role?: string | null
+          tier?: string | null
+        }>
+      }>
+      ui_must_send_mode?: boolean | null
+      ui_must_send_provider_and_model_for_modes?: string[]
+      ui_may_leave_provider_or_model_empty_for_modes?: string[]
+    }
+    execution_intent: Record<string, unknown>
+    corpus: Record<string, unknown>
+    safety: Record<string, unknown>
+    generated_at: string | null
+    [key: string]: unknown
+  }
+}
+
+export interface AtlasStructureMotherAuditAction {
+  id: string
+  module_id?: string | null
+  type: string
+  status: string
+  operator_required?: boolean
+  due_at?: string | null
+  current_due_at?: string | null
+  review_due_at?: string | null
+  dry_run_command?: string | null
+  apply_command?: string | null
+  list_command?: string | null
+  list_missing_command?: string | null
+  record_command?: string | null
+  missing_rate_count?: number | null
+  critical_item_count?: number | null
+  agent_auto_dispatch_allowed?: boolean | null
+  external_notification_possible?: boolean | null
+  diagnostics?: Record<string, unknown> | null
+  item_commands?: Array<Record<string, unknown>>
+  notes?: string[]
+  [key: string]: unknown
+}
+
+export interface AtlasStructureMotherAuditModule {
+  id: string
+  label: string
+  status: string
+  implementation_status: string
+  operational_status: string
+  evidence: Record<string, unknown>
+  canonical_command: string
+  blockers: string[]
+  operational_blockers: string[]
+}
+
+export interface AtlasStructureMotherAuditResponse {
+  status: string
+  structure_mother_audit: {
+    schema_version: 'atlas.structure_mother_audit.v1' | string
+    status: string
+    complete: boolean
+    implementation_complete: boolean
+    hours: number
+    workspace: string
+    summary: {
+      module_count: number
+      ready_count: number
+      attention_count: number
+      blocked_count: number
+      blocker_count: number
+      operational_blocker_count: number
+      qualitative_level?: string | null
+      next_qualitative_level?: string | null
+      next_level_blockers?: string[]
+    }
+    completion_gate: {
+      status: string
+      reason: string
+      update_goal_allowed: boolean
+    }
+    operator_action_plan: {
+      schema_version: 'atlas.structure_mother.operator_action_plan.v1' | string
+      status: string
+      action_count: number
+      action_summary?: {
+        schema_version: 'atlas.structure_mother.operator_action_summary.v1' | string
+        status: string
+        actionable_now_count: number
+        calendar_wait_count: number
+        human_review_action_count: number
+        external_effect_action_count: number
+        next_calendar_due_at?: string | null
+        next_action_ids: string[]
+        calendar_action_ids: string[]
+      }
+      actions: AtlasStructureMotherAuditAction[]
+      rules: Record<string, unknown>
+    }
+    modules: AtlasStructureMotherAuditModule[]
+    blockers: Array<{
+      module_id: string
+      module: string
+      blocker: string
+    }>
+    generated_at: string | null
+    [key: string]: unknown
+  }
+}
+
+export interface AtlasMobilePushReplayInput {
+  limit?: number | null
+  apply?: boolean | null
+  confirm_external_dispatch?: boolean | null
+  reason?: string | null
+}
+
+export interface AtlasMobilePushReplayResponse {
+  status: string
+  push_replay: {
+    schema_version: 'atlas.mobile.push_replay_pending.v1' | string
+    dry_run: boolean
+    limit: number
+    candidate_count: number
+    dispatched_count: number
+    mobile_enabled: boolean
+    operator_reason?: string | null
+    external_dispatch_confirmed?: boolean
+    items: Array<{
+      id: string
+      type: string
+      category: string | null
+      severity: string
+      status: string
+      dedupe_key: string | null
+      push_policy_send: string
+      created_at: string | null
+    }>
+    [key: string]: unknown
+  }
 }
 
 export interface AtlasEngineeringRunReplayInput extends AtlasEngineeringBenchmarkRunInput {
@@ -2052,6 +2501,39 @@ export interface AtlasEngineeringFairClaudeEvidencePacket {
   [key: string]: unknown
 }
 
+export interface AtlasEngineeringFairClaudeBatteryExecutionContract {
+  schema_version: 'atlas.fair_claude.battery_execution_contract.v1' | string
+  status: string
+  summary: string
+  operator_required: boolean
+  agent_auto_execution_allowed: boolean
+  provider_dispatch_required: boolean
+  external_cost_possible: boolean
+  synthetic_scores_allowed: boolean
+  current_state: {
+    corpus_prepared: boolean
+    release_corpus_case_count: number
+    minimum_release_corpus_case_count: number
+    paired_case_count: number
+    comparable_case_count: number
+    baseline_executed: boolean
+    replay_verified: boolean
+    ready_for_claim: boolean
+    [key: string]: unknown
+  }
+  start_requirements: string[]
+  commands: Record<string, string>
+  recommended_presets: Array<{
+    id: string
+    case_count: number | null
+    estimated_time: string
+    purpose: string
+    [key: string]: unknown
+  }>
+  safety: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export interface AtlasEngineeringFairClaudeExportBundle {
   schema_version: number
   kind: 'fair_claude_export_bundle' | string
@@ -2134,6 +2616,7 @@ export interface AtlasEngineeringFairClaudeReportResponse {
     [key: string]: unknown
   }
   executive_summary?: AtlasEngineeringFairClaudeExecutiveSummary
+  battery_execution_contract?: AtlasEngineeringFairClaudeBatteryExecutionContract
   corpus_manifest?: Record<string, unknown> | null
   next_actions?: AtlasEngineeringFairClaudeNextAction[]
   evidence_packet?: AtlasEngineeringFairClaudeEvidencePacket
@@ -5179,6 +5662,18 @@ export class AtlasApiError extends Error {
   }
 }
 
+function shouldUseStoredBackendHost(host: string): boolean {
+  const normalized = host.trim()
+  if (!normalized) return false
+
+  // Builds antigos gravavam hostnames Bonjour/DNS locais como default. Quando
+  // esses nomes param de resolver, o app fica "zerado" mesmo com relatório real
+  // no backend. Se o operador não escolheu outro host, migra para o default atual.
+  if (LEGACY_DEFAULT_HOSTS.has(normalized) && normalized !== DEFAULT_HOST) return false
+
+  return true
+}
+
 export async function hydrateApiConfig(): Promise<void> {
   if (!hydratePromise) {
     hydratePromise = (async () => {
@@ -5194,7 +5689,14 @@ export async function hydrateApiConfig(): Promise<void> {
         readStoredMobileDeviceId(),
       ])
 
-      if (host) cachedHost = host
+      if (host) {
+        if (shouldUseStoredBackendHost(host)) {
+          cachedHost = host.trim()
+        } else {
+          cachedHost = null
+          await atlasStorage.removeItem(HOST_KEY)
+        }
+      }
       if (port) {
         const n = Number(port)
         if (Number.isFinite(n) && n > 0) cachedPort = n
@@ -5313,6 +5815,7 @@ export async function listCaptures(params: {
   cursor?: string | null
   domain?: DomainKey
   kind?: CaptureKind
+  client_id?: string
 } = {}): Promise<CapturesResponse> {
   return apiGet<CapturesResponse>(`/captures${queryString(params)}`)
 }
@@ -5397,7 +5900,7 @@ export async function startMobileVoiceSession(input: {
   envelope_id?: string
   receipt_id?: string
   client_surface?: 'mobile'
-  transport?: 'mobile_push_to_talk' | 'livekit_webrtc'
+  transport?: 'livekit_webrtc' | 'mobile_push_to_talk'
   runtime?: 'livekit_agents_sdk'
   room_name?: string
   participant_identity?: string
@@ -5405,15 +5908,17 @@ export async function startMobileVoiceSession(input: {
   explicit_operator_consent?: boolean
   rivals_arm?: 'atlas_voice' | 'direct_provider_baseline'
 } = {}): Promise<AtlasVoiceSessionResponse> {
-  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/start', {
-    client_surface: 'mobile',
-    transport: 'mobile_push_to_talk',
-    runtime: 'livekit_agents_sdk',
-    privacy_class: 'p3_audio',
-    explicit_operator_consent: true,
+  const payload = {
     ...input,
-  }, {
-    idempotencyKey: `mobile-voice-session-${input.session_id ?? Date.now()}`,
+    session_id: input.session_id ?? newMobileVoiceRuntimeId('mobile_voice'),
+    client_surface: input.client_surface ?? 'mobile',
+    transport: input.transport ?? 'livekit_webrtc',
+    runtime: input.runtime ?? 'livekit_agents_sdk',
+    privacy_class: input.privacy_class ?? 'p3_audio',
+    explicit_operator_consent: input.explicit_operator_consent ?? true,
+  }
+  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/start', payload, {
+    idempotencyKey: mobileVoiceSessionStartIdempotencyKey(payload),
   })
 }
 
@@ -5423,11 +5928,122 @@ export async function endMobileVoiceSession(input: {
   receipt_id?: string
   reason?: string
 }): Promise<AtlasVoiceSessionResponse> {
-  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/end', {
-    reason: 'operator_finished',
+  const payload = {
     ...input,
-  }, {
-    idempotencyKey: `mobile-voice-session-end-${input.session_id}-${Date.now()}`,
+    reason: input.reason ?? 'operator_finished',
+  }
+  return mobileApiPost<AtlasVoiceSessionResponse>('/v1/mobile/ai/voice/session/end', payload, {
+    idempotencyKey: mobileVoiceSessionEndIdempotencyKey(payload),
+  })
+}
+
+export async function sendMobileVoiceTurn(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id?: string
+  audio_hash?: string
+  audio_duration_ms?: number
+  transcript?: string
+  language?: string
+  domain_hint?: string
+  flow_hint?: string
+  turn_to_first_audio_ms?: number
+  dispatch_to_ai?: boolean
+  allow_transcript_persistence?: boolean
+  ai_thread_id?: string
+}): Promise<AtlasVoiceTurnResponse> {
+  const payload = {
+    ...input,
+    turn_id: input.turn_id ?? newMobileVoiceRuntimeId('mobile_voice_turn'),
+    audio_duration_ms: mobileVoiceMetricMs(input.audio_duration_ms),
+    turn_to_first_audio_ms: mobileVoiceMetricMs(input.turn_to_first_audio_ms),
+  }
+  return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/turn', payload, {
+    idempotencyKey: mobileVoiceTurnIdempotencyKey(payload),
+  })
+}
+
+export async function interruptMobileVoiceTurn(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id?: string
+  reason?: string
+  interrupted_stage?: string
+  interruption_source?: 'operator' | 'mobile' | 'runtime_callback'
+  played_duration_ms?: number
+  latency_ms?: number
+}): Promise<AtlasVoiceTurnResponse> {
+  const payload = {
+    ...input,
+    reason: input.reason ?? 'operator_interrupted',
+    interruption_source: input.interruption_source ?? 'mobile',
+    played_duration_ms: mobileVoiceMetricMs(input.played_duration_ms),
+    latency_ms: mobileVoiceMetricMs(input.latency_ms),
+  }
+  return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/turn/interrupted', payload, {
+    idempotencyKey: mobileVoiceInterruptIdempotencyKey(payload),
+  })
+}
+
+export async function recordMobileVoiceTurnSynthesized(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id: string
+  response_text_hash?: string
+  tts_provider?: string
+  audio_hash?: string
+  audio_duration_ms?: number
+  latency_ms?: number
+}): Promise<AtlasVoiceTurnResponse> {
+  const payload = {
+    ...input,
+    audio_duration_ms: mobileVoiceMetricMs(input.audio_duration_ms),
+    latency_ms: mobileVoiceMetricMs(input.latency_ms),
+  }
+  return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/turn/synthesized', payload, {
+    idempotencyKey: mobileVoiceSynthesizedIdempotencyKey(payload),
+  })
+}
+
+export async function recordMobileVoiceTurnPlayed(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id: string
+  played_duration_ms?: number
+  latency_ms?: number
+}): Promise<AtlasVoiceTurnResponse> {
+  const payload = {
+    ...input,
+    played_duration_ms: mobileVoiceMetricMs(input.played_duration_ms),
+    latency_ms: mobileVoiceMetricMs(input.latency_ms),
+  }
+  return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/turn/played', payload, {
+    idempotencyKey: mobileVoicePlayedIdempotencyKey(payload),
+  })
+}
+
+export async function recordMobileVoiceRuntimeFailed(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id: string
+  failure_code?: string
+  error_class?: string
+  error_message_hash?: string
+  latency_ms?: number
+}): Promise<AtlasVoiceTurnResponse> {
+  const errorMessageHash = await mobileVoiceRuntimeFailureHash(input)
+  const payload = {
+    ...input,
+    error_message_hash: errorMessageHash,
+    latency_ms: mobileVoiceMetricMs(input.latency_ms),
+  }
+  return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/runtime/failed', payload, {
+    idempotencyKey: mobileVoiceRuntimeFailedIdempotencyKey(payload),
   })
 }
 
@@ -5548,6 +6164,10 @@ export async function listMobileInbox(params: {
   cursor?: string | null
 } = {}): Promise<MobileInboxResponse> {
   return mobileApiGet<MobileInboxResponse>(`/v1/mobile/inbox${queryString(params)}`)
+}
+
+export async function getMobileCriticalInboxReview(params: { limit?: number } = {}): Promise<MobileCriticalInboxReviewResponse> {
+  return mobileApiGet<MobileCriticalInboxReviewResponse>(`/v1/mobile/inbox/critical-review${queryString(params)}`)
 }
 
 export async function getMobileInboxItem(id: string): Promise<{ item: AtlasOperationalInboxItem }> {
@@ -6807,6 +7427,32 @@ export async function fetchEngineeringFairClaudeReport(
   )
 }
 
+export async function fetchAtlasStructureMotherAudit(
+  params: { hours?: number; workspace?: string | null } = {},
+): Promise<AtlasStructureMotherAuditResponse> {
+  return apiGet<AtlasStructureMotherAuditResponse>(`/ai/structure-mother-audit${queryString(params)}`)
+}
+
+export async function replayAtlasMobilePush(
+  input: AtlasMobilePushReplayInput = {},
+): Promise<AtlasMobilePushReplayResponse> {
+  return apiPost<AtlasMobilePushReplayResponse>('/ai/mobile/push/replay', input)
+}
+
+export async function prepareEngineeringFairClaudeBenchmark(
+  input: { suite?: string | null; workspace?: string | null } = {},
+): Promise<AtlasEngineeringBenchmarkSuiteResponse & {
+  corpus_manifest?: Record<string, unknown>
+  promoted_count?: number
+  promoted_cases?: AtlasEngineeringBenchmarkCaseSummary[]
+}> {
+  return apiPost<AtlasEngineeringBenchmarkSuiteResponse & {
+    corpus_manifest?: Record<string, unknown>
+    promoted_count?: number
+    promoted_cases?: AtlasEngineeringBenchmarkCaseSummary[]
+  }>('/engineering/benchmarks/fair-claude/prepare', input)
+}
+
 export async function ensureDefaultEngineeringBenchmarkSuite(
   input: AtlasEngineeringBenchmarkDefaultSuiteInput = {},
 ): Promise<AtlasEngineeringBenchmarkSuiteResponse> {
@@ -6850,6 +7496,16 @@ export async function runEngineeringBenchmarkSuite(
   input: AtlasEngineeringBenchmarkRunInput,
 ): Promise<AtlasEngineeringBenchmarkRunResponse> {
   return apiPost<AtlasEngineeringBenchmarkRunResponse>(`/engineering/benchmarks/suites/${encodeURIComponent(suite)}/run`, input)
+}
+
+export async function planEngineeringRivalsBattery(
+  suite: string,
+  input: AtlasEngineeringRivalsBatteryPlanInput,
+): Promise<AtlasEngineeringRivalsBatteryPlanResponse> {
+  return apiPost<AtlasEngineeringRivalsBatteryPlanResponse>(
+    `/engineering/benchmarks/suites/${encodeURIComponent(suite)}/rivals/battery-plan`,
+    input,
+  )
 }
 
 export async function promoteEngineeringRunToBenchmarkCase(
@@ -7080,15 +7736,18 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
   const imageAttachments = input.image_attachments ?? []
   const fileAttachments = input.file_attachments ?? []
   if (imageAttachments.length > 0 || fileAttachments.length > 0) {
+    let chunkedUploadReady = false
+    let uploadedImages: string[] = []
+    let uploadedDocuments: string[] = []
+    let totalBytes = 0
+    const allUploads = [
+      ...imageAttachments.map((attachment) => ({ kind: 'image' as const, attachment })),
+      ...fileAttachments.map((attachment) => ({ kind: 'file' as const, attachment })),
+    ]
+
     try {
-      const uploadedImages: string[] = []
-      const uploadedDocuments: string[] = []
-      const allUploads = [
-        ...imageAttachments.map((attachment) => ({ kind: 'image' as const, attachment })),
-        ...fileAttachments.map((attachment) => ({ kind: 'file' as const, attachment })),
-      ]
       let uploadedBytesBefore = 0
-      const totalBytes = await totalAttachmentBytes(allUploads.map((item) => item.attachment))
+      totalBytes = await totalAttachmentBytes(allUploads.map((item) => item.attachment))
 
       for (let index = 0; index < allUploads.length; index++) {
         const item = allUploads[index]
@@ -7106,6 +7765,14 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
         else uploadedDocuments.push(upload.id)
       }
 
+      chunkedUploadReady = true
+    } catch {
+      // Fallback: mantém compatibilidade em ambientes onde leitura em chunks
+      // por file:// não está disponível. Erros da criação da interação não
+      // entram aqui, para evitar reenviar anexos depois de um 4xx/5xx real.
+    }
+
+    if (chunkedUploadReady) {
       input.on_upload_progress?.({
         phase: 'finalizing',
         fileName: 'anexos',
@@ -7140,9 +7807,6 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
       })
 
       return response
-    } catch {
-      // Fallback: mantém compatibilidade em ambientes onde leitura em chunks
-      // por file:// não está disponível.
     }
 
     const form = new FormData()
@@ -7186,6 +7850,30 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
     ...jsonInput
   } = input
   return apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', jsonInput)
+}
+
+export function streamAiInteraction(
+  traceId: string,
+  handlers: {
+    onEvent?: (event: AtlasAiStreamEvent) => void
+    onDone?: (event: AtlasAiStreamDone) => void
+    onError?: (error: unknown) => void
+  },
+  options: {
+    after?: number
+    timeoutSeconds?: number
+    maxReconnects?: number
+  } = {},
+): { cancel: () => void } {
+  return createAtlasAiInteractionStream({
+    traceId,
+    handlers,
+    options,
+    prepare: hydrateApiConfig,
+    getApiBase,
+    getAuthHeaders: getAtlasAuthHeaders,
+    createHttpError: (status, url) => new AtlasApiError(`Atlas stream ${status}`, status, url, null),
+  })
 }
 
 const AI_UPLOAD_CHUNK_BYTES = 768 * 1024
@@ -7302,6 +7990,7 @@ export async function listAiInteractions(params: {
   thread_id?: string
   status?: AtlasAiStatus
   agent?: string
+  client_id?: string
   limit?: number
 } = {}): Promise<AiInteractionsResponse> {
   return apiGet<AiInteractionsResponse>(`/ai/interactions${queryString(params)}`)

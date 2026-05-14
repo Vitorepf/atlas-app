@@ -64,6 +64,72 @@ export function SummaryPanel({ item }: { item: AtlasOperationalInboxItem }) {
   )
 }
 
+export function HumanPresentationPanel({ item }: { item: AtlasOperationalInboxItem }) {
+  const c = usePalette()
+  const presentation = item.presentation
+  if (!presentation) return null
+
+  const metrics = presentation.metrics ?? []
+  const actions = presentation.recommended_actions ?? []
+
+  return (
+    <Section title="Resumo">
+      <View style={[styles.diagnosticHeader, { borderColor: c.border, backgroundColor: c.premium }]}>
+        <View style={styles.diagnosticCopy}>
+          <Sans weight="sb" size={15} lineHeight={20} color={c.ink}>
+            {presentation.headline}
+          </Sans>
+          <Sans size={13} lineHeight={19} color={c.ink2}>
+            {presentation.plain_summary}
+          </Sans>
+        </View>
+        <View style={[styles.scoreBadge, { borderColor: severityColor(item.severity, c, false) }]}>
+          <Mono size={17} lineHeight={21} color={severityColor(item.severity, c)} align="center" numberOfLines={2}>
+            {presentation.primary_metric.value}
+          </Mono>
+          <Sans size={10.5} lineHeight={13} color={c.ink3} align="center" numberOfLines={2}>
+            {presentation.primary_metric.label}
+          </Sans>
+        </View>
+      </View>
+
+      {metrics.length > 0 ? (
+        <View style={styles.explainGrid}>
+          {metrics.slice(0, 8).map((metric) => (
+            <View key={`${metric.label}-${metric.value}`} style={[styles.explainTile, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <Mono size={10.5} lineHeight={14} color={c.ink3} letterSpacing={0.2} style={styles.detailLabel} numberOfLines={1}>
+                {metric.label}
+              </Mono>
+              <Sans weight="sb" size={13.5} lineHeight={18} color={metric.tone === 'critical' ? c.recRed : metric.tone === 'warning' ? c.bronze : c.ink} numberOfLines={2}>
+                {metric.value}
+              </Sans>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <TextBlock label="Por que importa" value={presentation.why_this_matters} />
+      <TextBlock label="Proximo passo" value={presentation.operator_next_step} />
+
+      {actions.length > 0 ? (
+        <View style={styles.actionAdviceList}>
+          <Label>Acoes recomendadas</Label>
+          {actions.slice(0, 6).map((action, index) => (
+            <View key={`${action}-${index}`} style={styles.adviceRow}>
+              <Mono size={11} lineHeight={16} color={c.prussian}>
+                {String(index + 1).padStart(2, '0')}
+              </Mono>
+              <Sans size={13} lineHeight={19} color={c.ink}>
+                {action}
+              </Sans>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </Section>
+  )
+}
+
 export function TypeDetails({ item }: { item: AtlasOperationalInboxItem }) {
   const rows = detailsForItem(item)
   if (rows.length === 0) return null

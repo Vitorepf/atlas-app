@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Alert, InteractionManager, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import Constants from 'expo-constants'
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio'
 import { SideSheet } from './SideSheet'
 import { ScreenTimeSelectionSheet } from '../ScreenTimeSelectionSheet'
 import { CreateDomainPanel } from '../domains/CreateDomainPanel'
@@ -50,6 +51,8 @@ import {
   type ScreenTimeLocalStatus,
 } from '../../lib/screenTime'
 import { nowMs, recordPerformanceDuration } from '../../lib/performanceTelemetry'
+
+type VoicePermission = Awaited<ReturnType<typeof getRecordingPermissionsAsync>>
 
 export function SettingsSheet() {
   const open = useOverlays((s) => s.open)
@@ -125,6 +128,8 @@ export function SettingsSheet() {
   const [macError, setMacError] = useState<string | null>(null)
   const [screenTimeSelectionBucket, setScreenTimeSelectionBucket] = useState<string | null>(null)
   const [apiAutoSave, setApiAutoSave] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [voicePermission, setVoicePermission] = useState<VoicePermission | null>(null)
+  const [voicePermissionBusy, setVoicePermissionBusy] = useState(false)
   const [settingsWarmupReady, setSettingsWarmupReady] = useState(false)
   const settingsOpenedAtRef = useRef<number | null>(null)
   const settingsMetricRecordedRef = useRef(false)
@@ -222,6 +227,7 @@ export function SettingsSheet() {
     void getHealth()
       .then(setServerHealth)
       .catch(() => setServerHealth(null))
+    void refreshVoicePermission({ silent: true })
     void refreshAiStatus({ silent: true })
     void refreshMacStatus({ silent: true })
   }, [visible, apiConfigLoaded, settingsWarmupReady])
@@ -431,6 +437,36 @@ export function SettingsSheet() {
       setMacError(humanAiError(error, 'Falha ao ler Mac Agent'))
     } finally {
       if (!silent) setMacLoading(false)
+    }
+  }
+
+  const refreshVoicePermission = async ({ silent = false }: { silent?: boolean } = {}) => {
+    try {
+      const permission = await getRecordingPermissionsAsync()
+      setVoicePermission(permission)
+      if (!silent) {
+        showToast(permission.granted ? 'microfone liberado' : 'microfone ainda sem permissão')
+      }
+    } catch (error) {
+      setVoicePermission(null)
+      if (!silent) {
+        showToast(error instanceof Error ? error.message : 'não foi possível verificar o microfone')
+      }
+    }
+  }
+
+  const requestVoicePermission = async () => {
+    if (voicePermissionBusy) return
+    setVoicePermissionBusy(true)
+
+    try {
+      const permission = await requestRecordingPermissionsAsync()
+      setVoicePermission(permission)
+      showToast(permission.granted ? 'voz liberada para o Atlas AI' : 'microfone não liberado')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'não foi possível pedir permissão de voz')
+    } finally {
+      setVoicePermissionBusy(false)
     }
   }
 
@@ -1309,6 +1345,28 @@ export function SettingsSheet() {
               }}
             />
           </View>
+        </Section>
+
+        <Section label="Voz Atlas">
+          <Row first name="Microfone" desc={voicePermissionDescription(voicePermission)}>
+            <StatusBadge status={voicePermissionStatusKind(voicePermission, voicePermissionBusy)} />
+          </Row>
+          <Row name="Conversa em tempo real" desc="Atlas AI usa esta permissão para ouvir no modo de voz">
+            <MiniButton
+              label={voicePermissionBusy ? 'Abrindo…' : voicePermission?.granted ? 'Liberado' : 'Permitir Voz'}
+              disabled={voicePermissionBusy || voicePermission?.granted === true}
+              onPress={() => {
+                void requestVoicePermission()
+              }}
+            />
+          </Row>
+          {voicePermission && !voicePermission.granted && voicePermission.canAskAgain === false ? (
+            <View style={styles.healthError}>
+              <Sans size={12} lineHeight={17} color={c.recRed}>
+                Microfone bloqueado no iOS. Abra Ajustes do iPhone, encontre Atlas e habilite Microfone.
+              </Sans>
+            </View>
+          ) : null}
         </Section>
 
         <Section label="Produtividade iPhone">
@@ -3013,6 +3071,19 @@ function healthKitDescription(healthKit: {
   if (!healthKit.available) return 'HealthKit indisponível neste aparelho'
   if (!healthKit.enabled) return `${healthKit.requestedTypeCount || 0} tipos de leitura aguardando permissão`
   return `${healthKit.requestedTypeCount || 0} tipos de leitura solicitados`
+}
+
+function voicePermissionStatusKind(permission: VoicePermission | null, busy: boolean): ConnectionStatusKind {
+  if (busy) return 'pending'
+  if (!permission) return 'pending'
+  return permission.granted ? 'online' : 'offline'
+}
+
+function voicePermissionDescription(permission: VoicePermission | null): string {
+  if (!permission) return 'Toque para verificar a permissão do microfone'
+  if (permission.granted) return 'Microfone liberado para conversa por voz'
+  if (permission.canAskAgain === false) return 'Bloqueado nos Ajustes do iPhone'
+  return 'Aguardando permissão do iOS'
 }
 
 function screenTimeStatusKind(

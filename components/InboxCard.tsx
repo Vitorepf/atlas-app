@@ -111,6 +111,10 @@ interface Props {
   selected?: boolean
   selectionMode?: boolean
   isFresh?: boolean
+  // Quando true, suprime a borda inferior — usado no último card de cada
+  // grupo de dia no Inbox · Capturas pra evitar hairline duplicada acima
+  // da linha-✦ do TimelineLabel do próximo dia.
+  lastInGroup?: boolean
 }
 
 // Card with body + inline triage toolbar at the bottom (Promover · Tarefa
@@ -129,6 +133,7 @@ export function InboxCard({
   selected,
   selectionMode,
   isFresh,
+  lastInGroup,
 }: Props) {
   const c = usePalette()
   const domains = useAtlasStore((s) => s.domains)
@@ -174,7 +179,7 @@ export function InboxCard({
           // "list view / database table" pra editorial Aesop product list.
           // Sussurro warm em vez de linha gray ASCII default RN.
           borderColor: 'rgba(155,122,63,0.10)',
-          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomWidth: lastInGroup ? 0 : StyleSheet.hairlineWidth,
         },
         topEdge,
       ]}

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import * as Clipboard from 'expo-clipboard'
 import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { Frau, Mono, Sans } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
@@ -20,20 +22,23 @@ export function AttachmentPreviewStrip({
   onOpen,
   onRemove,
   readonly = false,
+  size = 'compact',
 }: {
   attachments: ComposerImageAttachment[]
   onOpen?: (attachment: ComposerImageAttachment) => void
   onRemove?: (id: string) => void
   readonly?: boolean
+  size?: 'compact' | 'composer'
 }) {
   const { c } = useTheme()
   if (attachments.length === 0) return null
+  const composer = size === 'composer'
 
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.attachmentStrip}
+      contentContainerStyle={composer ? styles.composerAttachmentStrip : styles.attachmentStrip}
       keyboardShouldPersistTaps="handled"
     >
       {attachments.map((attachment) => (
@@ -44,14 +49,19 @@ export function AttachmentPreviewStrip({
           accessibilityRole="imagebutton"
           accessibilityLabel="abrir imagem anexada"
           style={({ pressed }) => [
-            styles.attachmentThumb,
+            composer ? styles.composerAttachmentThumb : styles.attachmentThumb,
             {
               borderColor: c.border,
+              backgroundColor: c.surface,
               opacity: pressed ? 0.72 : readonly ? 0.86 : 1,
             },
           ]}
         >
-          <Image source={{ uri: attachment.uri }} style={styles.attachmentImage} />
+          <Image
+            source={{ uri: attachment.uri }}
+            resizeMode="cover"
+            style={composer ? styles.composerAttachmentImage : styles.attachmentImage}
+          />
           {!readonly && onRemove ? (
             <Pressable
               onPress={() => onRemove(attachment.id)}
@@ -59,15 +69,22 @@ export function AttachmentPreviewStrip({
               accessibilityRole="button"
               accessibilityLabel="remover anexo"
               style={({ pressed }) => [
-                styles.attachmentRemove,
+                composer ? styles.composerAttachmentRemove : styles.attachmentRemove,
                 {
-                  backgroundColor: c.bg,
-                  borderColor: c.border,
+                  backgroundColor: composer ? c.ink : c.bg,
+                  borderColor: composer ? c.ink : c.border,
                   opacity: pressed ? 0.6 : 1,
                 },
               ]}
             >
-              <Sans size={13} lineHeight={14} color={c.ink}>×</Sans>
+              <Sans
+                size={composer ? 17 : 13}
+                lineHeight={composer ? 19 : 14}
+                weight="med"
+                color={composer ? c.bg : c.ink}
+              >
+                ×
+              </Sans>
             </Pressable>
           ) : null}
         </Pressable>
@@ -222,11 +239,11 @@ export function HistoricalAttachmentSummary({
         <Pressable
           key={attachment.id}
           onPress={() => {
-            if (canPreviewHistoricalAttachment(attachment)) {
+            if (canOpenHistoricalAttachment(attachment)) {
               onOpenAttachment?.(attachment)
             }
           }}
-          disabled={!canPreviewHistoricalAttachment(attachment)}
+          disabled={!canOpenHistoricalAttachment(attachment)}
           accessibilityRole="button"
           accessibilityLabel={`abrir preview de ${attachment.name}`}
           style={({ pressed }) => [
@@ -348,17 +365,68 @@ export function AttachmentSheet({
   onFiles: () => void
 }) {
   const { c } = useTheme()
+  const [clipboardState, setClipboardState] = useState<'checking' | 'ready' | 'empty' | 'unknown'>('unknown')
+
+  useEffect(() => {
+    if (!visible) return
+    let alive = true
+    setClipboardState('checking')
+    Clipboard.hasImageAsync()
+      .then((hasImage) => {
+        if (alive) setClipboardState(hasImage ? 'ready' : 'empty')
+      })
+      .catch(() => {
+        if (alive) setClipboardState('unknown')
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [visible])
+
+  const pasteDisabled = busy !== null || clipboardState === 'checking' || clipboardState === 'empty'
+  const pasteDetail = {
+    checking: 'verificando clipboard',
+    ready: 'imagem copiada pronta · qualidade original',
+    empty: 'copie uma imagem primeiro',
+    unknown: 'print ou imagem copiada',
+  }[clipboardState]
+
   return (
-    <BottomSheet visible={visible} onClose={onClose} height={350}>
+    <BottomSheet visible={visible} onClose={onClose} height={460}>
       <View style={styles.attachmentSheetContent}>
         <Frau italic size={20} lineHeight={28} color={c.ink}>
           anexar
         </Frau>
+        <Mono size={9.5} lineHeight={14} letterSpacing={1.4} color={c.ink3} style={styles.attachmentSheetMeta}>
+          VISUAL INPUT · ALTA FIDELIDADE
+        </Mono>
         <View style={styles.attachmentActions}>
-          <AttachmentAction label={busy === 'clipboard' ? 'colando…' : 'colar imagem'} disabled={busy !== null} onPress={onPasteImage} />
-          <AttachmentAction label={busy === 'camera' ? 'abrindo…' : 'câmera'} disabled={busy !== null} onPress={onCamera} />
-          <AttachmentAction label={busy === 'photos' ? 'abrindo…' : 'fotos'} disabled={busy !== null} onPress={onPhotos} />
-          <AttachmentAction label={busy === 'files' ? 'abrindo…' : 'arquivos'} disabled={busy !== null} onPress={onFiles} />
+          <AttachmentAction
+            label={busy === 'clipboard' ? 'colando…' : 'colar imagem'}
+            detail={pasteDetail}
+            disabled={pasteDisabled}
+            accent={clipboardState === 'ready'}
+            onPress={onPasteImage}
+          />
+          <AttachmentAction
+            label={busy === 'camera' ? 'abrindo…' : 'câmera'}
+            detail="capturar agora"
+            disabled={busy !== null}
+            onPress={onCamera}
+          />
+          <AttachmentAction
+            label={busy === 'photos' ? 'abrindo…' : 'fotos'}
+            detail="escolher até 8 imagens"
+            disabled={busy !== null}
+            onPress={onPhotos}
+          />
+          <AttachmentAction
+            label={busy === 'files' ? 'abrindo…' : 'arquivos'}
+            detail="PDF, documento ou imagem"
+            disabled={busy !== null}
+            onPress={onFiles}
+          />
         </View>
       </View>
     </BottomSheet>
@@ -367,11 +435,15 @@ export function AttachmentSheet({
 
 function AttachmentAction({
   label,
+  detail,
   disabled,
+  accent,
   onPress,
 }: {
   label: string
+  detail?: string
   disabled: boolean
+  accent?: boolean
   onPress: () => void
 }) {
   const { c } = useTheme()
@@ -389,9 +461,19 @@ function AttachmentAction({
         },
       ]}
     >
-      <Sans size={17} lineHeight={24} color={c.ink}>
-        {label}
-      </Sans>
+      <View style={styles.attachmentActionText}>
+        <Sans size={17} lineHeight={24} color={accent ? c.bronze : c.ink}>
+          {label}
+        </Sans>
+        {detail ? (
+          <Mono size={9.5} lineHeight={13} letterSpacing={0.4} color={disabled ? c.ink3 : c.ink2}>
+            {detail}
+          </Mono>
+        ) : null}
+      </View>
+      {accent ? (
+        <View style={[styles.attachmentActionDot, { backgroundColor: c.bronze }]} />
+      ) : null}
     </Pressable>
   )
 }
@@ -407,7 +489,10 @@ function attachmentPhaseLabel(phase: AttachmentUploadPhase, count: number, progr
   }[phase]
 }
 
-function canPreviewHistoricalAttachment(attachment: AtlasAiAttachment): boolean {
+function canOpenHistoricalAttachment(attachment: AtlasAiAttachment): boolean {
+  if (attachment.kind === 'image' && typeof attachment.content_url === 'string' && attachment.content_url.trim() !== '') {
+    return true
+  }
   return Array.isArray(attachment.preview_pages) && attachment.preview_pages.length > 0
 }
 
@@ -479,6 +564,12 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 10,
   },
+  composerAttachmentStrip: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingRight: 12,
+    gap: 12,
+  },
   attachmentThumb: {
     width: 54,
     height: 54,
@@ -491,6 +582,18 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 7,
   },
+  composerAttachmentThumb: {
+    width: 136,
+    height: 96,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'visible',
+  },
+  composerAttachmentImage: {
+    width: 134,
+    height: 94,
+    borderRadius: 11,
+  },
   attachmentRemove: {
     position: 'absolute',
     width: 22,
@@ -499,6 +602,17 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     right: -8,
     top: -8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerAttachmentRemove: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    right: -7,
+    top: -7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -590,15 +704,33 @@ const styles = StyleSheet.create({
   },
   attachmentSheetContent: {
     flex: 1,
+    justifyContent: 'center',
     paddingHorizontal: 28,
     paddingBottom: 28,
   },
+  attachmentSheetMeta: {
+    marginTop: 2,
+    marginBottom: 18,
+  },
   attachmentActions: {
-    marginTop: 16,
+    marginTop: 2,
   },
   attachmentAction: {
-    minHeight: 54,
+    minHeight: 68,
     borderTopWidth: StyleSheet.hairlineWidth,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  attachmentActionText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  attachmentActionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
   },
 })

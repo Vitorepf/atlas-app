@@ -1,9 +1,13 @@
 import type { InboxItem } from '../components/InboxCard'
 import type { InboxFilter, InboxSort } from './inboxTypes'
 
-const ROMAN_MONTHS = [
-  'I', 'II', 'III', 'IV', 'V', 'VI',
-  'VII', 'VIII', 'IX', 'X', 'XI', 'XII',
+// Vocabulário editorial canon do timeline-label (mockup .va-canon .timeline-label):
+// só "hoje" e "ontem" são palavra — a partir de antes-de-ontem já vira data por extenso
+// ("9 de maio", "9 de maio de 2025"). Numeral romano canon é reservado pra capítulos
+// (i. ii.) e vol do folio — proibido como mês.
+const MONTHS_PT = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
 ]
 const SEARCH_TEXT_CACHE = new WeakMap<InboxItem, string>()
 
@@ -341,13 +345,15 @@ export function startOfDayTimestamp(date: Date): number {
 }
 
 export function dateLabel(date: Date): string {
-  const today = startOfDayTimestamp(new Date())
+  const now = new Date()
+  const today = startOfDayTimestamp(now)
   const target = startOfDayTimestamp(date)
   const oneDay = 24 * 60 * 60 * 1000
   if (target === today) return 'hoje'
   if (target === today - oneDay) return 'ontem'
   const day = date.getDate()
-  const romanMonth = ROMAN_MONTHS[date.getMonth()]
-  const year = date.getFullYear()
-  return `${day}.${romanMonth}.${year}`
+  const month = MONTHS_PT[date.getMonth()]
+  return date.getFullYear() === now.getFullYear()
+    ? `${day} de ${month}`
+    : `${day} de ${month} de ${date.getFullYear()}`
 }

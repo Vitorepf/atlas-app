@@ -11,6 +11,7 @@ import { styles } from './mobileInboxItemStyles'
 import {
   ActionPanel,
   ContextPanel,
+  HumanPresentationPanel,
   ItemMeta,
   MetadataPanel,
   SnoozePanel,
@@ -91,7 +92,7 @@ export default function MobileInboxItemScreen() {
       <View style={styles.hero}>
         <Label>Inbox operacional</Label>
         <Frau size={36} lineHeight={39} color={c.ink} numberOfLines={3} style={{ marginTop: 7 }}>
-          {item?.title ?? 'Item do Atlas'}
+          {item?.presentation?.headline ?? item?.title ?? 'Item do Atlas'}
         </Frau>
         {item ? <ItemMeta item={item} /> : null}
       </View>
@@ -107,13 +108,14 @@ export default function MobileInboxItemScreen() {
         <View style={styles.stack}>
           {isTelemetryHealthInsight(item) ? (
             <>
+              <HumanPresentationPanel item={item} />
               <TelemetryHealthPanel item={item} />
               <TelemetryHealthMetricsPanel item={item} />
               <TelemetryHealthBreakdownPanel item={item} />
             </>
           ) : (
             <>
-              <SummaryPanel item={item} />
+              {item.presentation ? <HumanPresentationPanel item={item} /> : <SummaryPanel item={item} />}
               <TypeDetails item={item} />
               <ContextPanel item={item} />
             </>

@@ -35,10 +35,13 @@ const expo = {
       apiHost: process.env.ATLAS_API_HOST ?? atlasExtra.apiHost,
       apiPort: Number(process.env.ATLAS_API_PORT ?? atlasExtra.apiPort ?? 3737),
       apiToken: process.env.ATLAS_API_TOKEN ?? atlasServerEnv.ATLAS_TOKEN ?? atlasExtra.apiToken,
+      liveKitUrl: process.env.LIVEKIT_URL ?? process.env.ATLAS_LIVEKIT_URL ?? atlasExtra.liveKitUrl,
     },
   },
   plugins: [
     ...(appJson.expo.plugins ?? []),
+    '@livekit/react-native-expo-plugin',
+    '@config-plugins/react-native-webrtc',
     'expo-background-task',
     'expo-notifications',
   ],
