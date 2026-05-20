@@ -218,12 +218,15 @@ export function AtlasAiComposerFooter({
         canSubmitWithoutText={attachmentCount > 0}
         placeholder={turnCount === 0 ? 'Escreva ao Atlas' : 'Continuar com Atlas'}
         onMicTap={() => {
-          // Tap rápido canon · Voice Mode (conversa por voz, sem captura).
-          onOpenVoiceMode()
+          // Mic canon · captura de áudio normal.
+          onStartRecording()
         }}
         onLongPressMic={() => {
-          // Long-press canon · Modo Gravar (captura áudio).
+          // Long-press mantém captura; Voice Realtime vive no botão separado.
           onStartRecording()
+        }}
+        onVoiceTap={() => {
+          onOpenVoiceMode()
         }}
       />
     </View>

@@ -14,6 +14,7 @@ import {
   mobileVoiceSessionEndIdempotencyKey,
   mobileVoiceSessionStartIdempotencyKey,
   mobileVoiceSynthesizedIdempotencyKey,
+  mobileVoiceTtsSynthesisIdempotencyKey,
   mobileVoiceTurnIdempotencyKey,
   newMobileVoiceRuntimeId,
 } from '../atlasVoiceRuntime'
@@ -246,6 +247,20 @@ export interface AtlasVoiceTurnResponse extends AtlasVoiceSessionResponse {
       error_message_hash?: string
     }
   }
+}
+
+export interface AtlasVoiceTtsSynthesisResponse {
+  schema_version: 'atlas.voice_realtime.tts_synthesis.v1' | string
+  status: 'synthesized' | 'voice_unavailable' | string
+  provider: 'elevenlabs' | string
+  voice_id: string | null
+  model_id: string | null
+  mime_type: 'audio/mpeg' | string
+  audio_base64: string
+  audio_hash: string
+  byte_length?: number | null
+  latency_ms?: number | null
+  response_text_hash?: string | null
 }
 
 export interface AtlasVoiceReadinessResponse {
@@ -6007,6 +6022,21 @@ export async function recordMobileVoiceTurnSynthesized(input: {
   }
   return mobileApiPost<AtlasVoiceTurnResponse>('/v1/mobile/ai/voice/turn/synthesized', payload, {
     idempotencyKey: mobileVoiceSynthesizedIdempotencyKey(payload),
+  })
+}
+
+export async function synthesizeMobileVoiceTurn(input: {
+  session_id: string
+  envelope_id?: string
+  receipt_id?: string
+  turn_id: string
+  text: string
+  response_text_hash?: string
+}): Promise<AtlasVoiceTtsSynthesisResponse> {
+  const payload = { ...input }
+
+  return mobileApiPost<AtlasVoiceTtsSynthesisResponse>('/v1/mobile/ai/voice/tts/synthesize', payload, {
+    idempotencyKey: mobileVoiceTtsSynthesisIdempotencyKey(payload),
   })
 }
 

@@ -152,21 +152,31 @@ export function VoiceModeSheet({
   const c = useTheme().c
   const insets = useSafeAreaInsets()
   const effectiveState = recording ? 'listening' : state
-  const stateLabel = statusDetail?.trim() || (recording ? 'Estou ouvindo.' : STATE_LABELS[state])
+  const stateLabel = statusDetail?.trim() || (recording ? 'Atlas ouvindo.' : STATE_LABELS[state])
   const markColor = effectiveState === 'failed' ? c.recRed : c.bronze
   const pressDisabled = true
   const interactionOpacity = 1
   const actionLabel = state === 'failed'
     ? unavailableActionLabel(recordingUnavailableReason, state)
-    : liveKitSession
-      ? liveKitSession.roomName
-      : 'Aguardando LiveKit'
+    : recording
+      ? 'Envio automático após pausa'
+      : state === 'speaking'
+        ? 'Resposta em voz'
+        : state === 'thinking'
+          ? 'Preparando resposta'
+          : state === 'transcribing'
+            ? 'Entendendo sua fala'
+            : liveKitSession
+              ? 'Conversa conectada'
+              : 'Preparando voz'
   const accessibilityLabel = recording
-    ? 'Atlas está ouvindo. Toque para enviar o turno de voz.'
+    ? 'Atlas está ouvindo.'
     : STATE_ACCESSIBILITY_LABELS[state]
   const accessibilityHint = !recording && pressDisabled && recordingUnavailableReason
     ? RECORDING_UNAVAILABLE_HINTS[recordingUnavailableReason] ?? STATE_ACCESSIBILITY_HINTS[state]
-    : STATE_ACCESSIBILITY_HINTS[state]
+    : recording
+      ? 'Fale normalmente. O Atlas envia quando detectar que você terminou.'
+      : STATE_ACCESSIBILITY_HINTS[state]
   const handlePress = recording ? onHoldEnd : onHoldStart
 
   const pulseScale = useSharedValue(1)

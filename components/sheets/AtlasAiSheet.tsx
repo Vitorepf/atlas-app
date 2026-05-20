@@ -15,10 +15,11 @@ import {
 import { atlasStorage } from '../../lib/storage'
 import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 import * as Haptics from 'expo-haptics'
 import * as ImagePicker from 'expo-image-picker'
-import * as Speech from 'expo-speech'
 import {
+  createAudioPlayer,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
@@ -42,11 +43,12 @@ import { useShell } from '../AtlasShell'
 import { useOverlays } from '../../lib/overlays'
 import { sha256Hex } from '../../lib/sha256'
 import {
-  createAtlasSpeechVoiceResolver,
   mobileVoiceDispatchFailureFromResult,
   mobileVoiceDispatchTraceFromResult,
   mobileVoiceEmptyResponseFailure,
+  mobileVoiceEndpointingDecision,
   mobileVoiceInterruptionStage,
+  mobileVoiceMeteringIsSpeech,
   mobileVoiceMetricMs,
   mobileVoiceOpenBlockReason,
   mobileVoiceReadinessSummary,
@@ -57,12 +59,10 @@ import {
   mobileVoiceLiveKitSessionFromStartResponse,
   mobileVoiceSessionStartOutcome,
   mobileVoiceShouldRecordInterruption,
-  mobileVoiceSpeechChunkTimeoutMs,
   mobileVoiceStaleDispatchFailure,
   mobileVoiceTraceTerminalFailure,
   mobileVoiceTraceLookupPollFailureSignal,
   newMobileVoiceRuntimeId,
-  splitAtlasSpeechText,
   mobileVoiceUiWatchdogDecision,
   type MobileVoiceLiveKitSession,
 } from '../../lib/atlasVoiceRuntime'
@@ -115,6 +115,7 @@ import {
   recoverMobileDeviceSession,
   runAiQualityAction,
   streamAiInteraction,
+  synthesizeMobileVoiceTurn,
   startMobileVoiceSession,
   endMobileVoiceSession,
   switchAiThreadProvider,
@@ -323,6 +324,22 @@ type MobileVoiceRuntimeFailedPayload = Parameters<typeof recordMobileVoiceRuntim
 type MobileVoiceTurnPlayedPayload = Parameters<typeof recordMobileVoiceTurnPlayed>[0]
 type MobileVoiceTurnSynthesizedPayload = Parameters<typeof recordMobileVoiceTurnSynthesized>[0]
 
+const ATLAS_VOICE_RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+}
+
+const MOBILE_VOICE_AUTO_START_DELAY_MS = 420
+const MOBILE_VOICE_POST_PLAYBACK_MIC_GUARD_MS = 1_400
+const MOBILE_VOICE_SPEECH_THRESHOLD_DB = -50
+const MOBILE_VOICE_MIN_TURN_MS = 5_000
+const MOBILE_VOICE_MIN_SPEECH_MS = 2_000
+const MOBILE_VOICE_MIN_VOICED_METERING_SAMPLES = Math.ceil(MOBILE_VOICE_MIN_SPEECH_MS / 150)
+const MOBILE_VOICE_SILENCE_AFTER_SPEECH_MS = 18_000
+const MOBILE_VOICE_NO_SPEECH_TIMEOUT_MS = 90_000
+const MOBILE_VOICE_MAX_TURN_MS = 1_800_000
+const MOBILE_VOICE_QUALITY_FIRST_ENDPOINTING = true
+
 interface AtlasAiSheetProps {
   /**
    * 'sheet' (default) · usa SideSheet wrapper, abre/fecha via overlay state
@@ -397,7 +414,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   //   · long-press respeita interactionLocked (lock fix)
   const [recordingActive, setRecordingActive] = useState(false)
   const [recordingPaused, setRecordingPaused] = useState(false)
-  const composerRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+  const composerRecorder = useAudioRecorder(ATLAS_VOICE_RECORDING_OPTIONS)
   const composerRecorderState = useAudioRecorderState(composerRecorder, 150)
   const recordingActiveRef = useRef(false)
   // Mutex pra Send/Cancel · enterprise canon · evita ambos rodarem juntos
@@ -451,10 +468,147 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (isMountedRef.current) setRecordingPaused(value)
   }, [])
 
+  function resetVoiceEndpointingRefs() {
+    voiceEndpointingInFlightRef.current = false
+    voiceRecordingStartedAtRef.current = null
+    voiceLastSpeechAtRef.current = null
+    voiceLastMeteringSampleAtRef.current = null
+    voiceSpeechMsRef.current = 0
+  }
+
+  function markVoiceRecordingStartedForEndpointing() {
+    const now = Date.now()
+    voiceEndpointingInFlightRef.current = false
+    voiceRecordingStartedAtRef.current = now
+    voiceLastSpeechAtRef.current = null
+    voiceLastMeteringSampleAtRef.current = now
+    voiceSpeechMsRef.current = 0
+  }
+
+  function stopAtlasVoicePlayback() {
+    voiceAudioStopRef.current?.()
+    voiceAudioStopRef.current = null
+    const player = voiceAudioPlayerRef.current
+    voiceAudioPlayerRef.current = null
+    if (!player) return
+    try {
+      player.pause()
+      player.remove()
+    } catch {
+      // Playback cleanup must never block closing/cancelling the voice session.
+    }
+  }
+
+  async function playAtlasVoiceResponseAudio(
+    audioBase64: string,
+    audioHash: string,
+    estimatedDurationMs: number,
+    shouldContinue: () => boolean,
+    registerPlayer?: (player: ReturnType<typeof createAudioPlayer>) => void,
+  ): Promise<'done' | 'stopped' | 'cancelled'> {
+    if (!shouldContinue()) return 'cancelled'
+
+    const root = FileSystem.cacheDirectory ?? FileSystem.documentDirectory
+    if (!root) {
+      const error = new Error('Não há cache local para reproduzir a voz do Atlas.')
+      error.name = 'AtlasVoiceAudioCacheUnavailable'
+      throw error
+    }
+
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })
+    const uri = `${root}atlas-voice-${audioHash}.mp3`
+    await FileSystem.writeAsStringAsync(uri, audioBase64, { encoding: FileSystem.EncodingType.Base64 })
+    if (!shouldContinue()) return 'cancelled'
+
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const player = createAudioPlayer({ uri }, {
+        updateInterval: 100,
+        keepAudioSessionActive: true,
+      })
+      voiceAudioPlayerRef.current = player
+      registerPlayer?.(player)
+      let subscription: { remove: () => void } | null = null
+      let timeout: ReturnType<typeof setTimeout> | null = null
+      let poll: ReturnType<typeof setInterval> | null = null
+
+      const settle = (result: 'done' | 'stopped' | 'cancelled', error?: unknown) => {
+        if (settled) return
+        settled = true
+        if (timeout) clearTimeout(timeout)
+        if (poll) clearInterval(poll)
+        voiceAudioStopRef.current = null
+        try {
+          subscription?.remove()
+        } catch {
+          // Listener removal is best-effort; player cleanup below is authoritative.
+        }
+        if (voiceAudioPlayerRef.current === player) {
+          voiceAudioPlayerRef.current = null
+        }
+        try {
+          player.remove()
+        } catch {
+          // The player may already be removed by an interruption.
+        }
+        if (error) {
+          reject(error instanceof Error ? error : new Error('Falha ao reproduzir voz premium do Atlas.'))
+          return
+        }
+        resolve(result)
+      }
+
+      timeout = setTimeout(() => {
+        const error = new Error('Tempo limite ao reproduzir voz premium do Atlas.')
+        error.name = 'AtlasVoicePremiumPlaybackTimeout'
+        settle('stopped', error)
+      }, Math.max(20000, Math.min(10 * 60_000, estimatedDurationMs + 30000)))
+
+      subscription = player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          settle('done')
+        }
+      })
+      const playbackStartedAt = Date.now()
+      poll = setInterval(() => {
+        if (!shouldContinue()) {
+          settle('cancelled')
+          return
+        }
+        const durationMs = Number.isFinite(player.duration) && player.duration > 0
+          ? player.duration * 1000
+          : estimatedDurationMs
+        const currentTimeMs = Math.max(0, player.currentTime * 1000)
+        const playedLongEnough = currentTimeMs >= Math.max(150, durationMs - 250)
+        const stoppedAfterStarting = !player.playing && Date.now() - playbackStartedAt > 450
+        if (playedLongEnough || stoppedAfterStarting) {
+          settle('done')
+        }
+      }, 100)
+
+      voiceAudioStopRef.current = () => settle('stopped')
+
+      try {
+        player.play()
+      } catch (error) {
+        settle('stopped', error)
+      }
+    })
+  }
+
   function resetVoiceRuntimeRefs(options: {
     stopSpeech?: boolean
     resetSessionStartPromise?: boolean
   } = {}) {
+    if (voiceAutoStartTimerRef.current) {
+      clearTimeout(voiceAutoStartTimerRef.current)
+      voiceAutoStartTimerRef.current = null
+    }
+    voiceEndpointingInFlightRef.current = false
+    voiceRecordingStartedAtRef.current = null
+    voiceLastSpeechAtRef.current = null
+    voiceLastMeteringSampleAtRef.current = null
+    voiceSpeechMsRef.current = 0
     if (voiceSessionStartWatchdogRef.current) {
       clearTimeout(voiceSessionStartWatchdogRef.current)
       voiceSessionStartWatchdogRef.current = null
@@ -468,11 +622,12 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     voiceTraceRuntimeTurnsRef.current = {}
     voicePlaybackStartedAtRef.current.clear()
     voiceSpeechLifecycleRef.current = null
+    voiceLastPlaybackEndedAtRef.current = null
+    if (options.stopSpeech !== false) {
+      stopAtlasVoicePlayback()
+    }
     if (options.resetSessionStartPromise === true) {
       voiceSessionStartPromiseRef.current = null
-    }
-    if (options.stopSpeech !== false) {
-      void Speech.stop().catch(() => {})
     }
   }
 
@@ -683,8 +838,12 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         }
         composerRecorder.record()
         setRecordingActive(true)
-        setRecordingPaused(false)
-        return true
+      setRecordingPaused(false)
+      if (voiceModeOpenRef.current) {
+        markVoiceRecordingStartedForEndpointing()
+        setVoiceStatusDetail('Fale normalmente. Eu espero pausas longas antes de enviar.')
+      }
+      return true
       } catch (err) {
         recordingActiveRef.current = false  // rollback em caso de erro
         const msg = err instanceof Error ? err.message : 'Falha ao iniciar gravação'
@@ -745,6 +904,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       // ignore — só queremos descartar
     } finally {
       void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+      if (voiceModeOpenRef.current) {
+        resetVoiceEndpointingRefs()
+      }
       recordOpInFlightRef.current = false
     }
   }, [composerRecorder, composerRecorderState.isRecording, safeSetRecordingActive, safeSetRecordingPaused])
@@ -766,6 +928,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     safeSetRecordingActive(false)
     safeSetRecordingPaused(false)
     recordingActiveRef.current = false
+    resetVoiceEndpointingRefs()
 
     let fileUri: string | null = null
     try {
@@ -780,6 +943,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       showToast(msg)
     } finally {
       void setAudioModeAsync({ allowsRecording: false }).catch(() => {})
+      voiceEndpointingInFlightRef.current = false
       recordOpInFlightRef.current = false
     }
 
@@ -1292,7 +1456,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         if (voiceSpeechLifecycleRef.current === lifecycleKey) {
           const stopRequestedAt = Date.now()
           voiceSpeechLifecycleRef.current = null
-          await Speech.stop().catch(() => {})
+          stopAtlasVoicePlayback()
           latencyMs = Math.max(0, Math.round(Date.now() - stopRequestedAt))
         }
         voicePlaybackRecordedRef.current.add(lifecycleKey)
@@ -1551,12 +1715,21 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const voiceTraceRuntimeTurnsRef = useRef<Record<string, VoiceRuntimeTurn>>({})
   const voicePlaybackStartedAtRef = useRef<Map<string, number>>(new Map())
   const voiceSpeechLifecycleRef = useRef<string | null>(null)
+  const voiceLastPlaybackEndedAtRef = useRef<number | null>(null)
+  const voiceAudioPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null)
+  const voiceAudioStopRef = useRef<(() => void) | null>(null)
   const voiceEndingRef = useRef(false)
   const voiceSessionReadyRef = useRef(false)
   const voiceSessionStartPromiseRef = useRef<Promise<AtlasVoiceSessionResponse> | null>(null)
   const voiceSessionStartTimedOutRef = useRef(false)
   const voiceSessionStartWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const voiceFailureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const voiceAutoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const voiceEndpointingInFlightRef = useRef(false)
+  const voiceRecordingStartedAtRef = useRef<number | null>(null)
+  const voiceLastSpeechAtRef = useRef<number | null>(null)
+  const voiceLastMeteringSampleAtRef = useRef<number | null>(null)
+  const voiceSpeechMsRef = useRef(0)
   const voiceModeOpenRef = useRef(voiceModeOpen)
   const voiceSessionIdRef = useRef<string | null>(voiceSessionId)
   const visibleStartedAtRef = useRef<number | null>(visible ? nowMs() : null)
@@ -2660,6 +2833,11 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
               error_message_hash: dispatchFailure.error_message_hash,
               latency_ms: Date.now() - pendingVoiceTraceLookup.startedAt,
             }, { source: 'dispatch_result_failure' })
+            if (dispatchFailure.failure_code === 'mobile_voice_suspect_transcript_discarded') {
+              setVoiceStatusDetail('Ignorei uma transcrição estranha. Pode continuar falando.')
+              setVoiceModeState('listening')
+              return
+            }
             showVoiceFailureBriefly()
             return
           }
@@ -2855,6 +3033,13 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     }
 
     if (voiceTraceStatus === 'succeeded' && voiceTraceResponseText) {
+      if (voiceRuntimeTurn) {
+        const lifecycleKey = voiceTurnLifecycleKey(voiceRuntimeTurn, voiceTraceId)
+        if (voicePlaybackRecordedRef.current.has(lifecycleKey)) {
+          setVoiceModeState('listening')
+          return
+        }
+      }
       setVoiceModeState('speaking')
       if (voiceRuntimeTurn) return
       const timeout = setTimeout(() => setVoiceModeState('listening'), 1400)
@@ -2974,6 +3159,19 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         const responseTextHash = await sha256Hex(responseText)
         if (cancelled) return
 
+        const synthesis = await synthesizeMobileVoiceTurn({
+          session_id: runtimeTurn.sessionId,
+          envelope_id: runtimeTurn.envelopeId,
+          receipt_id: runtimeTurn.receiptId,
+          turn_id: runtimeTurn.turnId,
+          text: responseText,
+          response_text_hash: responseTextHash,
+        })
+        if (cancelled) return
+        if (synthesis.status !== 'synthesized' || !synthesis.audio_base64 || !synthesis.audio_hash) {
+          throw new Error('ElevenLabs não retornou áudio reproduzível.')
+        }
+
         synthesisCompleted = true
         recordMobileVoiceSynthesis({
           session_id: runtimeTurn.sessionId,
@@ -2981,18 +3179,21 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           receipt_id: runtimeTurn.receiptId,
           turn_id: runtimeTurn.turnId,
           response_text_hash: responseTextHash,
-          tts_provider: 'expo_speech_mobile',
+          tts_provider: synthesis.provider || 'elevenlabs',
+          audio_hash: synthesis.audio_hash,
           audio_duration_ms: estimatedDurationMs,
-          latency_ms: Date.now() - startedAt,
+          latency_ms: synthesis.latency_ms ?? Date.now() - startedAt,
         }, { traceId: voiceTraceId })
 
         if (cancelled) return
         voiceSpeechLifecycleRef.current = lifecycleKey
-        await Speech.stop().catch(() => {})
+        stopAtlasVoicePlayback()
         if (cancelled) return
         voicePlaybackStartedAtRef.current.set(lifecycleKey, playbackStartedAt)
-        const speechResult = await speakAtlasVoiceResponse(
-          responseText,
+        const speechResult = await playAtlasVoiceResponseAudio(
+          synthesis.audio_base64,
+          synthesis.audio_hash,
+          estimatedDurationMs,
           () => !cancelled && voiceSpeechLifecycleRef.current === lifecycleKey,
         )
         if (speechResult !== 'done') {
@@ -3021,6 +3222,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         if (voiceSpeechLifecycleRef.current !== lifecycleKey) return
         voiceSpeechLifecycleRef.current = null
         recordPlaybackCompleted(Date.now() - playbackStartedAt)
+        voiceLastPlaybackEndedAtRef.current = Date.now()
+        setPendingVoiceAiInteraction((current) => current?.traceId === voiceTraceId ? null : current)
+        setVoiceTraceId((current) => current === voiceTraceId ? null : current)
         setVoiceModeState('listening')
       } catch (error) {
         voicePlaybackStartedAtRef.current.delete(lifecycleKey)
@@ -3033,11 +3237,12 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             envelope_id: runtimeTurn.envelopeId,
             receipt_id: runtimeTurn.receiptId,
             turn_id: runtimeTurn.turnId,
-            failure_code: 'mobile_voice_tts_playback_failed',
+            failure_code: 'mobile_voice_tts_unavailable',
             error_class: errorClassFromUnknown(error),
             latency_ms: Date.now() - playbackStartedAt,
           }, error).catch(() => {})
           showVoiceFailureBriefly()
+          setVoiceModeState('listening')
         }
       }
     })()
@@ -3046,7 +3251,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       cancelled = true
       if (voiceSpeechLifecycleRef.current === lifecycleKey) {
         voiceSpeechLifecycleRef.current = null
-        void Speech.stop().catch(() => {})
+        stopAtlasVoicePlayback()
       }
       if (!synthesisCompleted || !speechCompleted) {
         voiceSynthesisRecordedRef.current.delete(lifecycleKey)
@@ -3187,7 +3392,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       if (voiceSpeechLifecycleRef.current === interruptedLifecycleKey) {
         const stopRequestedAt = Date.now()
         voiceSpeechLifecycleRef.current = null
-        await Speech.stop().catch(() => {})
+        stopAtlasVoicePlayback()
         latencyMs = Math.max(0, Math.round(Date.now() - stopRequestedAt))
       }
     }
@@ -3289,11 +3494,44 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     voiceTraceRuntimeTurns,
   ])
 
+  const discardVoiceModeSilentRecording = useCallback(async (reason: string) => {
+    if (!voiceModeOpenRef.current || !voiceSessionIdRef.current) return
+    if (!recordingActiveRef.current && !composerRecorderState.isRecording) return
+    if (voiceEndpointingInFlightRef.current) return
+
+    voiceEndpointingInFlightRef.current = true
+    const sessionId = voiceSessionIdRef.current
+    const durationMs = composerRecorderState.durationMillis
+    await handleComposerRecordCancel()
+    resetVoiceEndpointingRefs()
+    if (!voiceModeOpenRef.current || voiceSessionIdRef.current !== sessionId) return
+
+    setVoiceModeState('listening')
+    setVoiceStatusDetail('Não ouvi fala suficiente. Pode falar de novo.')
+    void recordAtlasAiEvent({
+      eventName: 'mobile_voice_silence_turn_discarded',
+      metadata: {
+        session_id: sessionId,
+        reason,
+        duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+      },
+    })
+  }, [composerRecorderState.durationMillis, composerRecorderState.isRecording, handleComposerRecordCancel])
+
   const handleVoiceModeRecordEnd = useCallback(async () => {
-    if (!voiceModeOpen || !voiceSessionId || !voiceSessionReady) return
-    if (recordOpInFlightRef.current) return
+    if (!voiceModeOpen || !voiceSessionId || !voiceSessionReady) {
+      voiceEndpointingInFlightRef.current = false
+      return
+    }
+    if (recordOpInFlightRef.current) {
+      voiceEndpointingInFlightRef.current = false
+      return
+    }
     const activeVoiceSessionId = voiceSessionId
-    if (!activeVoiceSessionId) return
+    if (!activeVoiceSessionId) {
+      voiceEndpointingInFlightRef.current = false
+      return
+    }
 
     recordOpInFlightRef.current = true
     await recordStartInFlightRef.current?.catch(() => {})
@@ -3302,6 +3540,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       safeSetRecordingActive(false)
       safeSetRecordingPaused(false)
       recordOpInFlightRef.current = false
+      resetVoiceEndpointingRefs()
       void recordAtlasAiEvent({
         eventName: 'mobile_voice_recording_end_ignored',
         metadata: {
@@ -3391,7 +3630,19 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       },
     })
 
-    const validationFailure = mobileVoiceRecordingValidationFailure({ fileUri, durationMs })
+    const meteringSamples = voiceLastMeteringSampleAtRef.current
+      ? Math.max(1, Math.round(Math.max(0, durationMs) / 150))
+      : 0
+    const voicedMeteringSamples = voiceLastMeteringSampleAtRef.current
+      ? Math.max(0, Math.round(voiceSpeechMsRef.current / 150))
+      : 0
+    const validationFailure = mobileVoiceRecordingValidationFailure({
+      fileUri,
+      durationMs,
+      meteringSamples,
+      voicedMeteringSamples,
+      minVoicedMeteringSamples: MOBILE_VOICE_MIN_VOICED_METERING_SAMPLES,
+    })
     if (validationFailure) {
       recordLocalVoiceFailure(validationFailure.failure_code, validationFailure.error_class)
       void recordAtlasAiEvent({
@@ -3401,16 +3652,23 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           turn_id: voiceTurnId,
           failure_code: validationFailure.failure_code,
           duration_ms: mobileVoiceMetricMs(durationMs) ?? null,
+          speech_ms: mobileVoiceMetricMs(voiceSpeechMsRef.current) ?? null,
+          metering_samples: meteringSamples,
+          voiced_metering_samples: voicedMeteringSamples,
           file_uri_present: typeof fileUri === 'string' && fileUri.trim().length > 0,
           latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
         },
       })
       showVoiceFailureBriefly()
+      resetVoiceEndpointingRefs()
       return
     }
 
     const validatedFileUri = fileUri
-    if (!validatedFileUri) return
+    if (!validatedFileUri) {
+      resetVoiceEndpointingRefs()
+      return
+    }
 
     const voiceClientId = `voice:${activeVoiceSessionId}:${voiceTurnId}`
     const voiceDomain = captureDomainForVoiceRouting(routing.domain)
@@ -3466,6 +3724,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             transport: 'mobile_push_to_talk',
             runtime: 'livekit_agents_sdk',
             privacy_class: 'p3_audio',
+            endpointing_profile: 'quality_first',
           },
         },
       })
@@ -3484,8 +3743,10 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           latency_ms: Math.max(0, Math.round(Date.now() - voiceStartedAt)),
         },
       })
+      resetVoiceEndpointingRefs()
     } catch (error) {
       setPendingVoiceTraceLookup((current) => current?.clientId === voiceClientId ? null : current)
+      resetVoiceEndpointingRefs()
       showVoiceFailureBriefly()
       void recordMobileVoiceRuntimeFailedWithError({
         session_id: activeVoiceSessionId,
@@ -3524,6 +3785,107 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     voiceSessionEnvelopeId,
     voiceSessionId,
     voiceSessionReceiptId,
+  ])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !voiceSessionReady || !voiceSessionId) return
+    if (voiceModeState !== 'listening') return
+    if (recordingActive || recordingActiveRef.current) return
+    if (recordOpInFlightRef.current || recordStartInFlightRef.current || voiceEndingRef.current) return
+    if (pendingVoiceTraceLookup || pendingVoiceAiInteraction || voiceSpeechLifecycleRef.current) return
+
+    if (voiceAutoStartTimerRef.current) {
+      clearTimeout(voiceAutoStartTimerRef.current)
+    }
+
+    const playbackEndedAt = voiceLastPlaybackEndedAtRef.current
+    const postPlaybackGuardMs = playbackEndedAt == null
+      ? 0
+      : Math.max(0, MOBILE_VOICE_POST_PLAYBACK_MIC_GUARD_MS - (Date.now() - playbackEndedAt))
+    const autoStartDelayMs = Math.max(MOBILE_VOICE_AUTO_START_DELAY_MS, postPlaybackGuardMs)
+
+    voiceAutoStartTimerRef.current = setTimeout(() => {
+      voiceAutoStartTimerRef.current = null
+      if (!voiceModeOpenRef.current) return
+      if (!voiceSessionReadyRef.current || !voiceSessionIdRef.current) return
+      if (recordingActiveRef.current || recordOpInFlightRef.current || recordStartInFlightRef.current) return
+      if (voiceEndingRef.current || voiceSpeechLifecycleRef.current) return
+      void handleVoiceModeRecordStart()
+    }, autoStartDelayMs)
+
+    return () => {
+      if (voiceAutoStartTimerRef.current) {
+        clearTimeout(voiceAutoStartTimerRef.current)
+        voiceAutoStartTimerRef.current = null
+      }
+    }
+  }, [
+    handleVoiceModeRecordStart,
+    pendingVoiceAiInteraction,
+    pendingVoiceTraceLookup,
+    recordingActive,
+    voiceModeOpen,
+    voiceModeState,
+    voiceSessionId,
+    voiceSessionReady,
+  ])
+
+  useEffect(() => {
+    if (!voiceModeOpen || !recordingActiveRef.current || !composerRecorderState.isRecording) return
+    if (voiceEndpointingInFlightRef.current) return
+
+    const now = Date.now()
+    const lastSampleAt = voiceLastMeteringSampleAtRef.current ?? now
+    const sampleDeltaMs = Math.max(0, Math.min(300, now - lastSampleAt))
+    voiceLastMeteringSampleAtRef.current = now
+
+    if (mobileVoiceMeteringIsSpeech(composerRecorderState.metering, MOBILE_VOICE_SPEECH_THRESHOLD_DB)) {
+      voiceLastSpeechAtRef.current = now
+      voiceSpeechMsRef.current += sampleDeltaMs > 0 ? sampleDeltaMs : 150
+    }
+
+    const decision = mobileVoiceEndpointingDecision({
+      recordingActive: recordingActiveRef.current,
+      isRecording: composerRecorderState.isRecording,
+      durationMs: composerRecorderState.durationMillis,
+      nowMs: now,
+      startedAtMs: voiceRecordingStartedAtRef.current,
+      lastSpeechAtMs: voiceLastSpeechAtRef.current,
+      speechMs: voiceSpeechMsRef.current,
+      minTurnMs: MOBILE_VOICE_MIN_TURN_MS,
+      minSpeechMs: MOBILE_VOICE_MIN_SPEECH_MS,
+      silenceAfterSpeechMs: MOBILE_VOICE_SILENCE_AFTER_SPEECH_MS,
+      noSpeechTimeoutMs: MOBILE_VOICE_NO_SPEECH_TIMEOUT_MS,
+      maxTurnMs: MOBILE_VOICE_MAX_TURN_MS,
+      qualityFirst: MOBILE_VOICE_QUALITY_FIRST_ENDPOINTING,
+    })
+
+    if (decision.action === 'continue') return
+
+    if (decision.action === 'finish') {
+      voiceEndpointingInFlightRef.current = true
+      void recordAtlasAiEvent({
+        eventName: 'mobile_voice_auto_endpoint_detected',
+        metadata: {
+          session_id: voiceSessionIdRef.current,
+          reason: decision.reason,
+          duration_ms: mobileVoiceMetricMs(composerRecorderState.durationMillis) ?? null,
+          speech_ms: mobileVoiceMetricMs(voiceSpeechMsRef.current) ?? null,
+          last_metering: mobileVoiceMetricMs(composerRecorderState.metering) ?? null,
+        },
+      })
+      void handleVoiceModeRecordEnd()
+      return
+    }
+
+    void discardVoiceModeSilentRecording(decision.reason)
+  }, [
+    composerRecorderState.durationMillis,
+    composerRecorderState.isRecording,
+    composerRecorderState.metering,
+    discardVoiceModeSilentRecording,
+    handleVoiceModeRecordEnd,
+    voiceModeOpen,
   ])
 
   const submitText = useCallback(
@@ -5116,57 +5478,4 @@ function voiceTurnLifecycleKey(turn: VoiceRuntimeTurn, traceId: string): string 
 
 function captureDomainForVoiceRouting(domain: RoutingDomain): string {
   return ['atlas', 'saude', 'blackink', 'financas'].includes(domain) ? domain : 'atlas'
-}
-
-const resolveAtlasSpeechVoiceIdentifier = createAtlasSpeechVoiceResolver(() => Speech.getAvailableVoicesAsync())
-
-type AtlasVoiceSpeechResult = 'done' | 'stopped' | 'cancelled'
-
-async function speakAtlasVoiceResponse(text: string, shouldContinue: () => boolean): Promise<AtlasVoiceSpeechResult> {
-  const voice = await resolveAtlasSpeechVoiceIdentifier()
-  if (!shouldContinue()) return 'cancelled'
-  const maxSpeechLength = Number.isFinite(Speech.maxSpeechInputLength)
-    ? Speech.maxSpeechInputLength
-    : 900
-  const chunks = splitAtlasSpeechText(text, maxSpeechLength)
-  if (chunks.length === 0) return 'done'
-  for (const chunk of chunks) {
-    if (!shouldContinue()) return 'cancelled'
-    const result = await speakAtlasVoiceChunk(chunk, voice)
-    if (result === 'stopped') return 'stopped'
-    if (!shouldContinue()) return 'cancelled'
-  }
-  return 'done'
-}
-
-function speakAtlasVoiceChunk(text: string, voice?: string): Promise<Exclude<AtlasVoiceSpeechResult, 'cancelled'>> {
-  return new Promise((resolve, reject) => {
-    let settled = false
-    const timeout = setTimeout(() => {
-      const error = new Error('Atlas voice speech chunk timed out.')
-      error.name = 'AtlasVoiceSpeechTimeout'
-      void Speech.stop().catch(() => {})
-      settle('stopped', error)
-    }, mobileVoiceSpeechChunkTimeoutMs(text))
-    const settle = (result: Exclude<AtlasVoiceSpeechResult, 'cancelled'>, error?: unknown) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      if (error) {
-        reject(error instanceof Error ? error : new Error('Falha ao reproduzir voz do Atlas.'))
-        return
-      }
-      resolve(result)
-    }
-
-    Speech.speak(text, {
-      language: 'pt-BR',
-      ...(voice ? { voice } : {}),
-      pitch: 0.96,
-      rate: 0.92,
-      onDone: () => settle('done'),
-      onStopped: () => settle('stopped'),
-      onError: (error) => settle('stopped', error),
-    })
-  })
 }

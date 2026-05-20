@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
-  createAtlasSpeechVoiceResolver,
   mobileVoiceInterruptIdempotencyKey,
   mobileVoiceDispatchFailureFromResult,
   mobileVoiceDispatchTraceFromResult,
   mobileVoiceEmptyResponseFailure,
+  mobileVoiceEndpointingDecision,
+  mobileVoiceAdaptiveSilenceAfterSpeechMs,
   mobileVoiceInterruptionStage,
+  mobileVoiceMeteringIsSpeech,
   mobileVoiceMetricMs,
   mobileVoiceCanStartRecording,
   mobileVoiceOpenBlockReason,
@@ -23,15 +27,12 @@ import {
   mobileVoiceSessionEndIdempotencyKey,
   mobileVoiceSessionStartIdempotencyKey,
   mobileVoiceSynthesizedIdempotencyKey,
-  mobileVoiceSpeechChunkTimeoutMs,
   mobileVoiceTraceLookupPollFailureSignal,
   mobileVoiceTraceTerminalFailure,
   mobileVoiceTurnIdempotencyKey,
   mobileVoiceUiWatchdogDecision,
   mobileVoiceStaleDispatchFailure,
   newMobileVoiceRuntimeId,
-  preferredAtlasSpeechVoiceIdentifier,
-  splitAtlasSpeechText,
 } from '../lib/atlasVoiceRuntime'
 import { sha256Hex } from '../lib/sha256'
 
@@ -61,6 +62,14 @@ import { sha256Hex } from '../lib/sha256'
 }
 
 {
+  assert.equal(mobileVoiceMeteringIsSpeech(undefined), false)
+  assert.equal(mobileVoiceMeteringIsSpeech(Number.NaN), false)
+  assert.equal(mobileVoiceMeteringIsSpeech(-70), false)
+  assert.equal(mobileVoiceMeteringIsSpeech(-50), true)
+  assert.equal(mobileVoiceMeteringIsSpeech(-32), true)
+}
+
+{
   const ready = {
     modeOpen: true,
     sessionId: 'voice-session-1',
@@ -87,6 +96,117 @@ import { sha256Hex } from '../lib/sha256'
   assert.equal(mobileVoiceRecordingBlockReason({ ...ready, ending: true }), 'session_closing')
   assert.equal(mobileVoiceRecordingBlockReason({ ...ready, state: 'starting' }), 'session_starting')
   assert.equal(mobileVoiceRecordingBlockReason({ ...ready, state: 'failed' }), 'session_failed')
+}
+
+{
+  assert.equal(mobileVoiceAdaptiveSilenceAfterSpeechMs({
+    baseSilenceAfterSpeechMs: 18_000,
+    speechMs: 8_000,
+    qualityFirst: true,
+  }), 18_000)
+  assert.equal(mobileVoiceAdaptiveSilenceAfterSpeechMs({
+    baseSilenceAfterSpeechMs: 18_000,
+    speechMs: 60_000,
+    qualityFirst: true,
+  }), 28_800)
+  assert.equal(mobileVoiceAdaptiveSilenceAfterSpeechMs({
+    baseSilenceAfterSpeechMs: 18_000,
+    speechMs: 300_000,
+    qualityFirst: true,
+  }), 42_000)
+}
+
+{
+  const base = {
+    recordingActive: true,
+    isRecording: true,
+    minTurnMs: 5_000,
+    minSpeechMs: 2_000,
+    silenceAfterSpeechMs: 18_000,
+    noSpeechTimeoutMs: 90_000,
+    maxTurnMs: 1_800_000,
+    qualityFirst: true,
+  }
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 3_000,
+      nowMs: 3_000,
+      speechMs: 0,
+      lastSpeechAtMs: null,
+    }),
+    { action: 'continue', reason: 'waiting_for_speech' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 90_200,
+      nowMs: 90_200,
+      speechMs: 0,
+      lastSpeechAtMs: null,
+    }),
+    { action: 'discard_silence', reason: 'no_speech_timeout' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 8_000,
+      nowMs: 8_000,
+      speechMs: 2_400,
+      lastSpeechAtMs: 2_200,
+    }),
+    { action: 'continue', reason: 'speech_or_short_pause' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 16_000,
+      nowMs: 16_000,
+      speechMs: 2_400,
+      lastSpeechAtMs: 3_000,
+    }),
+    { action: 'continue', reason: 'speech_or_short_pause' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 23_000,
+      nowMs: 23_000,
+      speechMs: 2_400,
+      lastSpeechAtMs: 3_000,
+    }),
+    { action: 'finish', reason: 'silence_after_speech' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 45_000,
+      nowMs: 45_000,
+      speechMs: 60_000,
+      lastSpeechAtMs: 18_000,
+    }),
+    { action: 'continue', reason: 'speech_or_short_pause' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 47_000,
+      nowMs: 47_000,
+      speechMs: 60_000,
+      lastSpeechAtMs: 18_000,
+    }),
+    { action: 'finish', reason: 'silence_after_speech' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 1_801_000,
+      nowMs: 1_801_000,
+      speechMs: 30_000,
+      lastSpeechAtMs: 1_799_000,
+    }),
+    { action: 'finish', reason: 'max_turn_reached' },
+  )
 }
 
 {
@@ -570,6 +690,16 @@ import { sha256Hex } from '../lib/sha256'
   )
   assert.deepEqual(
     mobileVoiceDispatchFailureFromResult({
+      status: 'skipped_suspect_stt_ghost_transcript',
+      dispatched: false,
+    }),
+    {
+      failure_code: 'mobile_voice_suspect_transcript_discarded',
+      error_class: 'SuspectSttGhostTranscript',
+    },
+  )
+  assert.deepEqual(
+    mobileVoiceDispatchFailureFromResult({
       status: 'ai_interaction_dispatch_failed',
       dispatched: false,
       error_class: 'AtlasApiError',
@@ -657,13 +787,6 @@ import { sha256Hex } from '../lib/sha256'
 }
 
 {
-  assert.equal(mobileVoiceSpeechChunkTimeoutMs(''), 8000)
-  assert.equal(mobileVoiceSpeechChunkTimeoutMs('ola Atlas'), 8000)
-  assert.equal(mobileVoiceSpeechChunkTimeoutMs(Array.from({ length: 110 }, () => 'voz').join(' ')), 45000)
-  assert.equal(mobileVoiceSpeechChunkTimeoutMs(Array.from({ length: 400 }, () => 'voz').join(' ')), 45000)
-}
-
-{
   assert.deepEqual(
     mobileVoiceRecordingValidationFailure({ fileUri: null, durationMs: 1000 }),
     {
@@ -687,6 +810,49 @@ import { sha256Hex } from '../lib/sha256'
   )
   assert.equal(
     mobileVoiceRecordingValidationFailure({ fileUri: 'file:///turn.m4a', durationMs: 450 }),
+    null,
+  )
+  assert.deepEqual(
+    mobileVoiceRecordingValidationFailure({
+      fileUri: 'file:///turn.m4a',
+      durationMs: 3200,
+      meteringSamples: 12,
+      voicedMeteringSamples: 0,
+    }),
+    {
+      failure_code: 'mobile_voice_recording_silence',
+      error_class: 'MobileVoiceRecordingSilence',
+    },
+  )
+  assert.equal(
+    mobileVoiceRecordingValidationFailure({
+      fileUri: 'file:///turn.m4a',
+      durationMs: 3200,
+      meteringSamples: 12,
+      voicedMeteringSamples: 3,
+    }),
+    null,
+  )
+  assert.deepEqual(
+    mobileVoiceRecordingValidationFailure({
+      fileUri: 'file:///turn.m4a',
+      durationMs: 3200,
+      meteringSamples: 12,
+      voicedMeteringSamples: 3,
+      minVoicedMeteringSamples: 8,
+    }),
+    {
+      failure_code: 'mobile_voice_recording_silence',
+      error_class: 'MobileVoiceRecordingSilence',
+    },
+  )
+  assert.equal(
+    mobileVoiceRecordingValidationFailure({
+      fileUri: 'file:///turn.m4a',
+      durationMs: 3200,
+      meteringSamples: 0,
+      voicedMeteringSamples: 0,
+    }),
     null,
   )
 }
@@ -762,99 +928,7 @@ import { sha256Hex } from '../lib/sha256'
   )
 }
 
-{
-  assert.equal(
-    preferredAtlasSpeechVoiceIdentifier([
-      { identifier: 'en', name: 'Samantha', language: 'en-US', quality: 'Enhanced' },
-      { identifier: 'pt', name: 'Joana', language: 'pt-PT', quality: 'Default' },
-      { identifier: 'br', name: 'Luciana', language: 'pt-BR', quality: 'Default' },
-    ]),
-    'br',
-  )
-  assert.equal(
-    preferredAtlasSpeechVoiceIdentifier([
-      { identifier: 'pt-default', name: 'Voz', language: 'pt-BR', quality: 'Default' },
-      { identifier: 'pt-enhanced', name: 'Voz', language: 'pt-BR', quality: 'Enhanced' },
-    ]),
-    'pt-enhanced',
-  )
-}
-
 void (async () => {
-  {
-    let calls = 0
-    let now = 1000
-    const resolveVoice = createAtlasSpeechVoiceResolver(async () => {
-      calls += 1
-      return [
-        { identifier: 'br', name: 'Luciana', language: 'pt-BR', quality: 'Default' },
-      ]
-    }, {
-      cacheTtlMs: 1000,
-      nowMs: () => now,
-    })
-
-    assert.equal(await resolveVoice(), 'br')
-    assert.equal(await resolveVoice(), 'br')
-    assert.equal(calls, 1)
-    now += 1001
-    assert.equal(await resolveVoice(), 'br')
-    assert.equal(calls, 2)
-  }
-
-  {
-    let calls = 0
-    const resolveVoice = createAtlasSpeechVoiceResolver(async () => {
-      calls += 1
-      if (calls === 1) throw new Error('voices unavailable')
-      return [
-        { identifier: 'br', name: 'Luciana', language: 'pt-BR', quality: 'Default' },
-      ]
-    })
-
-    assert.equal(await resolveVoice(), undefined)
-    assert.equal(await resolveVoice(), 'br')
-    assert.equal(calls, 2)
-  }
-
-  {
-    type SpeechVoiceFixture = { identifier: string; name: string; language: string; quality?: string }
-    let calls = 0
-    let releaseVoiceLoad: (voices: SpeechVoiceFixture[]) => void = () => {
-      throw new Error('voice load promise was not created')
-    }
-    const resolveVoice = createAtlasSpeechVoiceResolver(() => {
-      calls += 1
-      return new Promise<SpeechVoiceFixture[]>((resolve) => {
-        releaseVoiceLoad = resolve
-      })
-    })
-
-    const first = resolveVoice()
-    const second = resolveVoice()
-    releaseVoiceLoad([{ identifier: 'br', name: 'Luciana', language: 'pt-BR', quality: 'Default' }])
-    assert.equal(await first, 'br')
-    assert.equal(await second, 'br')
-    assert.equal(calls, 1)
-  }
-
-  {
-    assert.deepEqual(splitAtlasSpeechText('   ', 120), [])
-    assert.deepEqual(splitAtlasSpeechText('uma resposta curta', 120), ['uma resposta curta'])
-
-    const text = 'Primeira frase com contexto. Segunda frase com decisão importante. Terceira frase final.'
-    const chunks = splitAtlasSpeechText(text, 48)
-    assert.ok(chunks.length > 1)
-    assert.equal(chunks.join(' '), text)
-    assert.ok(chunks.every((chunk) => chunk.length <= 80))
-  }
-
-  {
-    const longWord = 'x'.repeat(140)
-    const chunks = splitAtlasSpeechText(longWord, 40)
-    assert.deepEqual(chunks, [longWord.slice(0, 80), longWord.slice(80)])
-  }
-
   {
     const normalized = await mobileVoiceRuntimeFailureHash({
       error_message_hash: 'A'.repeat(64),
@@ -876,6 +950,33 @@ void (async () => {
       defaultFallback,
       await sha256Hex('atlas_mobile_voice_runtime_failed:unknown_failure:UnknownError'),
     )
+  }
+
+  {
+    const sheetSource = fs.readFileSync(
+      path.join(process.cwd(), 'components/sheets/AtlasAiSheet.tsx'),
+      'utf8',
+    )
+    const packageJson = fs.readFileSync(
+      path.join(process.cwd(), 'package.json'),
+      'utf8',
+    )
+
+    assert.equal(sheetSource.includes('expo-speech'), false)
+    assert.equal(sheetSource.includes('Speech.speak'), false)
+    assert.equal(sheetSource.includes('Speech.stop'), false)
+    assert.equal(sheetSource.includes('getAvailableVoicesAsync'), false)
+    assert.equal(sheetSource.includes('synthesizeMobileVoiceTurn'), true)
+    assert.equal(sheetSource.includes('createAudioPlayer'), true)
+    assert.equal(sheetSource.includes('const MOBILE_VOICE_POST_PLAYBACK_MIC_GUARD_MS = 1_400'), true)
+    assert.equal(sheetSource.includes('MOBILE_VOICE_POST_PLAYBACK_MIC_GUARD_MS - (Date.now() - playbackEndedAt)'), true)
+    assert.equal(sheetSource.includes('const MOBILE_VOICE_SILENCE_AFTER_SPEECH_MS = 18_000'), true)
+    assert.equal(sheetSource.includes('const MOBILE_VOICE_NO_SPEECH_TIMEOUT_MS = 90_000'), true)
+    assert.equal(sheetSource.includes('const MOBILE_VOICE_QUALITY_FIRST_ENDPOINTING = true'), true)
+    assert.equal(sheetSource.includes("endpointing_profile: 'quality_first'"), true)
+    assert.equal(sheetSource.includes('ai_thread_id: currentThreadId'), true)
+    assert.equal(sheetSource.includes("setVoiceModeState('listening')"), true)
+    assert.equal(packageJson.includes('"expo-speech"'), false)
   }
 
   console.info('mobile voice runtime tests passed')

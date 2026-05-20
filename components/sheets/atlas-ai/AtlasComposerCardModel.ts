@@ -93,8 +93,10 @@ export function placeholderTextFor(provided?: string | null): string {
  * Long-press behavior decision · canon mobile.
  *
  * Quando user faz long-press no mic:
- *   - empty + sem anexos → abre Voice Mode fullscreen
- *   - com texto OU com anexos → inicia recording (transcreve junto com mensagem)
+ *   - inicia recording, independente de texto/anexos
+ *
+ * Voice Mode / Voice Realtime fica em botão separado. O microfone não abre
+ * conversa por voz para preservar previsibilidade da ação principal.
  */
 export type LongPressMicAction = 'voice_mode' | 'start_recording' | 'noop'
 
@@ -105,6 +107,5 @@ export function resolveLongPressMicAction(input: {
   recording: boolean
 }): LongPressMicAction {
   if (input.disabled || input.recording) return 'noop'
-  const hasContent = input.value.trim().length > 0 || input.attachmentCount > 0
-  return hasContent ? 'start_recording' : 'voice_mode'
+  return 'start_recording'
 }

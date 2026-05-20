@@ -101,11 +101,11 @@ assert.equal(placeholderTextFor(''), 'Escreva ao Atlas')
 assert.equal(placeholderTextFor('   '), 'Escreva ao Atlas', 'whitespace fallback canon')
 assert.equal(placeholderTextFor('Continue com Atlas'), 'Continue com Atlas')
 
-// ─── resolveLongPressMicAction · canon voice flow ──────────────────
+// ─── resolveLongPressMicAction · mic sempre captura ─────────────────
 
 assert.equal(
   resolveLongPressMicAction({ value: '', attachmentCount: 0, disabled: false, recording: false }),
-  'voice_mode', 'empty + sem anexos = voice mode fullscreen',
+  'start_recording', 'empty + sem anexos = start recording',
 )
 assert.equal(
   resolveLongPressMicAction({ value: 'hi', attachmentCount: 0, disabled: false, recording: false }),
@@ -117,7 +117,7 @@ assert.equal(
 )
 assert.equal(
   resolveLongPressMicAction({ value: '   ', attachmentCount: 0, disabled: false, recording: false }),
-  'voice_mode', 'whitespace = voice mode (trim)',
+  'start_recording', 'whitespace = start recording',
 )
 assert.equal(
   resolveLongPressMicAction({ value: 'hi', attachmentCount: 0, disabled: true, recording: false }),

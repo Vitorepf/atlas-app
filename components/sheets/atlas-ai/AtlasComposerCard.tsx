@@ -12,10 +12,9 @@
  * com mode/task/domain/style/executor) + mic direita. Send arrow (→)
  * aparece à direita SUBSTITUINDO o mic quando há texto, gold canon.
  *
- * Voice canon preservado: tap no mic → onMicPress; long-press no mic →
- * onLongPressMic (Modo Gravar). Quando há texto, mic vira send que envia
- * a mensagem; voice long-press ainda fica disponível via gesto separado
- * se o composer estiver vazio.
+ * Voice canon corrigido: mic é sempre captura de áudio. Voice Realtime fica
+ * em um botão separado para não roubar o comportamento principal do mic.
+ * Quando há texto, mic vira send que envia a mensagem.
  */
 import { useEffect, useState } from 'react'
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -51,10 +50,12 @@ interface Props {
   onChangeText: (next: string) => void
   /** Submit (send arrow tap ou keyboard return). */
   onSubmit: () => void
-  /** Tap rápido no mic → abre Voice Mode (conversa por voz). */
+  /** Tap rápido no mic → inicia captura de áudio normal. */
   onMicTap?: () => void
-  /** Long-press no mic → ativa Modo Gravar canon Atlas radical. */
+  /** Long-press no mic → também inicia captura de áudio normal. */
   onLongPressMic?: () => void
+  /** Botão separado → abre Voice Mode / conversa por voz. */
+  onVoiceTap?: () => void
   /** Abre AtlasDecideSheet (routing config full · mode/task/domain/style/executor). */
   onOpenRouting: () => void
   /** Abre attachment picker sheet. */
@@ -80,6 +81,7 @@ export function AtlasComposerCard({
   onSubmit,
   onMicTap,
   onLongPressMic,
+  onVoiceTap,
   onOpenRouting,
   onOpenAttachmentSheet,
   disabled = false,
@@ -330,7 +332,7 @@ export function AtlasComposerCard({
           editable={!disabled}
           multiline
           accessibilityLabel={`campo de mensagem para Atlas AI · ${placeholderText}`}
-          accessibilityHint="escreva sua pergunta · paperclip à esquerda anexa arquivo · auto pill configura modo · mic à direita ativa voz com long-press"
+          accessibilityHint="escreva sua pergunta · paperclip anexa arquivo · auto configura modo · microfone grava áudio · voz abre conversa por voz"
           // Slice 6aj · cursor + selection atlas gold canon
           selectionColor={c.bronze}
           cursorColor={c.bronze}
@@ -398,6 +400,18 @@ export function AtlasComposerCard({
             c={c}
             modeLabel={modeLabel}
           />
+          {!canSubmit && onVoiceTap ? (
+            <PressableIconScale
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+                onVoiceTap()
+              }}
+              disabled={disabled}
+              label="conversa por voz"
+            >
+              <VoiceRealtimeIcon color={c.ink2} />
+            </PressableIconScale>
+          ) : null}
         </View>
 
         {/* Slice 6q · mic ↔ send cross-fade canon premium · ambos overlaid
@@ -422,12 +436,12 @@ export function AtlasComposerCard({
           >
             <PressableIconScale
               onPress={() => {
-                // Tap rápido = Voice Mode (conversa por voz)
+                // Tap rápido = captura de áudio normal.
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
                 onMicTap?.()
               }}
               onLongPress={() => {
-                // Long-press = Modo Gravar (captura áudio)
+                // Long-press mantém o mesmo comportamento: captura áudio.
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
                 handleMicLongPress()
               }}
@@ -435,7 +449,7 @@ export function AtlasComposerCard({
               disabled={disabled}
               label={
                 onMicTap && onLongPressMic
-                  ? 'voz · tap entra em Voice Mode · pressione e segure para gravar'
+                  ? 'gravar áudio'
                   : 'ditar'
               }
             >
@@ -575,6 +589,34 @@ function MicIcon({ color }: { color: string }) {
       <Rect x={6.7} y={2.5} width={6.6} height={11.5} rx={3.3} stroke={color} strokeWidth={1.7} fill="none" />
       <Path d="M3.5 10v1a6.5 6.5 0 0 0 13 0v-1" stroke={color} strokeWidth={1.7} strokeLinecap="round" fill="none" />
       <Line x1={10} y1={17.5} x2={10} y2={20} stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+    </Svg>
+  )
+}
+
+function VoiceRealtimeIcon({ color }: { color: string }) {
+  return (
+    <Svg width={22} height={22}>
+      <Path
+        d="M5.5 12.4a5.5 5.5 0 0 1 11 0"
+        stroke={color}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        fill="none"
+      />
+      <Path
+        d="M4.2 12.4v2.2a2 2 0 0 0 2 2h1.1v-6.2H6.2a2 2 0 0 0-2 2ZM17.8 12.4v2.2a2 2 0 0 1-2 2h-1.1v-6.2h1.1a2 2 0 0 1 2 2Z"
+        stroke={color}
+        strokeWidth={1.7}
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <Path
+        d="M14.7 18.2c-.8.75-2 1.1-3.7 1.1"
+        stroke={color}
+        strokeWidth={1.7}
+        strokeLinecap="round"
+        fill="none"
+      />
     </Svg>
   )
 }

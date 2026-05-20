@@ -14,6 +14,19 @@ export function mobileVoiceSynthesizedIdempotencyKey(input: {
   ].join('-')
 }
 
+export function mobileVoiceTtsSynthesisIdempotencyKey(input: {
+  session_id: string
+  turn_id: string
+  response_text_hash?: string
+}): string {
+  return [
+    'mobile-voice-tts',
+    idempotencyFragment(input.session_id),
+    idempotencyFragment(input.turn_id),
+    idempotencyFragment(input.response_text_hash ?? 'no-response-hash'),
+  ].join('-')
+}
+
 export function mobileVoicePlayedIdempotencyKey(input: {
   session_id: string
   turn_id: string
@@ -380,8 +393,8 @@ export type MobileVoiceTraceLookupPollFailureSignal =
   | 'repeated_failure'
 
 export type MobileVoiceRecordingValidationFailure = {
-  failure_code: 'mobile_voice_recording_file_missing' | 'mobile_voice_recording_too_short'
-  error_class: 'MobileVoiceRecordingFileMissing' | 'MobileVoiceRecordingTooShort'
+  failure_code: 'mobile_voice_recording_file_missing' | 'mobile_voice_recording_too_short' | 'mobile_voice_recording_silence'
+  error_class: 'MobileVoiceRecordingFileMissing' | 'MobileVoiceRecordingTooShort' | 'MobileVoiceRecordingSilence'
 }
 
 export type MobileVoiceUiWatchdogDecision = {
@@ -492,6 +505,9 @@ export function mobileVoiceDispatchFailureFromResult(result: unknown): MobileVoi
   if (status === 'skipped_empty_transcript') {
     return failure('mobile_voice_empty_transcript', errorClass)
   }
+  if (status === 'skipped_suspect_stt_ghost_transcript') {
+    return failure('mobile_voice_suspect_transcript_discarded', 'SuspectSttGhostTranscript')
+  }
   if (status === 'ai_interaction_dispatch_failed' || status === 'ai_interaction_enqueue_failed') {
     return failure('mobile_voice_ai_dispatch_failed', errorClass)
   }
@@ -538,6 +554,9 @@ export function mobileVoiceRecordingValidationFailure(input: {
   fileUri?: string | null
   durationMs?: number | null
   minDurationMs?: number
+  meteringSamples?: number | null
+  voicedMeteringSamples?: number | null
+  minVoicedMeteringSamples?: number
 }): MobileVoiceRecordingValidationFailure | null {
   if (typeof input.fileUri !== 'string' || input.fileUri.trim() === '') {
     return {
@@ -554,7 +573,136 @@ export function mobileVoiceRecordingValidationFailure(input: {
     }
   }
 
+  const meteringSamples = input.meteringSamples
+  const voicedMeteringSamples = input.voicedMeteringSamples
+  const minVoicedMeteringSamples = input.minVoicedMeteringSamples ?? 3
+  if (
+    typeof meteringSamples === 'number'
+    && Number.isFinite(meteringSamples)
+    && meteringSamples > 0
+    && (typeof voicedMeteringSamples !== 'number'
+      || !Number.isFinite(voicedMeteringSamples)
+      || voicedMeteringSamples < minVoicedMeteringSamples)
+  ) {
+    return {
+      failure_code: 'mobile_voice_recording_silence',
+      error_class: 'MobileVoiceRecordingSilence',
+    }
+  }
+
   return null
+}
+
+export type MobileVoiceEndpointingAction =
+  | 'continue'
+  | 'finish'
+  | 'discard_silence'
+
+export type MobileVoiceEndpointingDecision = {
+  action: MobileVoiceEndpointingAction
+  reason: string
+}
+
+export type MobileVoiceEndpointingInput = {
+  recordingActive?: boolean
+  isRecording?: boolean
+  durationMs?: number | null
+  nowMs?: number
+  startedAtMs?: number | null
+  lastSpeechAtMs?: number | null
+  speechMs?: number | null
+  minTurnMs?: number
+  minSpeechMs?: number
+  silenceAfterSpeechMs?: number
+  noSpeechTimeoutMs?: number
+  maxTurnMs?: number
+  qualityFirst?: boolean
+}
+
+export function mobileVoiceAdaptiveSilenceAfterSpeechMs(input: {
+  baseSilenceAfterSpeechMs?: number
+  speechMs?: number | null
+  qualityFirst?: boolean
+}): number {
+  const base = Math.max(0, Math.round(input.baseSilenceAfterSpeechMs ?? 18_000))
+  if (input.qualityFirst !== true) return base
+
+  const speechMs = Math.max(0, Math.round(input.speechMs ?? 0))
+  if (speechMs < 12_000) return base
+
+  const extraMs = Math.min(24_000, Math.round(speechMs * 0.18))
+  return Math.max(base, Math.min(45_000, base + extraMs))
+}
+
+export function mobileVoiceMeteringIsSpeech(
+  metering?: number | null,
+  thresholdDb = -50,
+): boolean {
+  if (typeof metering !== 'number' || !Number.isFinite(metering)) return false
+  return metering >= thresholdDb
+}
+
+export function mobileVoiceSpeechChunkTimeoutMs(text?: string | null): number {
+  const normalized = typeof text === 'string' ? text.trim() : ''
+  if (normalized === '') return 8_000
+
+  const wordCount = normalized.split(/\s+/u).filter(Boolean).length
+  if (wordCount >= 100) return 45_000
+
+  return 8_000
+}
+
+export function mobileVoiceEndpointingDecision(
+  input: MobileVoiceEndpointingInput,
+): MobileVoiceEndpointingDecision {
+  if (input.recordingActive !== true || input.isRecording !== true) {
+    return { action: 'continue', reason: 'not_recording' }
+  }
+
+  const now = Number.isFinite(input.nowMs) ? Number(input.nowMs) : Date.now()
+  const durationMs = Math.max(0, Math.round(input.durationMs ?? (
+    input.startedAtMs != null ? now - input.startedAtMs : 0
+  )))
+  const speechMs = Math.max(0, Math.round(input.speechMs ?? 0))
+  const minTurnMs = Math.max(0, Math.round(input.minTurnMs ?? 5_000))
+  const minSpeechMs = Math.max(0, Math.round(input.minSpeechMs ?? 2_000))
+  const silenceAfterSpeechMs = mobileVoiceAdaptiveSilenceAfterSpeechMs({
+    baseSilenceAfterSpeechMs: input.silenceAfterSpeechMs ?? 12_000,
+    speechMs,
+    qualityFirst: input.qualityFirst,
+  })
+  const noSpeechTimeoutMs = Math.max(minTurnMs, Math.round(input.noSpeechTimeoutMs ?? 60_000))
+  const maxTurnMs = Math.max(noSpeechTimeoutMs, Math.round(input.maxTurnMs ?? 1_800_000))
+  const hasEnoughSpeech = speechMs >= minSpeechMs
+
+  if (durationMs >= maxTurnMs) {
+    return hasEnoughSpeech
+      ? { action: 'finish', reason: 'max_turn_reached' }
+      : { action: 'discard_silence', reason: 'max_turn_without_speech' }
+  }
+
+  if (!hasEnoughSpeech) {
+    if (durationMs >= noSpeechTimeoutMs) {
+      return { action: 'discard_silence', reason: 'no_speech_timeout' }
+    }
+    return { action: 'continue', reason: 'waiting_for_speech' }
+  }
+
+  if (durationMs < minTurnMs) {
+    return { action: 'continue', reason: 'min_turn_not_reached' }
+  }
+
+  const lastSpeechAtMs = input.lastSpeechAtMs
+  if (typeof lastSpeechAtMs !== 'number' || !Number.isFinite(lastSpeechAtMs)) {
+    return { action: 'continue', reason: 'waiting_for_silence_anchor' }
+  }
+
+  const silenceMs = Math.max(0, Math.round(now - lastSpeechAtMs))
+  if (silenceMs >= silenceAfterSpeechMs) {
+    return { action: 'finish', reason: 'silence_after_speech' }
+  }
+
+  return { action: 'continue', reason: 'speech_or_short_pause' }
 }
 
 export function mobileVoiceUiWatchdogDecision(state?: string | null): MobileVoiceUiWatchdogDecision | null {
@@ -641,121 +789,4 @@ function idempotencyFragment(value: string): string {
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 160) || 'unknown'
-}
-
-export interface AtlasSpeechVoiceCandidate {
-  identifier: string
-  name: string
-  language: string
-  quality?: string
-}
-
-export function createAtlasSpeechVoiceResolver(
-  loadVoices: () => Promise<AtlasSpeechVoiceCandidate[]>,
-  options: {
-    cacheTtlMs?: number
-    nowMs?: () => number
-  } = {},
-): () => Promise<string | undefined> {
-  const cacheTtlMs = Math.max(0, options.cacheTtlMs ?? 5 * 60 * 1000)
-  const nowMs = options.nowMs ?? Date.now
-  let cachedVoice: string | undefined
-  let cachedAt = 0
-  let inFlight: Promise<string | undefined> | null = null
-
-  return async () => {
-    const now = nowMs()
-    if (cachedAt > 0 && now - cachedAt <= cacheTtlMs) {
-      return cachedVoice
-    }
-
-    if (inFlight) return inFlight
-
-    inFlight = loadVoices()
-      .then((voices) => {
-        cachedVoice = preferredAtlasSpeechVoiceIdentifier(voices)
-        cachedAt = nowMs()
-        return cachedVoice
-      })
-      .catch(() => {
-        cachedAt = 0
-        cachedVoice = undefined
-        return undefined
-      })
-      .finally(() => {
-        inFlight = null
-      })
-
-    return inFlight
-  }
-}
-
-export function preferredAtlasSpeechVoiceIdentifier(
-  voices: AtlasSpeechVoiceCandidate[],
-): string | undefined {
-  return [...voices].sort(rankAtlasSpeechVoice)[0]?.identifier
-}
-
-export function splitAtlasSpeechText(text: string, maxLength: number): string[] {
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) return []
-
-  const safeMax = Math.max(80, Math.min(Math.floor(maxLength) || 900, 3200))
-  if (normalized.length <= safeMax) return [normalized]
-
-  const chunks: string[] = []
-  let remaining = normalized
-
-  while (remaining.length > safeMax) {
-    const boundary = bestSpeechBoundary(remaining, safeMax)
-    chunks.push(remaining.slice(0, boundary).trim())
-    remaining = remaining.slice(boundary).trim()
-  }
-
-  if (remaining) chunks.push(remaining)
-  return chunks
-}
-
-export function mobileVoiceSpeechChunkTimeoutMs(text: string): number {
-  const wordCount = Math.max(1, text.trim().split(/\s+/).filter(Boolean).length)
-  const estimatedMs = Math.round((wordCount / 110) * 60_000)
-
-  return Math.max(8_000, Math.min(45_000, estimatedMs + 5_000))
-}
-
-function rankAtlasSpeechVoice(left: AtlasSpeechVoiceCandidate, right: AtlasSpeechVoiceCandidate): number {
-  return atlasSpeechVoiceScore(right) - atlasSpeechVoiceScore(left)
-}
-
-function atlasSpeechVoiceScore(voice: AtlasSpeechVoiceCandidate): number {
-  const language = voice.language.toLowerCase()
-  const name = voice.name.toLowerCase()
-  let score = 0
-  if (language === 'pt-br') score += 100
-  else if (language.startsWith('pt-')) score += 70
-  else if (language === 'pt') score += 60
-  if (voice.quality === 'Enhanced') score += 10
-  if (name.includes('luciana') || name.includes('joana') || name.includes('maria')) score += 3
-  return score
-}
-
-function bestSpeechBoundary(text: string, maxLength: number): number {
-  const windowStart = Math.max(0, Math.floor(maxLength * 0.55))
-  const preferred = text.slice(windowStart, maxLength)
-  const punctuationBoundary = Math.max(
-    preferred.lastIndexOf('. '),
-    preferred.lastIndexOf('! '),
-    preferred.lastIndexOf('? '),
-    preferred.lastIndexOf('; '),
-    preferred.lastIndexOf(': '),
-  )
-  if (punctuationBoundary >= 0) return windowStart + punctuationBoundary + 1
-
-  const commaBoundary = Math.max(preferred.lastIndexOf(', '), preferred.lastIndexOf(' - '))
-  if (commaBoundary >= 0) return windowStart + commaBoundary + 1
-
-  const whitespaceBoundary = preferred.lastIndexOf(' ')
-  if (whitespaceBoundary >= 0) return windowStart + whitespaceBoundary
-
-  return maxLength
 }
