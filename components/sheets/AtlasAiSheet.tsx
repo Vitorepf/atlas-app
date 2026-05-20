@@ -25,8 +25,12 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio'
-import {
+import Animated, {
+  Easing,
   LayoutAnimationConfig,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -265,6 +269,7 @@ import {
   traceMatchesClientId,
   traceMatchesTurnFilter,
 } from '../../lib/atlasAiRuntime'
+import { buildInteractionPayload } from '../../lib/atlasAi/contract'
 import {
   flushAtlasAiTelemetry,
   newAtlasAiCorrelationId,
@@ -284,7 +289,6 @@ import {
   threadRoutingMetadataPatch,
 } from '../../lib/atlasAiThreadRouting'
 import {
-  atlasModePayloadForRouting,
   effectiveAgent,
   executorAsProviderWord,
   geminiAutomaticEnabled,
@@ -607,6 +611,12 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       })
   }, [])
   const [keyboardHeight, setKeyboardHeight] = useState(0)
+  // Slice 6n · Reanimated shared value para keyboard offset · animação
+  // SMOOTH matching iOS native curve (vs setState raw que muda instant).
+  // Premium: paddingBottom transita via spring easing canon iOS UIView
+  // animateWithKeyboard. Funciona dentro do SideSheet (KeyboardAvoidingView
+  // não funciona aqui).
+  const keyboardHeightShared = useSharedValue(0)
   const [pending, setPending] = useState<PendingTurn | null>(null)
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null)
   const [currentThread, setCurrentThread] = useState<AtlasAiThread | null>(null)
@@ -1904,7 +1914,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const PAGE_SIZE = THREAD_PAGE_SIZE
   const PAGE_MAX = 100  // backend max
   const [pageLimit, setPageLimit] = useState(PAGE_SIZE)
-  const threadListEnabled = visible && !requestedThreadId && (threadHistoryOpen || atlasWarmupReady)
+  const threadListEnabled = visible && (threadHistoryOpen || atlasWarmupReady)
   const threadListQueryKey = useMemo(
     () => ['atlas-ai', 'threads', { status: 'active', limit: pageLimit, light: true }] as const,
     [pageLimit],
@@ -2131,6 +2141,16 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
 
     const show = Keyboard.addListener(showEvent, (event) => {
       setKeyboardHeight(event.endCoordinates.height)
+      // Slice 6n · animação canon iOS · curva nativa keyboard reveal.
+      // event.duration vem do iOS (~250ms tipicamente). Bezier match
+      // UIKitsicht UIViewAnimationCurveEaseInOut padrão Apple.
+      const duration = Platform.OS === 'ios' && typeof event.duration === 'number'
+        ? Math.max(150, event.duration)
+        : 280
+      keyboardHeightShared.value = withTiming(event.endCoordinates.height, {
+        duration,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
       void recordAtlasAiEvent({
         eventName: 'keyboard_opened',
         thread_id: currentThreadIdRef.current,
@@ -2141,7 +2161,16 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       })
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80)
     })
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0))
+    const hide = Keyboard.addListener(hideEvent, (event) => {
+      setKeyboardHeight(0)
+      const duration = Platform.OS === 'ios' && typeof event.duration === 'number'
+        ? Math.max(150, event.duration)
+        : 250
+      keyboardHeightShared.value = withTiming(0, {
+        duration,
+        easing: Easing.bezier(0.32, 0.72, 0, 1),
+      })
+    })
     return () => {
       show.remove()
       hide.remove()
@@ -3635,21 +3664,30 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         const atlasFocus = currentThread && isOperationalContextThread(currentThread) && routeFocus === 'general'
           ? 'operational'
           : routeFocus
+        const hyperflowBuild = buildInteractionPayload({
+          mode: routingSnapshot.mode,
+          task: routingSnapshot.task,
+          provider: routingSnapshot.executor,
+          workspaceSlug: currentThread?.workspace ?? null,
+          routingDomain: routingSnapshot.domain === 'auto' ? undefined : routingSnapshot.domain,
+          conversationContext,
+        })
         const domainSelection = domainCatalog
           ? selectAtlasAiDomainFlow(domainCatalog, {
-              surface_id: 'atlas_app',
+              surface_id: 'atlas_mobile_ai',
               mode: routingSnapshot.mode,
               task: routingSnapshot.task,
               routing_domain: routingSnapshot.domain,
+              domain_id: typeof hyperflowBuild.payload.domain_id === 'string' ? hyperflowBuild.payload.domain_id : undefined,
+              flow_id: typeof hyperflowBuild.payload.flow_id === 'string' ? hyperflowBuild.payload.flow_id : undefined,
             })
           : null
-        const modePolicy = atlasModePayloadForRouting(routingSnapshot, atlasFocus, currentThread?.workspace ?? null)
         const threadRuntimePolicy =
           threadId && currentThread?.id === threadId
             ? runtimePolicyPayloadForThread(currentThread, atlasFocus)
             : {}
         const runtimePolicy = {
-          ...modePolicy,
+          ...hyperflowBuild.payload,
           ...threadRuntimePolicy,
           ...(threadOriginPayload ?? {}),
         }
@@ -3707,14 +3745,16 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           file_attachments: fileAttachments.map(({ id: _id, ...attachment }) => attachment),
           on_upload_progress: handleUploadProgress,
           payload: {
-            app_surface: 'atlas_ai_sheet',
-            atlas_focus: atlasFocus,
-            atlas_workflow_mode: routingSnapshot.task === 'debug' ? 'dev' : routingSnapshot.task,
+            ...runtimePolicy,
+            app_surface: 'atlas_mobile_ai',
+            mobile_surface_id: 'atlas_ai_sheet',
+            atlas_focus: runtimePolicy.atlas_focus ?? atlasFocus,
+            atlas_workflow_mode: runtimePolicy.atlas_workflow_mode ?? (routingSnapshot.task === 'debug' ? 'dev' : routingSnapshot.task),
             open_brain: openBrainPayloadForRouting(routingSnapshot),
-            decision_mode: decisionMode,
-            routing_task: routingSnapshot.task,
-            routing_domain: routingSnapshot.domain,
-            requested_agent: routingSnapshot.domain,
+            decision_mode: runtimePolicy.decision_mode ?? decisionMode,
+            routing_task: runtimePolicy.routing_task ?? routingSnapshot.task,
+            routing_domain: runtimePolicy.routing_domain ?? routingSnapshot.domain,
+            requested_agent: routingSnapshot.domain === 'auto' ? undefined : routingSnapshot.domain,
             requested_provider: provider,
             operator_requested_provider: routingSnapshot.executor,
             context_strategy_hint: attachmentAnalysisPreferred ? 'long_context_or_multimodal' : undefined,
@@ -3743,7 +3783,6 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             council_rule: councilMode
               ? 'both_propose_or_review; execution_requires_single_provider'
               : undefined,
-            ...runtimePolicy,
           },
         })
 
@@ -4599,7 +4638,16 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   // do listener Keyboard.addListener. Quando keyboard fecha, padding volta a 0.
   // FlatList encolhe pra acomodar (já é flex: 1) e Footer composer fica
   // visível logo acima do teclado · vocabulário "Don Corleone scrivendo carta".
-  const keyboardOffset = keyboardHeight > 0 ? Math.max(0, keyboardHeight - insets.bottom) : 0
+  // Slice 6n · keyboardOffset agora derivado do shared value (animated).
+  // Mantido useState keyboardHeight pra outros consumers (telemetry,
+  // recording logic, etc) que ainda usam sync value.
+  void keyboardHeight // referenced via setState only for telemetry now
+  // Animated paddingBottom matching iOS keyboard curve. insetBottom
+  // subtraído pra evitar double-safe-area-stack.
+  const insetsBottom = insets.bottom
+  const fillAnimStyle = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, keyboardHeightShared.value - insetsBottom),
+  }))
   const voiceRecordingBlockReason = recordingActive
     ? null
     : mobileVoiceRecordingBlockReason({
@@ -4615,7 +4663,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
 
   return renderContainer(
     <>
-      <View style={[styles.fill, keyboardOffset > 0 && { paddingBottom: keyboardOffset }]}>
+      <Animated.View style={[styles.fill, fillAnimStyle]}>
         <AtlasAiHeader
           loading={loading}
           onBack={closeAndGoBack}
@@ -4773,8 +4821,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           onStartRecording={() => void handleComposerRecordStart()}
           recording={recordingActive}
           turnCount={turns.length}
+          mode={routing.mode}
         />
-      </View>
+      </Animated.View>
 
       {attachmentSheetOpen ? (
         <AttachmentSheet
@@ -4828,6 +4877,13 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           onConfirm={confirmRouting}
         />
       ) : null}
+
+      {/* CANON PROMISE redesign · ComposerModeSheet / ComposerProviderSheet
+          REMOVIDOS após review do usuário. Auto pill agora abre routing
+          FULL (AtlasDecideSheet acima) preservando todas as configurações
+          (mode/task/domain/style/executor). Sheets dedicados perdiam
+          task/domain/style — eram regressão UX. */}
+
 
       {/* v18 · Voice Mode · canon mockup · conversa por voz tempo real
           fullscreen sem chrome. Acessado via long-press no ✦ send do

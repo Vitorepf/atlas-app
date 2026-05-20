@@ -9,6 +9,8 @@ import type {
   AtlasAiThread,
   AtlasAiTrace,
 } from '../../../lib/api/client'
+import { useHyperflowRuntime } from '../../../lib/atlasAi/useHyperflowRuntime'
+import { useRuntimeReadiness } from '../../../lib/atlasAi/useRuntimeReadiness'
 import { CaptionWhisper } from '../../console/CaptionWhisper'
 import { BottomSheet } from '../BottomSheet'
 import {
@@ -19,6 +21,7 @@ import {
   SheetHeading,
 } from './AtlasAiDataPrimitives'
 import { providerWord } from './threadHistoryModel'
+import { presentationMetadataForTrace } from './AtlasAiTurnModel'
 
 export function ContextSheet({
   visible,
@@ -40,10 +43,44 @@ export function ContextSheet({
   onClose: () => void
 }) {
   const { c } = useTheme()
+  const hyperflow = useHyperflowRuntime(latestTrace)
+  const runtimeReadiness = useRuntimeReadiness({ enabled: visible })
+  const showRuntimeBlock = runtimeReadiness.status !== 'unavailable' && runtimeReadiness.status !== 'loading'
+  const presentationMetadata = latestTrace ? presentationMetadataForTrace(latestTrace) : null
+  const presentationSections = presentationMetadata
+    ? Object.entries(presentationMetadata.sections).filter(([, lines]) => lines.length > 0)
+    : []
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
       <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
         <SheetHeading title="Contexto ativo" subtitle={thread?.title ?? 'nova conversa'} />
+
+        <DataSection title="decisão hyperflow">
+          {hyperflow.isReady ? (
+            <>
+              <DataRow label="intent" value={`${hyperflow.intentLabel} (${hyperflow.intent})`} />
+              <DataRow label="domínio" value={hyperflow.domainId ?? '—'} />
+              <DataRow label="flow_id" value={hyperflow.flowId ?? '—'} />
+              <DataRow label="runtime" value={hyperflow.runtimeMode ?? '—'} />
+              <DataRow
+                label="confiança"
+                value={hyperflow.confidence != null ? `${Math.round(hyperflow.confidence * 100)}%` : '—'}
+              />
+              <DataRow label="dispatch" value={hyperflow.dispatchStatus ?? '—'} />
+              {hyperflow.handoffTarget ? (
+                <DataRow label="handoff" value={hyperflow.handoffTarget} />
+              ) : null}
+              {hyperflow.receiptHash ? (
+                <DataRow label="receipt" value={shortId(hyperflow.receiptHash)} />
+              ) : null}
+              <DataList label="razões" items={hyperflow.reasons} />
+            </>
+          ) : hyperflow.isPending ? (
+            <EmptyInline text="router processando · aguardando decisão" />
+          ) : (
+            <EmptyInline text="sem decisão hyperflow nesta interação" />
+          )}
+        </DataSection>
 
         <DataSection title="sessão">
           <DataRow label="objetivo" value={state?.objective || 'não definido'} />
@@ -73,6 +110,33 @@ export function ContextSheet({
           )}
         </DataSection>
 
+        {showRuntimeBlock ? (
+          <DataSection title="Atlas Runtime">
+            <DataRow label="status" value={runtimeReadiness.statusLabel} />
+            {runtimeReadiness.raw?.summary ? (
+              <DataRow
+                label="checks"
+                value={`${runtimeReadiness.raw.summary.passed ?? 0}/${runtimeReadiness.raw.summary.total ?? 0} passed`}
+              />
+            ) : null}
+            {runtimeReadiness.criticalFailed > 0 ? (
+              <DataRow label="críticos" value={`${runtimeReadiness.criticalFailed} failed`} />
+            ) : null}
+            {runtimeReadiness.warnFailed > 0 ? (
+              <DataRow label="warnings" value={String(runtimeReadiness.warnFailed)} />
+            ) : null}
+            {runtimeReadiness.certificationHashShort ? (
+              <DataRow label="cert_hash" value={runtimeReadiness.certificationHashShort} />
+            ) : null}
+            {runtimeReadiness.blockers.length > 0 ? (
+              <DataList label="blockers" items={Array.from(runtimeReadiness.blockers).slice(0, 6)} />
+            ) : null}
+            {runtimeReadiness.warnings.length > 0 ? (
+              <DataList label="warnings" items={Array.from(runtimeReadiness.warnings).slice(0, 6)} />
+            ) : null}
+          </DataSection>
+        ) : null}
+
         <DataSection title="handoff">
           <DataRow
             label="provider"
@@ -89,6 +153,14 @@ export function ContextSheet({
           <DataList label="refs" items={latestTrace?.context_refs} />
           <DataList label="skills" items={skillVersionLabels(latestTrace)} />
         </DataSection>
+
+        {presentationSections.length > 0 ? (
+          <DataSection title="auditoria da resposta">
+            {presentationSections.map(([key, lines]) => (
+              <DataList key={key} label={editorialLabelFor(key)} items={lines} />
+            ))}
+          </DataSection>
+        ) : null}
 
         <DataSection title="snapshots">
           {snapshots.length === 0 ? (
@@ -112,6 +184,38 @@ export function ContextSheet({
       </ScrollView>
     </BottomSheet>
   )
+}
+
+function editorialLabelFor(key: string): string {
+  switch (key) {
+    case 'source_refs':
+    case 'sources':
+      return 'fontes'
+    case 'uncertainty':
+      return 'incerteza'
+    case 'relevant_context_refs':
+    case 'context_refs':
+      return 'contexto'
+    case 'evidence_refs':
+    case 'evidence':
+      return 'evidência'
+    case 'trace':
+      return 'trace'
+    case 'receipt':
+      return 'receipt'
+    case 'routing':
+      return 'routing'
+    case 'confidence':
+      return 'confiança'
+    case 'handoff':
+      return 'handoff'
+    case 'context_pack':
+      return 'context pack'
+    case 'metadata':
+      return 'metadata'
+    default:
+      return key.replace(/[_-]+/g, ' ')
+  }
 }
 
 function skillVersionLabels(trace: AtlasAiTrace | null): string[] {

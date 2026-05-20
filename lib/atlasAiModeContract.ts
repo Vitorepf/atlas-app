@@ -1,3 +1,17 @@
+/**
+ * @deprecated · 2026-05-18 · use `lib/atlasAi/contract.ts` (V2, 12 modos canon).
+ *
+ * Este arquivo é o contrato V1 (3 modos: general/operational/programming) e
+ * NÃO reflete o canon atual do Atlas AI (12 modos · auto default · Hyperflow
+ * routing). Mantido temporariamente pra não quebrar consumidores existentes.
+ *
+ * Migração: consumidores devem trocar para:
+ *   - import { ... } from 'lib/atlasAi/contract'
+ *   - buildInteractionPayload() ao invés de atlasModePayloadForRoutingContract()
+ *   - 12 modes incluindo 'auto' default
+ *
+ * Anti-regressão: NÃO adicionar novos consumidores deste arquivo.
+ */
 import type { AtlasAiFocus } from './atlasAiFocus'
 
 export type AtlasAiMode = 'general' | 'operational' | 'programming'

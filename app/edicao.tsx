@@ -1260,6 +1260,13 @@ export default function HomeScreen() {
           accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
           variant="codex"
         />
+        <TocRow
+          label="Cartografia"
+          value="mapa vivo do atlas"
+          onPress={() => router.push('/cartografia')}
+          accessibilityLabel="Abrir Cartografia · mapa vivo do Atlas."
+          variant="codex"
+        />
 
         <SectionHead numeral="iii" title="Tecido" deck="constelações · fios soltos" />
 

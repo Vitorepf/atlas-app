@@ -148,6 +148,8 @@ function ThreadHistorySheetInner({
         spellCheck={false}
         autoComplete="off"
         textContentType="none"
+        selectionColor={c.bronze}
+        cursorColor={c.bronze}
         style={[styles.historicoSearch, { color: c.ink, borderBottomColor: c.border }]}
       />
 

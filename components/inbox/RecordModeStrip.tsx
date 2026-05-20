@@ -4,6 +4,7 @@ import Animated, {
   Easing,
   cancelAnimation,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -68,6 +69,9 @@ export function RecordModeStrip({
   const pauseLockRef = useRef(false)
   const elapsedMs = durationMs != null ? durationMs : internalElapsedMs
 
+  // Slice 6ai · reducedMotion guard canon accessibility · recording
+  // ainda mostra estado visível (opacity 0.8 static) sem pulse infinito.
+  const reducedMotion = useReducedMotion()
   const pulseOpacity = useSharedValue(0.6)
   const pulseScale = useSharedValue(1)
 
@@ -77,6 +81,13 @@ export function RecordModeStrip({
       cancelAnimation(pulseOpacity)
       cancelAnimation(pulseScale)
       pulseOpacity.value = withTiming(paused ? 0.4 : 0.6, { duration: 200 })
+      pulseScale.value = withTiming(1, { duration: 200 })
+      return
+    }
+    if (reducedMotion) {
+      cancelAnimation(pulseOpacity)
+      cancelAnimation(pulseScale)
+      pulseOpacity.value = withTiming(0.8, { duration: 200 })
       pulseScale.value = withTiming(1, { duration: 200 })
       return
     }
@@ -100,7 +111,7 @@ export function RecordModeStrip({
       cancelAnimation(pulseOpacity)
       cancelAnimation(pulseScale)
     }
-  }, [visible, paused, pulseOpacity, pulseScale])
+  }, [visible, paused, pulseOpacity, pulseScale, reducedMotion])
 
   // Timer interno · só roda quando externalDuration NÃO foi passado.
   // Pause sincroniza · quando paused, timer interno também pausa.

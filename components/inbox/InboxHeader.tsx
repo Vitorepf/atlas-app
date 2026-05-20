@@ -109,7 +109,7 @@ export function InboxModeTabs({
       {layoutsReady ? (
         <Animated.View
           pointerEvents="none"
-          style={[styles.modeTabSliderUnderline, sliderStyle]}
+          style={[styles.modeTabSliderUnderline, { backgroundColor: c.bronze }, sliderStyle]}
         />
       ) : null}
     </View>

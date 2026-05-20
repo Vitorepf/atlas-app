@@ -9,18 +9,28 @@ import {
   isAtlasTraceActive,
   sortAtlasTraces,
 } from '../../../lib/atlasAiRuntime'
+import {
+  type PresentationContext,
+  type PresentationMetadata,
+  type PresentationResult,
+  projectPresentation,
+} from '../../../lib/atlasAi/presentationContract'
+import { extractHyperflow } from '../../../lib/atlasAi/hyperflowRuntime'
+import {
+  summarizeYouTubeVideo,
+  type YouTubeVideoSummary,
+} from '@atlas/rich-input-canon'
 import type { FeedbackAction } from './AtlasAiQualityFeedback'
 import type { TurnBody } from './AtlasAiTurnBody'
 import { providerWord } from './threadHistoryModel'
 
-export interface YouTubeSourceSummary {
-  key: string
-  title: string
-  status: string
-  source: string
-  detail: string
-  progress?: number | null
-}
+/**
+ * Canonical YouTube summary — projected by `@atlas/rich-input-canon` from
+ * `trace.job.payload.youtube_ingestion.videos[]`. Three independent
+ * dimensions: ingestion, transcript, translation. NEVER claim translation
+ * that did not happen. See `atlas-server/docs/rich-input/youtube-canon.md`.
+ */
+export type YouTubeSourceSummary = YouTubeVideoSummary
 
 export function bodyFromTrace(
   trace: AtlasAiTrace,
@@ -101,40 +111,11 @@ export function youtubeSourcesFromTrace(trace: AtlasAiTrace): YouTubeSourceSumma
     const ingestion = recordValue(job.payload?.youtube_ingestion)
     const videos = Array.isArray(ingestion?.videos) ? ingestion.videos : []
     for (const item of videos) {
-      const video = recordValue(item)
-      if (!video) continue
-      const metadata = recordValue(video.metadata)
-      const caption = recordValue(video.caption)
-      const fallback = recordValue(video.audio_fallback)
-      const processing = recordValue(video.processing) ?? recordValue(recordValue(video.diagnostics)?.processing)
-      const url = stringValue(video.url)
-      const title = stringValue(metadata?.title) ?? stringValue(video.url) ?? 'YouTube'
-      const status = stringValue(video.status) ?? 'unknown'
-      const source = sourceLabel(
-        stringValue(metadata?.metadata_source),
-        stringValue(caption?.kind),
-        stringValue(fallback?.status),
-        Boolean(video.cache_hit),
-        status,
-      )
-      const progress = numberValue(processing?.progress)
-      const eta = numberValue(processing?.estimated_remaining_seconds)
-      const detail = [
-        statusLabel(status),
-        stringValue(metadata?.channel),
-        durationLabel(numberValue(metadata?.duration_seconds)),
-        eta ? `~${durationLabel(eta) ?? `${Math.round(eta)}s`}` : null,
-        Boolean(video.cache_hit) ? 'cache' : null,
-      ].filter(Boolean).join(' · ')
-
-      sources.push({
-        key: url ?? `${job.id}:${sources.length}`,
-        title,
-        status,
-        source,
-        detail,
-        progress,
+      const summary = summarizeYouTubeVideo(item, {
+        targetLanguage: 'pt-BR',
+        locale: 'pt-BR',
       })
+      if (summary) sources.push(summary)
     }
   }
 
@@ -225,16 +206,48 @@ export function formatConversationForCopy(traces: AtlasAiTrace[]): string {
 }
 
 export function pickResponseText(trace: AtlasAiTrace): string {
-  const remediation = bestRemediationAction(trace)
-  const remediationText = remediation?.remediation_trace
-    ? pickRawResponseText(remediation.remediation_trace)
-    : ''
-  if (remediationText) return remediationText
-
-  return pickRawResponseText(trace)
+  return projectResponseTextForTrace(trace).body
 }
 
 export function pickRawResponseText(trace: AtlasAiTrace): string {
+  return rawResponseTextForTrace(trace)
+}
+
+/**
+ * Texto bruto, sem sanitização. Usado em contexto técnico (auditoria, trace,
+ * histórico para LLM) onde queremos preservar tudo que o provider emitiu.
+ */
+export function responseTextForTrace(trace: AtlasAiTrace): string {
+  return rawResponseTextForTrace(trace)
+}
+
+/**
+ * Projeção editorial do response_text via PresentationContract. Devolve
+ * `{ body, metadata }`: body vai para EditorialMarkdown, metadata alimenta
+ * o ContextPanel/Trace quando o response_text vazou source_refs/uncertainty
+ * crus.
+ */
+export function projectResponseTextForTrace(trace: AtlasAiTrace): PresentationResult {
+  const remediation = bestRemediationAction(trace)
+  const sourceTrace = remediation?.remediation_trace ?? trace
+  const raw = rawResponseTextForTrace(sourceTrace)
+  if (!raw) {
+    return { body: '', metadata: { sections: {} }, technicalSectionsFound: 0 }
+  }
+
+  const context = presentationContextForTrace(sourceTrace)
+  return projectPresentation(raw, context)
+}
+
+/**
+ * Metadados (source_refs/uncertainty/...) extraídos do response_text quando
+ * o provider emitiu eles como cabeçalhos crus, prontos para o ContextPanel.
+ */
+export function presentationMetadataForTrace(trace: AtlasAiTrace): PresentationMetadata {
+  return projectResponseTextForTrace(trace).metadata
+}
+
+function rawResponseTextForTrace(trace: AtlasAiTrace): string {
   return (
     trace.response_text?.trim()
     || trace.job?.result_text?.trim()
@@ -244,6 +257,14 @@ export function pickRawResponseText(trace: AtlasAiTrace): string {
       .join('\n\n')
     || ''
   )
+}
+
+function presentationContextForTrace(trace: AtlasAiTrace): PresentationContext {
+  const hyperflow = extractHyperflow(trace)
+  const domain = hyperflow?.domain_id ?? hyperflow?.intent ?? null
+  return {
+    technicalDomain: domain,
+  }
 }
 
 export function attribution(trace: AtlasAiTrace): string {
@@ -336,38 +357,10 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function sourceLabel(metadataSource: string | null, captionKind: string | null, fallbackStatus: string | null, cacheHit: boolean, status?: string): string {
-  if (cacheHit) return 'YouTube · cache pronto'
-  if (status === 'processing') return 'YouTube · transcrevendo áudio'
-  if (captionKind === 'whisper_audio') return 'YouTube · Whisper'
-  if (captionKind) return `YouTube · ${captionKind === 'asr' || captionKind === 'automatic' ? 'legenda automática' : 'legenda'}`
-  if (fallbackStatus) return `YouTube · áudio ${statusLabel(fallbackStatus).toLowerCase()}`
-  if (metadataSource?.includes('youtube_data_api')) return 'YouTube · metadados oficiais'
-  return 'YouTube'
-}
-
-function durationLabel(seconds: number | null): string | null {
-  if (seconds == null || seconds <= 0) return null
-  const mins = Math.round(seconds / 60)
-  if (mins < 60) return `${mins} min`
-  const hours = Math.floor(mins / 60)
-  const rest = mins % 60
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
-}
-
-function statusLabel(status: string): string {
-  if (status === 'ready') return 'transcrição pronta'
-  if (status === 'processing' || status === 'queued') return 'processando'
-  if (status === 'caption_unavailable') return 'sem legenda'
-  if (status === 'transcript_empty') return 'transcrição vazia'
-  if (status === 'metadata_unavailable') return 'metadados indisponíveis'
-  if (status === 'skipped_duration') return 'vídeo longo'
-  if (status === 'download_failed') return 'download falhou'
-  if (status === 'runtime_missing') return 'runtime ausente'
-  if (status === 'disabled') return 'desativado'
-  if (status === 'failed' || status === 'caption_failed') return 'falhou'
-  return status.replace(/[_-]+/g, ' ')
-}
+// YouTube label/source helpers migrated to `@atlas/rich-input-canon`
+// (`youtubeIngestionStatusLabel`, `youtubeTranscriptStatusLabel`,
+// `youtubeTranslationStatusLabel`, `summarizeYouTubeVideo`). See
+// `atlas-server/docs/rich-input/youtube-canon.md`.
 
 function formatLatency(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)} ms`

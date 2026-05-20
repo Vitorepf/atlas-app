@@ -1,4 +1,12 @@
 import { Pressable, StyleSheet, View } from 'react-native'
+import * as Haptics from 'expo-haptics'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
 import { Frau, Sans } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
 import type {
@@ -117,22 +125,41 @@ export function FeedbackButton({
   onPress: () => void
 }) {
   const { c } = useTheme()
+  // Slice 6w · haptic Soft no press · canon premium iOS tactile
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress()
+  }
+  // Slice 6w · scale press canon iOS
+  const pressScale = useSharedValue(1)
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }))
   return (
-    <Pressable
-      onPress={onPress}
-      hitSlop={8}
-      style={({ pressed }) => [
-        styles.feedbackButton,
-        {
-          borderColor: active ? c.moss : c.border,
-          opacity: pressed ? 0.6 : 1,
-        },
-      ]}
-    >
-      <Frau italic size={13} lineHeight={18} color={active ? c.moss : c.ink2}>
-        {label}
-      </Frau>
-    </Pressable>
+    <Animated.View style={pressAnimStyle}>
+      <Pressable
+        onPress={handlePress}
+        hitSlop={8}
+        onPressIn={() => {
+          pressScale.value = withTiming(0.96, { duration: 120, easing: Easing.out(Easing.quad) })
+        }}
+        onPressOut={() => {
+          pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
+        }}
+        style={({ pressed }) => [
+          styles.feedbackButton,
+          {
+            borderColor: active ? c.moss : c.border,
+            backgroundColor: pressed ? c.bgRaised : 'transparent',
+            opacity: 1,
+          },
+        ]}
+      >
+        <Frau italic size={13} lineHeight={18} color={active ? c.moss : c.ink2}>
+          {label}
+        </Frau>
+      </Pressable>
+    </Animated.View>
   )
 }
 
@@ -190,23 +217,41 @@ function QualityActionButton({
   onPress: () => void
 }) {
   const { c } = useTheme()
+  // Slice 6aa · haptic + scale press canon premium
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress()
+  }
+  const pressScale = useSharedValue(1)
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }))
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={8}
-      style={({ pressed }) => [
-        styles.qualityAction,
-        {
-          borderColor: c.border,
-          opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
-        },
-      ]}
-    >
-      <Frau italic size={12} lineHeight={16} color={c.ink2}>
-        {label}
-      </Frau>
-    </Pressable>
+    <Animated.View style={pressAnimStyle}>
+      <Pressable
+        onPress={handlePress}
+        disabled={disabled}
+        hitSlop={8}
+        onPressIn={() => {
+          pressScale.value = withTiming(0.96, { duration: 120, easing: Easing.out(Easing.quad) })
+        }}
+        onPressOut={() => {
+          pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
+        }}
+        style={({ pressed }) => [
+          styles.qualityAction,
+          {
+            borderColor: c.border,
+            backgroundColor: pressed ? c.bgRaised : 'transparent',
+            opacity: disabled ? 0.35 : 1,
+          },
+        ]}
+      >
+        <Frau italic size={12} lineHeight={16} color={c.ink2}>
+          {label}
+        </Frau>
+      </Pressable>
+    </Animated.View>
   )
 }
 

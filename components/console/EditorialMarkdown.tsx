@@ -41,7 +41,22 @@ function BlockView({ block, tone }: { block: Block; tone: Tone }) {
       return <QuoteBlock spans={block.spans} />
     case 'code':
       return (
-        <View style={[styles.codeBlock, { backgroundColor: c.surface, borderColor: c.border }]}>
+        // Slice 6ad · code block canon premium · surface raised mais profundo
+        // + inner top highlight subtle pra effect "carved in slate" canon.
+        <View style={[
+          styles.codeBlock,
+          {
+            backgroundColor: c.surface,
+            borderColor: c.border,
+            // Shadow inset não funciona em RN View · usar boxShadow CSS-like
+            // via shadow* props · subtle drop pra parecer "carved"
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.12,
+            shadowRadius: 2,
+            elevation: 1,
+          },
+        ]}>
           <Mono size={13} lineHeight={20} color={c.ink}>
             {block.text}
           </Mono>
@@ -330,10 +345,11 @@ const styles = StyleSheet.create({
   quoteMarker: { width: 2, borderRadius: 1, marginRight: 14 },
   quoteBody: { flex: 1, paddingVertical: 2 },
   codeBlock: {
-    borderRadius: 8,
+    // Slice 6ad · radius 10 (era 8) canon sheet-radius family premium
+    borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   // Tabela editorial Atlas · hairlines top + bottom como "register marks"
   // de Patek dial. Sem border lateral (sem caixa SaaS).

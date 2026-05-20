@@ -1,0 +1,109 @@
+================================================================
+Atlas AI · Presentation Snapshot · Hyperflow V2 sanitization
+================================================================
+
+## raw response_text (regressed input from provider)
+----------------------------------------------------------------
+## answer_summary
+A migração para Hyperflow V2 mantém o trace completo, mas separa a apresentação editorial dos metadados técnicos. O operador vê resposta limpa em português; auditoria fica no painel de contexto.
+
+A integração funciona com três providers (Claude, Gemini, Codex) e respeita o **contrato de identidade Atlas**.
+
+## claims_table
+
+| Provider | Latência média | Cache |
+| --- | --- | --- |
+| Claude  | 1.2s | sim |
+| Gemini  | 0.9s | sim |
+| Codex   | 1.5s | parcial |
+
+Veja a [documentação canônica](https://atlas.local/docs/hyperflow) para o pipeline completo.
+
+```ts
+const result = projectPresentation(trace.response_text)
+```
+
+## SOURCE_REFS
+- ref:docs/engineering-knowledge-base/atlas-ai-hyperflow-runtime.md
+- ref:app/Services/Ai/RouterRuntime/AtlasHyperflowEntryService.php
+- ref:hash:sha256:abc123
+
+## UNCERTAINTY
+Não validamos o comportamento sob >10k req/s. O ledger ainda não tem dados de produção.
+
+## open_questions
+- O AtlasVault precisa migrar índices?
+- Existe budget para rodar bateria semanal?
+
+
+## body (após PresentationContract → EditorialMarkdown)
+----------------------------------------------------------------
+## Resposta
+
+A migração para Hyperflow V2 mantém o trace completo, mas separa a apresentação editorial dos metadados técnicos. O operador vê resposta limpa em português; auditoria fica no painel de contexto.
+
+A integração funciona com três providers (Claude, Gemini, Codex) e respeita o **contrato de identidade Atlas**.
+
+---
+
+## Afirmações
+
+| Provider | Latência média | Cache |
+| --- | --- | --- |
+| Claude  | 1.2s | sim |
+| Gemini  | 0.9s | sim |
+| Codex   | 1.5s | parcial |
+
+Veja a [documentação canônica](https://atlas.local/docs/hyperflow) para o pipeline completo.
+
+```ts
+const result = projectPresentation(trace.response_text)
+```
+
+---
+
+## Perguntas em aberto
+
+- O AtlasVault precisa migrar índices?
+- Existe budget para rodar bateria semanal?
+
+## AST blocks (que EditorialMarkdown consome em React Native)
+----------------------------------------------------------------
+heading h2: Resposta
+paragraph: A migração para Hyperflow V2 mantém o trace completo, mas separa a apresentação editorial dos metadados técnicos. O operador vê resposta limpa em português; auditoria fica no painel de contexto.
+paragraph: A integração funciona com três providers (Claude, Gemini, Codex) e respeita o contrato de identidade Atlas.
+divider ····················· (DividerEditorial · hairline ✦ hairline)
+heading h2: Afirmações
+table:
+  headers: Provider | Latência média | Cache
+  row: Claude | 1.2s | sim
+  row: Gemini | 0.9s | sim
+  row: Codex | 1.5s | parcial
+paragraph: Veja a documentação canônica (https://atlas.local/docs/hyperflow) para o pipeline completo.
+code[ts]:
+  | const result = projectPresentation(trace.response_text)
+divider ····················· (DividerEditorial · hairline ✦ hairline)
+heading h2: Perguntas em aberto
+list[bullet]:
+  · O AtlasVault precisa migrar índices?
+  · Existe budget para rodar bateria semanal?
+
+## metadata (consumido pelo AtlasAiContextSheet "auditoria")
+----------------------------------------------------------------
+source_refs:
+  · - ref:docs/engineering-knowledge-base/atlas-ai-hyperflow-runtime.md
+  · - ref:app/Services/Ai/RouterRuntime/AtlasHyperflowEntryService.php
+  · - ref:hash:sha256:abc123
+uncertainty:
+  · Não validamos o comportamento sob >10k req/s. O ledger ainda não tem dados de produção.
+
+## invariants
+----------------------------------------------------------------
+- technical_sections_found: 5
+- editorial_headings:       3
+- divider_count:            2
+- table_count:              1
+- list_count:               1
+- code_count:               1
+- link_count:               1
+================================================================

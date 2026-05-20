@@ -426,7 +426,7 @@ export default function CaptureScreen() {
                     backgroundColor: c.ink,
                     opacity: saving || starting ? 0.45 : 1,
                     transform: [{ scale: pressed ? 0.94 : 1 }],
-                    shadowColor: name === 'dark' ? '#000' : '#1C1916',
+                    shadowColor: name === 'dark' ? '#000' : '#1A1612',
                   },
                 ]}
               >
@@ -442,7 +442,7 @@ export default function CaptureScreen() {
                     backgroundColor: c.ink,
                     opacity: saving ? 0.45 : 1,
                     transform: [{ scale: pressed ? 0.97 : 1 }],
-                    shadowColor: name === 'dark' ? '#000' : '#1C1916',
+                    shadowColor: name === 'dark' ? '#000' : '#1A1612',
                   },
                 ]}
               >

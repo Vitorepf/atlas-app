@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Atlas Composer Mobile · CANON PROMISE delivered</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #1d2b34;
+      --surface: #243743;
+      --surface-raised: #2d4351;
+      --ink: #d6dde2;
+      --ink2: #95a3ac;
+      --ink3: #677482;
+      --ink-strong: #f0f4f7;
+      --border: rgba(233, 238, 242, 0.10);
+      --border-focused: rgba(212, 168, 90, 0.55);
+      --bronze: #d4a85a;
+      --bronze-strong: #e6b966;
+
+      --font-sans: 'Inter', -apple-system, sans-serif;
+      --font-frau: 'Fraunces', Georgia, serif;
+      --font-corm: 'Cormorant Garamond', Georgia, serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(45,67,81,0.16) 0%, transparent 55%),
+        linear-gradient(180deg, #0c1218 0%, #0a0f14 100%);
+      color: #b8c0c6;
+      min-height: 100vh;
+      padding: 56px 48px;
+    }
+
+    .head { max-width: 1480px; margin: 0 auto 56px; padding: 0 8px; }
+    .eyebrow {
+      font-size: 10px; font-weight: 540;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--bronze); margin-bottom: 14px; opacity: 0.82;
+    }
+    .title {
+      font-family: var(--font-frau); font-style: italic;
+      font-weight: 400; font-size: 38px; line-height: 1.08;
+      letter-spacing: -0.018em; color: var(--ink-strong); margin: 0 0 12px;
+    }
+    .subtitle {
+      font-size: 13px; color: var(--ink2); max-width: 720px;
+      line-height: 1.6; margin: 0;
+    }
+
+    .grid {
+      display: flex; justify-content: center;
+      gap: 48px; flex-wrap: wrap;
+      max-width: 1600px; margin: 0 auto;
+    }
+    .phone-card {
+      display: flex; flex-direction: column; align-items: center; gap: 22px;
+    }
+    .iphone {
+      display: inline-block; padding: 12px;
+      background: #000; border-radius: 60px;
+      box-shadow: 0 0 0 2px #1f2937, 0 24px 60px rgba(0,0,0,0.45);
+      position: relative;
+    }
+    .iphone__screen {
+      position: relative; width: 393px; height: 852px;
+      border-radius: 48px; overflow: hidden; background: #000;
+    }
+    .status-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 54px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px; font-size: 16px; font-weight: 600; color: #fff;
+      font-family: -apple-system, 'SF Pro Text', sans-serif; z-index: 20;
+    }
+    .signal { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .signal i { width: 3px; background: currentColor; border-radius: 1px; display: block; }
+    .battery {
+      width: 26px; height: 12px; border: 1.5px solid currentColor;
+      border-radius: 3px; padding: 1px; position: relative; opacity: 0.88;
+    }
+    .battery::after {
+      content: ''; position: absolute; top: 3px; right: -3px;
+      width: 2px; height: 6px; background: currentColor;
+    }
+    .battery i { display: block; width: 92%; height: 100%; background: currentColor; }
+    .island {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      width: 124px; height: 36px; background: #000; border-radius: 999px; z-index: 30;
+    }
+    .status-icons { display: flex; align-items: center; gap: 6px; }
+    .home {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      width: 140px; height: 5px; background: rgba(255,255,255,0.5); border-radius: 999px; z-index: 10;
+    }
+    .content { position: absolute; top: 54px; left: 0; right: 0; bottom: 34px; overflow: hidden; }
+
+    .canvas {
+      width: 100%; height: 100%;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(45,67,81,0.16) 0%, transparent 55%),
+        linear-gradient(180deg, var(--bg) 0%, #1a2832 100%);
+      display: flex; flex-direction: column;
+    }
+
+    /* Conversation area · ~55% viewport */
+    .turns {
+      flex: 1;
+      padding: 32px 24px 12px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      gap: 22px;
+      position: relative;
+    }
+    .turns::after {
+      content: '';
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 32px;
+      pointer-events: none;
+      background: linear-gradient(180deg, transparent 0%, rgba(29, 43, 52, 0.85) 100%);
+    }
+    .turn-meta {
+      font-size: 9.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 6px;
+      opacity: 0.72;
+    }
+    .turn-text {
+      font-size: 15px;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+
+    /* ─── CANON COMPOSER FOOTER ─── */
+    .footer {
+      background: var(--bg);
+      padding: 14px 24px 24px;
+    }
+
+    /* Status row offline */
+    .offline-row {
+      text-align: center;
+      padding: 4px 24px 6px;
+    }
+    .offline-text {
+      font-family: var(--font-frau);
+      font-style: italic;
+      font-size: 13px;
+      line-height: 18px;
+      color: var(--ink2);
+      opacity: 0.78;
+    }
+
+    /* ✦ DividerEditorial · hairline + Cormorant gold ✦ */
+    .divider {
+      display: flex; align-items: center;
+      padding: 6px 0 10px;
+    }
+    .divider-line {
+      flex: 1; height: 0.5px;
+      background: var(--border);
+    }
+    .divider-glyph {
+      padding: 0 14px;
+      font-family: var(--font-corm);
+      font-style: italic;
+      font-weight: 500;
+      font-size: 11px;
+      color: var(--bronze);
+      opacity: 0.7;
+    }
+
+    /* ── THE CARD · CANON PROMISE · embossed manuscript ── */
+    .card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 22px;
+      padding: 20px 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 130px;
+      position: relative;
+      transition: border-color 240ms cubic-bezier(0.16,1,0.3,1),
+                  box-shadow 240ms cubic-bezier(0.16,1,0.3,1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15),
+                  inset 0 1px 0 rgba(233,238,242,0.06);
+    }
+    .card.focused {
+      border-color: var(--border-focused);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2),
+                  inset 0 1px 0 rgba(212,168,90,0.12),
+                  0 0 0 3px rgba(212,168,90,0.08);
+    }
+
+    /* Hero placeholder area · Frau italic large inside card */
+    .hero-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-height: 32px;
+    }
+    .placeholder-hero {
+      flex: 1;
+      font-family: var(--font-frau);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 20px;
+      line-height: 28px;
+      color: var(--ink3);
+      letter-spacing: -0.005em;
+    }
+    .input-typed {
+      flex: 1;
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 24px;
+      color: var(--ink);
+    }
+    /* ✦ cursor signature inline · next to placeholder · pulses when focused-empty */
+    .cursor-signature {
+      font-family: var(--font-corm);
+      font-style: italic;
+      font-size: 22px;
+      line-height: 26px;
+      color: var(--bronze);
+      opacity: 0.7;
+      animation: cursorPulse 1800ms ease-in-out infinite;
+    }
+    @keyframes cursorPulse {
+      0%, 100% { opacity: 0.45; }
+      50%      { opacity: 0.95; }
+    }
+
+    /* Action row internal to card */
+    .action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .action-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .icon-btn {
+      width: 36px; height: 36px;
+      border-radius: 18px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--ink2);
+      position: relative;
+      cursor: pointer;
+    }
+    .icon-btn.send { color: var(--bronze); }
+    .icon-btn.send svg { animation: sendBreath 2200ms ease-in-out infinite; }
+    @keyframes sendBreath {
+      0%, 100% { transform: scale(1); }
+      50%      { transform: scale(1.04); }
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 11px;
+      border: 0.5px solid var(--border);
+      border-radius: 999px;
+      min-height: 28px;
+      cursor: pointer;
+    }
+    .pill-dot {
+      width: 5.5px; height: 5.5px;
+      border-radius: 50%;
+      background: var(--bronze);
+      opacity: 0.95;
+    }
+    .pill-label {
+      font-family: var(--font-frau);
+      font-style: italic;
+      font-size: 13px;
+      line-height: 16px;
+      color: var(--ink2);
+    }
+
+    /* Label below phone */
+    .label { text-align: center; max-width: 393px; }
+    .label-eyebrow {
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink3);
+      margin-bottom: 8px;
+      font-weight: 540;
+    }
+    .label-eyebrow .sep {
+      color: var(--bronze);
+      font-family: var(--font-corm);
+      font-style: italic;
+      font-weight: 500;
+      text-transform: none;
+      letter-spacing: 0;
+      margin: 0 6px;
+      font-size: 11px;
+      opacity: 0.72;
+      vertical-align: -1px;
+    }
+    .label-title {
+      font-family: var(--font-frau);
+      font-style: italic;
+      font-weight: 400;
+      font-size: 22px;
+      color: var(--ink-strong);
+      margin-bottom: 8px;
+      letter-spacing: -0.011em;
+    }
+    .label-desc {
+      font-size: 12.5px;
+      color: var(--ink2);
+      line-height: 1.55;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+
+  </style>
+</head>
+<body>
+
+  <header class="head">
+    <div class="eyebrow">Atlas Mobile · Composer CARD canon · promise delivered</div>
+    <h1 class="title">A promessa cumprida.</h1>
+    <p class="subtitle">
+      Card único sheet-radius 22px · border alpha cream → atlas gold quando focused · placeholder Frau italic HERO dentro do card · ✦ cursor inline · action row interno (paperclip · auto pill · mic/send) · status row + ✦ divider acima do card quando offline. Auto pill abre routing FULL (mode/task/domain/style/executor).
+    </p>
+  </header>
+
+  <main class="grid">
+
+    <!-- STATE 1 · IDLE EMPTY -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="status-bar">
+            <span>9:41</span>
+            <div class="status-icons">
+              <div class="signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff">
+                <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/>
+                <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+                <path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.7"/>
+              </svg>
+              <div class="battery"><i></i></div>
+            </div>
+          </div>
+          <div class="island"></div>
+          <div class="content">
+            <div class="canvas">
+              <div class="turns">
+                <div>
+                  <div class="turn-meta">você · 9:38</div>
+                  <div class="turn-text">analise o pdf e me diz se vale comprar</div>
+                </div>
+                <div>
+                  <div class="turn-meta">atlas · finance · deep</div>
+                  <div class="turn-text">Sim — relação preço/valor está acima da média histórica.</div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="card">
+                  <div class="hero-row">
+                    <span class="placeholder-hero">Escreva ao Atlas</span>
+                  </div>
+                  <div class="action-row">
+                    <div class="action-left">
+                      <div class="icon-btn">
+                        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                          <path d="M16.05 6.85l-7.4 7.4a3.3 3.3 0 1 1-4.66-4.66l7.71-7.71a2.2 2.2 0 0 1 3.11 3.11l-7.4 7.4a1.1 1.1 0 1 1-1.55-1.55l6.93-6.93" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </div>
+                      <div class="pill">
+                        <span class="pill-dot"></span>
+                        <span class="pill-label">auto</span>
+                      </div>
+                    </div>
+                    <div class="icon-btn">
+                      <svg width="20" height="22" viewBox="0 0 20 22" fill="none">
+                        <rect x="6.7" y="2.5" width="6.6" height="11.5" rx="3.3" stroke="currentColor" stroke-width="1.7" fill="none"/>
+                        <path d="M3.5 10v1a6.5 6.5 0 0 0 13 0v-1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+                        <line x1="10" y1="17.5" x2="10" y2="20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="home"></div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="label-eyebrow">Estado<span class="sep">✦</span>idle</div>
+        <div class="label-title">composer em repouso</div>
+        <div class="label-desc">Card único · border alpha cream · placeholder Frau italic 20px inside · action row interno paperclip · auto pill · mic. Tap pill abre routing full (mode/task/domain/style/executor).</div>
+      </div>
+    </article>
+
+    <!-- STATE 2 · FOCUSED EMPTY (✦ cursor signature) -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="status-bar">
+            <span>9:41</span>
+            <div class="status-icons">
+              <div class="signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff">
+                <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/>
+                <path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+              </svg>
+              <div class="battery"><i></i></div>
+            </div>
+          </div>
+          <div class="island"></div>
+          <div class="content">
+            <div class="canvas">
+              <div class="turns">
+                <div>
+                  <div class="turn-meta">você · 9:38</div>
+                  <div class="turn-text">analise o pdf e me diz se vale comprar</div>
+                </div>
+                <div>
+                  <div class="turn-meta">atlas · finance · deep</div>
+                  <div class="turn-text">Sim — relação preço/valor está acima da média histórica.</div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="card focused">
+                  <div class="hero-row">
+                    <span class="placeholder-hero">Escreva ao Atlas</span>
+                  </div>
+                  <div class="action-row">
+                    <div class="action-left">
+                      <div class="icon-btn">
+                        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                          <path d="M16.05 6.85l-7.4 7.4a3.3 3.3 0 1 1-4.66-4.66l7.71-7.71a2.2 2.2 0 0 1 3.11 3.11l-7.4 7.4a1.1 1.1 0 1 1-1.55-1.55l6.93-6.93" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </div>
+                      <div class="pill">
+                        <span class="pill-dot"></span>
+                        <span class="pill-label">auto</span>
+                      </div>
+                    </div>
+                    <div class="icon-btn">
+                      <svg width="20" height="22" viewBox="0 0 20 22" fill="none">
+                        <rect x="6.7" y="2.5" width="6.6" height="11.5" rx="3.3" stroke="currentColor" stroke-width="1.7" fill="none"/>
+                        <path d="M3.5 10v1a6.5 6.5 0 0 0 13 0v-1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+                        <line x1="10" y1="17.5" x2="10" y2="20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="home"></div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="label-eyebrow">Estado<span class="sep">✦</span>focused · empty</div>
+        <div class="label-title">composer aceso</div>
+        <div class="label-desc">Border do card transita de cream alpha 10% para atlas gold @ 55% · signal premium único · sem ornamento extra (cursor signature removido após review). Cursor nativo iOS em gold. Mic continua disponível pra long-press Modo Gravar.</div>
+      </div>
+    </article>
+
+    <!-- STATE 4 · FOCUSED WITH TEXT (mic → send transition) -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="status-bar">
+            <span>9:41</span>
+            <div class="status-icons">
+              <div class="signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff">
+                <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/>
+              </svg>
+              <div class="battery"><i></i></div>
+            </div>
+          </div>
+          <div class="island"></div>
+          <div class="content">
+            <div class="canvas">
+              <div class="turns">
+                <div>
+                  <div class="turn-meta">você · 9:38</div>
+                  <div class="turn-text">analise o pdf e me diz se vale comprar</div>
+                </div>
+                <div>
+                  <div class="turn-meta">atlas · finance · deep</div>
+                  <div class="turn-text">Sim — relação preço/valor está acima da média histórica.</div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="card focused">
+                  <div class="hero-row">
+                    <span class="input-typed">e qual é o risco máximo?</span>
+                  </div>
+                  <div class="action-row">
+                    <div class="action-left">
+                      <div class="icon-btn">
+                        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                          <path d="M16.05 6.85l-7.4 7.4a3.3 3.3 0 1 1-4.66-4.66l7.71-7.71a2.2 2.2 0 0 1 3.11 3.11l-7.4 7.4a1.1 1.1 0 1 1-1.55-1.55l6.93-6.93" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </div>
+                      <div class="pill">
+                        <span class="pill-dot"></span>
+                        <span class="pill-label">auto</span>
+                      </div>
+                    </div>
+                    <div class="icon-btn send">
+                      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                        <path d="M3 11h16M14 6l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="home"></div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="label-eyebrow">Estado<span class="sep">✦</span>typing</div>
+        <div class="label-title">enviar pronto · ✦ canon</div>
+        <div class="label-desc">Quando há texto, mic vira send arrow gold canon · breath 2.2s subtle scale loop · haptic light no tap. Voice continua disponível via long-press mic em estado empty.</div>
+      </div>
+    </article>
+
+    <!-- STATE 3 · OFFLINE (status row + ✦ divider above card) -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="status-bar">
+            <span>9:41</span>
+            <div class="status-icons">
+              <div class="signal"><i style="height:4px;opacity:0.4"></i><i style="height:6px;opacity:0.4"></i><i style="height:9px;opacity:0.4"></i><i style="height:11px;opacity:0.4"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff;opacity:0.4">
+                <path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/>
+              </svg>
+              <div class="battery"><i></i></div>
+            </div>
+          </div>
+          <div class="island"></div>
+          <div class="content">
+            <div class="canvas">
+              <div class="turns">
+                <div>
+                  <div class="turn-meta">atlas · cache local</div>
+                  <div class="turn-text">Resposta local disponível das conversas anteriores.</div>
+                </div>
+              </div>
+              <div class="footer">
+                <div class="offline-row">
+                  <span class="offline-text">servidor desconectado</span>
+                </div>
+                <div class="divider">
+                  <span class="divider-line"></span>
+                  <span class="divider-glyph">✦</span>
+                  <span class="divider-line"></span>
+                </div>
+                <div class="card">
+                  <div class="hero-row">
+                    <span class="placeholder-hero">Escreva ao Atlas</span>
+                  </div>
+                  <div class="action-row">
+                    <div class="action-left">
+                      <div class="icon-btn">
+                        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                          <path d="M16.05 6.85l-7.4 7.4a3.3 3.3 0 1 1-4.66-4.66l7.71-7.71a2.2 2.2 0 0 1 3.11 3.11l-7.4 7.4a1.1 1.1 0 1 1-1.55-1.55l6.93-6.93" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </div>
+                      <div class="pill">
+                        <span class="pill-dot"></span>
+                        <span class="pill-label">auto</span>
+                      </div>
+                    </div>
+                    <div class="icon-btn">
+                      <svg width="20" height="22" viewBox="0 0 20 22" fill="none">
+                        <rect x="6.7" y="2.5" width="6.6" height="11.5" rx="3.3" stroke="currentColor" stroke-width="1.7" fill="none"/>
+                        <path d="M3.5 10v1a6.5 6.5 0 0 0 13 0v-1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/>
+                        <line x1="10" y1="17.5" x2="10" y2="20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="home"></div>
+        </div>
+      </div>
+      <div class="label">
+        <div class="label-eyebrow">Estado<span class="sep">✦</span>offline</div>
+        <div class="label-title">servidor desconectado</div>
+        <div class="label-desc">Status sentence-case calm acima · ✦ DividerEditorial separa estado do card · card continua funcional (queue local + atlas-server retoma quando volta).</div>
+      </div>
+    </article>
+
+  </main>
+
+</body>
+</html>

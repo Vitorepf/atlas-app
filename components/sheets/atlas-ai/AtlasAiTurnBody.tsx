@@ -142,22 +142,33 @@ function YouTubeSourceBadge({ sources }: { sources: YouTubeSourceSummary[] }) {
   const { c } = useTheme()
   if (sources.length === 0) return null
 
-  const ready = sources.filter((source) => source.status === 'ready').length
-  const color = ready > 0 ? c.moss : c.bronze
   const primary = sources[0]
   const extra = sources.length > 1 ? ` +${sources.length - 1}` : ''
+
+  // Canonical 3-status color logic: failed → red, anything pending/required
+  // → bronze (yellow), everything green only when ingestion+transcript ready
+  // AND no translation gap.
+  const color =
+    primary.ingestionStatus === 'failed' || primary.transcriptStatus === 'failed'
+      ? c.recRed
+      : primary.ingestionStatus !== 'ready'
+        || primary.transcriptStatus === 'pending'
+        || primary.translationStatus === 'required'
+        || primary.translationStatus === 'pending'
+        ? c.bronze
+        : c.moss
 
   return (
     <View style={[styles.youtubeBadge, { borderTopColor: c.border }]}>
       <View style={[styles.youtubeDot, { backgroundColor: color }]} />
       <View style={styles.youtubeText}>
         <Sans weight="med" size={11} lineHeight={16} color={color}>
-          {primary.source}{extra}
+          {primary.sourceLabel}{extra}
         </Sans>
         <Sans size={11} lineHeight={16} color={c.ink2} numberOfLines={2}>
           {primary.detail ? `${primary.detail} · ${primary.title}` : primary.title}
         </Sans>
-        {primary.status === 'processing' && typeof primary.progress === 'number' ? (
+        {primary.ingestionStatus === 'processing' && typeof primary.progress === 'number' ? (
           <View style={[styles.youtubeProgressTrack, { backgroundColor: c.border }]}>
             <View
               style={[

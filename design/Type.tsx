@@ -12,6 +12,7 @@ interface BaseProps {
   letterSpacing?: number
   color?: string
   align?: 'left' | 'center' | 'right'
+  selectable?: boolean
 }
 
 type Weight = 'reg' | 'med' | 'sb' | 'bd'
@@ -57,6 +58,7 @@ export function Frau({
   weight,
   style,
   numberOfLines,
+  selectable,
   ...rest
 }: FrauProps) {
   const c = usePalette()
@@ -68,7 +70,7 @@ export function Frau({
       ? fonts.serifMd
       : fonts.serif
   return (
-    <Text numberOfLines={numberOfLines} style={buildStyle(family, c.ink, rest, style)}>
+    <Text selectable={selectable} numberOfLines={numberOfLines} style={buildStyle(family, c.ink, rest, style)}>
       {children}
     </Text>
   )
@@ -83,11 +85,13 @@ export function Sans({
   weight = 'reg',
   style,
   numberOfLines,
+  selectable,
   ...rest
 }: SansProps) {
   const c = usePalette()
   return (
     <Text
+      selectable={selectable}
       numberOfLines={numberOfLines}
       style={buildStyle(sansFamily(weight), c.ink, rest, style)}
     >
@@ -105,12 +109,14 @@ export function Mono({
   weight = 'reg',
   style,
   numberOfLines,
+  selectable,
   ...rest
 }: MonoProps) {
   const c = usePalette()
   const family = weight === 'med' ? fonts.monoMd : fonts.mono
   return (
     <Text
+      selectable={selectable}
       numberOfLines={numberOfLines}
       style={buildStyle(family, c.ink2, rest, style)}
     >
@@ -123,11 +129,13 @@ export function Label({
   children,
   style,
   numberOfLines,
+  selectable,
   ...rest
 }: BaseProps) {
   const c = usePalette()
   return (
     <Text
+      selectable={selectable}
       numberOfLines={numberOfLines}
       style={[
         {

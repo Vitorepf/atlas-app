@@ -14,14 +14,16 @@ const SENSITIVITY_OPTIONS: Array<{ key: DomainSensitivity; label: string }> = [
   { key: 'sensitive', label: 'Sensível' },
 ]
 
+// Dark variants alinhadas ao canon slate teal (espelham status/accent canon
+// quando aplicável; rosé e violet preservados por não terem equivalente canon).
 const COLOR_PRESETS = [
-  { light: '#1B3A57', dark: '#6892B5' },
-  { light: '#5D4A8A', dark: '#B6A6E8' },
-  { light: '#4A5D3A', dark: '#7A9A65' },
-  { light: '#9B7A3F', dark: '#C9A663' },
-  { light: '#6B6358', dark: '#A89F90' },
-  { light: '#7A3F54', dark: '#D4879C' },
-  { light: '#355C62', dark: '#7FB4BD' },
+  { light: '#1B3A57', dark: '#7fa7c4' }, // prussian → info canon
+  { light: '#5D4A8A', dark: '#b6a6e8' }, // violet — keep (sem canon equiv)
+  { light: '#4A5D3A', dark: '#82b577' }, // moss canon
+  { light: '#9B7A3F', dark: '#d4a85a' }, // atlas gold canon
+  { light: '#6B6358', dark: '#95a3ac' }, // neutral canon
+  { light: '#7A3F54', dark: '#d4879c' }, // rosé — keep (sem canon equiv)
+  { light: '#355C62', dark: '#7fb4bd' }, // teal — keep
 ]
 
 interface Props {

@@ -67,7 +67,12 @@ export function FilterChip({
           </Mono>
         ) : null}
       </Animated.View>
-      {active ? <View pointerEvents="none" style={styles.filterChipActiveUnderline} /> : null}
+      {active ? (
+        <View
+          pointerEvents="none"
+          style={[styles.filterChipActiveUnderline, { backgroundColor: c.bronze }]}
+        />
+      ) : null}
     </Pressable>
   )
 }

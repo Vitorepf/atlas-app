@@ -1,4 +1,7 @@
-// Atlas design tokens — warm-premium identity (Parfums de Marly / Aesop, not Linear).
+// Atlas design tokens.
+// Light · warm cream editorial (Patek/Smythson).
+// Dark  · slate teal warm Codex-inspired (#1d2b34 + atlas gold #d4a85a), canon do desktop.
+// NÃO é Aesop sussurrado. NÃO é Linear cinza puro. É peso patriarcal masculino editorial.
 
 export type ThemeName = 'light' | 'dark'
 
@@ -70,35 +73,41 @@ export const lightPalette: AtlasPalette = {
   onInk:       '#F4EFE6',
 }
 
+// Dark · slate teal warm Codex canon (espelha --cc-* do desktop · ver
+// atlas-desktop/apps/desktop/src/index.css:270-339 e doc 0007 cap. 3).
 export const darkPalette: AtlasPalette = {
-  bg:          '#1C1916',
-  bgRecessed:  '#16130F',
-  bgRaised:    '#252119',
-  bgDeep:      '#100D0A',
-  bgFresh:     '#26211A',
-  surface:     '#252119',
-  premium:     '#2D2820',
-  ink:         '#F4EFE6',
-  ink2:        '#A89F90',
-  ink3:        '#6B6358',
-  border:      '#3A3328',
-  borderSoft:  '#2F2A21',
-  prussian:    '#6892B5',
-  bronze:      '#C9A663',
-  bronzeDeep:  '#9B7A3F',
-  bronzeLight: '#D4B57A',
-  recRed:      '#C9505F',
-  recRedOxide: '#C9505F',
-  recRedMuted: '#A85261',
-  moss:        '#7A9A65',
-  amber:       '#C9A07A',
-  domBlackink: '#6892B5',
-  domAtlas:    '#B6A6E8',
-  domSaude:    '#7A9A65',
-  domFinancas: '#C9A663',
-  domOutro:    '#A89F90',
-  pureBlack:   '#000000',
-  onInk:       '#1C1916',
+  // Surfaces escalonadas · slate teal warm (não cinza puro, não brown Aesop)
+  bg:          '#1d2b34',  // canvas principal           (was #1C1916)
+  bgRecessed:  '#15212a',  // sunken (sidebars/footer)   (was #16130F)
+  bgRaised:    '#2d4351',  // raised (popover/modal)     (was #252119)
+  bgDeep:      '#0f181f',  // deep (selection state)     (was #100D0A)
+  bgFresh:     '#243743',  // capturas <30s / surface    (was #26211A)
+  surface:     '#243743',  // surface canon              (was #252119)
+  premium:     '#2d4351',  // premium = raised           (was #2D2820)
+  // Ink · cool cream sobre slate (high-contrast 12h-friendly)
+  ink:         '#d6dde2',  // body primary               (was #F4EFE6 warm cream)
+  ink2:        '#95a3ac',  // muted secondary            (was #A89F90)
+  ink3:        '#677482',  // faint helpers/captions     (was #6B6358)
+  border:      '#313f47',  // ≈ rgba(233,238,242,0.10) over slate
+  borderSoft:  '#27353e',  // ≈ rgba(233,238,242,0.05) over slate
+  // Accents · atlas gold burnished (parcimônia · 1-2 por view)
+  prussian:    '#7fa7c4',  // info canon                 (was #6892B5)
+  bronze:      '#d4a85a',  // atlas gold canon           (was #C9A663)
+  bronzeDeep:  '#a8853f',  // gold hover/pressed         (was #9B7A3F)
+  bronzeLight: '#e6b966',  // accent-strong              (was #D4B57A)
+  recRed:      '#d05a52',  // danger rec-red muted       (was #C9505F)
+  recRedOxide: '#d05a52',  // recording oxide            (was #C9505F)
+  recRedMuted: '#a85261',  // archiving discreet (manter)
+  moss:        '#82b577',  // success canon              (was #7A9A65)
+  amber:       '#e0ad5e',  // warning canon              (was #C9A07A)
+  // Domains · slate-compatible
+  domBlackink: '#7fa7c4',  // prussian muted             (was #6892B5)
+  domAtlas:    '#b6a6e8',  // violet sem canon equiv · keep
+  domSaude:    '#82b577',  // moss canon                 (was #7A9A65)
+  domFinancas: '#d4a85a',  // atlas gold canon           (was #C9A663)
+  domOutro:    '#95a3ac',  // neutral canon              (was #A89F90)
+  pureBlack:   '#000000',  // status bar / Dynamic Island — keep
+  onInk:       '#1d2b34',  // canvas (texto em botão pintado em ink)
 }
 
 export const palettes: Record<ThemeName, AtlasPalette> = {

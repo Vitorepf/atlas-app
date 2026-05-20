@@ -1,4 +1,12 @@
 import { Pressable, StyleSheet, View } from 'react-native'
+import * as Haptics from 'expo-haptics'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 
@@ -53,17 +61,35 @@ export function SectionHead({ numeral, title, deck, onPress }: Props) {
     </View>
   )
 
+  // Slice 6ab · press scale 0.96 spring + haptic Soft canon premium
+  const pressScale = useSharedValue(1)
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }))
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress?.()
+  }
+
   return (
     <View style={styles.wrap}>
       {onPress ? (
-        <Pressable
-          onPress={onPress}
-          accessibilityRole="button"
-          accessibilityLabel={`Abrir ${title}`}
-          style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
-        >
-          {headContent}
-        </Pressable>
+        <Animated.View style={pressAnimStyle}>
+          <Pressable
+            onPress={handlePress}
+            accessibilityRole="button"
+            accessibilityLabel={`Abrir ${title}`}
+            onPressIn={() => {
+              pressScale.value = withTiming(0.96, { duration: 120, easing: Easing.out(Easing.quad) })
+            }}
+            onPressOut={() => {
+              pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
+            }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          >
+            {headContent}
+          </Pressable>
+        </Animated.View>
       ) : (
         headContent
       )}

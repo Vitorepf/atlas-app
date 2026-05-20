@@ -9,15 +9,21 @@ export function SheetHeading({ title, subtitle }: { title: string; subtitle?: st
   return (
     <View style={styles.sheetHeading}>
       <BronzeDiamond size={16} opacity={0.8} />
-      <Frau size={24} lineHeight={30} color={c.ink} align="center" style={{ marginTop: 14 }}>
+      {/* Slice 6aa · title canon italic premium (era regular) · espelha
+          Don Corleone manuscript signature do composer Header.
+          Letter-spacing -0.014em tightens elegant. */}
+      <Frau italic size={26} lineHeight={32} color={c.ink} align="center" style={{ marginTop: 14, letterSpacing: -0.014 * 26 }}>
         {title}
       </Frau>
       {subtitle && (
-        <Frau italic size={13} lineHeight={18} color={c.ink2} align="center" numberOfLines={2} style={{ marginTop: 6 }}>
+        <Frau italic size={13} lineHeight={18} color={c.ink2} align="center" numberOfLines={2} style={{ marginTop: 6, opacity: 0.85 }}>
           {subtitle}
         </Frau>
       )}
-      <View style={[styles.headingRule, { backgroundColor: c.border }]} />
+      {/* Slice 6aa · heading rule canon · fade-edge fica feito via
+          backgroundColor + width estreito (32px) · efeito visual sutil
+          de "decorative seal" centered. */}
+      <View style={[styles.headingRule, { backgroundColor: `${c.bronze}5C` }]} />
     </View>
   )
 }
@@ -81,9 +87,12 @@ export function EmptyInline({ text }: { text: string }) {
 
 export function StatusPill({ status }: { status: string }) {
   const { c } = useTheme()
+  const color = statusColor(status, c)
   return (
-    <View style={[styles.statusPill, { borderColor: statusColor(status, c) }]}>
-      <Frau italic size={11} lineHeight={15} color={statusColor(status, c)}>
+    // Slice 6aa · StatusPill canon premium · border + subtle bg veil
+    // do status color @ 8% pra reforçar status sem virar chunky badge.
+    <View style={[styles.statusPill, { borderColor: color, backgroundColor: `${color}14` }]}>
+      <Frau italic size={11} lineHeight={15} color={color}>
         {statusLabel(status)}
       </Frau>
     </View>
@@ -172,10 +181,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headingRule: {
-    width: 32,
-    height: StyleSheet.hairlineWidth,
+    // Slice 6aa · "decorative seal" canon · width estreito 40px + bronze
+    // subtle pra parecer signet ring stamp Don Corleone. Era 32px+border.
+    width: 40,
+    height: 1.5,
+    borderRadius: 0.75,
     alignSelf: 'center',
-    marginTop: 16,
+    marginTop: 18,
     marginBottom: 22,
   },
 })

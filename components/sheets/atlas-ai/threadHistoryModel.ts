@@ -1,6 +1,8 @@
 import type { AtlasAiThread, AtlasAiTrace } from '../../../lib/api/client'
+import { MODE_OPTIONS } from '../../../lib/atlasAi/contract'
 import { atlasAiContextLabel } from '../../../lib/atlasAiFocus'
 import {
+  atlasAiModeLabel,
   atlasAiModeFromThread,
   type AtlasAiThreadRoutingState,
 } from '../../../lib/atlasAiThreadRouting'
@@ -151,22 +153,26 @@ export function filterThreads(threads: AtlasAiThread[], query: string): AtlasAiT
 export function threadHistoryModeOptions(
   threads: AtlasAiThread[],
 ): Array<{ key: ThreadHistoryModeFilter; label: string; caption: string; count: number }> {
-  const counts = new Map<AtlasAiThreadRoutingState['mode'], number>([
-    ['general', 0],
-    ['operational', 0],
-    ['programming', 0],
-  ])
+  const counts = new Map<AtlasAiThreadRoutingState['mode'], number>()
 
   for (const thread of threads) {
     const mode = atlasAiModeFromThread(thread)
     counts.set(mode, (counts.get(mode) ?? 0) + 1)
   }
 
+  const pinnedModes: AtlasAiThreadRoutingState['mode'][] = ['general', 'operational', 'programming']
+  const modes = MODE_OPTIONS
+    .map((option) => option.value)
+    .filter((mode) => pinnedModes.includes(mode) || (counts.get(mode) ?? 0) > 0)
+
   return [
     { key: 'all', label: 'Tudo', caption: 'todas as conversas', count: threads.length },
-    { key: 'general', label: 'Geral', caption: 'conversa e ideias', count: counts.get('general') ?? 0 },
-    { key: 'operational', label: 'Operacional', caption: 'alertas e diagnóstico', count: counts.get('operational') ?? 0 },
-    { key: 'programming', label: 'Programação', caption: 'código e testes', count: counts.get('programming') ?? 0 },
+    ...modes.map((mode) => ({
+      key: mode,
+      label: atlasAiModeLabel(mode),
+      caption: MODE_OPTIONS.find((option) => option.value === mode)?.sub ?? atlasAiModeLabel(mode),
+      count: counts.get(mode) ?? 0,
+    })),
   ]
 }
 

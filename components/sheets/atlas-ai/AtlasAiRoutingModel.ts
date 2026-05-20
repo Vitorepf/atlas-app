@@ -14,7 +14,8 @@ import {
 } from '../../console/StatusRouting'
 import { normalizeAtlasAiFocus, type AtlasAiFocus } from '../../../lib/atlasAiFocus'
 import { atlasAiModeFromThread } from '../../../lib/atlasAiThreadRouting'
-import { atlasModePayloadForRoutingContract } from '../../../lib/atlasAiModeContract'
+import { buildInteractionPayload } from '../../../lib/atlasAi/contract'
+import { buildModePolicyFromRoutingState } from '../../../lib/atlasAi/v1Adapter'
 
 export type ThreadProviderGovernance = {
   decisionMode: string | null
@@ -59,6 +60,17 @@ export function routingStateFromThread(thread: AtlasAiThread, fallback: RoutingS
 }
 
 function routingDefaultForMode(mode: RoutingMode, fallback: RoutingState): RoutingState {
+  if (mode === 'auto') {
+    return sanitizeRoutingState({
+      ...fallback,
+      mode,
+      task: 'auto',
+      domain: 'auto',
+      executor: fallback.executor,
+      style: fallback.style,
+    })
+  }
+
   if (mode === 'programming') {
     return sanitizeRoutingState({
       ...fallback,
@@ -83,7 +95,7 @@ function routingDefaultForMode(mode: RoutingMode, fallback: RoutingState): Routi
   return sanitizeRoutingState({
     ...fallback,
     mode,
-    task: fallback.task === 'dev' || fallback.task === 'debug' ? 'direct' : fallback.task,
+    task: fallback.task === 'dev' || fallback.task === 'debug' || fallback.task === 'auto' ? 'direct' : fallback.task,
     domain: fallback.domain === 'atlas' ? 'auto' : fallback.domain,
   })
 }
@@ -189,7 +201,39 @@ export function responsePolicyFor(style: RoutingStyle, task: RoutingState['task'
 }
 
 export function atlasModePayloadForRouting(routing: RoutingState, focus: AtlasAiFocus, workspace?: string | null): Record<string, unknown> {
-  return atlasModePayloadForRoutingContract(routing, focus, { workspace })
+  // V2 canon migration (Slice 3a · 2026-05-18): output subset V1-compat
+  // gerado via buildInteractionPayload (canon Hyperflow-first). `focus` param
+  // permanece na assinatura por compat com consumers (passa pelo adapter como
+  // mode da RoutingState; não é mais usado isoladamente). Slice 3c migra o
+  // composer pra `buildInteractionPayload` direto.
+  void focus
+  if (
+    routing.mode === 'auto'
+    || routing.mode === 'conversation'
+    || routing.mode === 'research'
+    || routing.mode === 'finance'
+    || routing.mode === 'marketing'
+    || routing.mode === 'strategy'
+    || routing.mode === 'personal_development'
+    || routing.mode === 'cyber'
+    || routing.mode === 'automation'
+    || routing.task === 'auto'
+  ) {
+    return buildInteractionPayload({
+      mode: routing.mode,
+      task: routing.task,
+      provider: routing.executor,
+      workspaceSlug: workspace ?? null,
+      routingDomain: routing.domain === 'auto' ? undefined : routing.domain,
+    }).payload
+  }
+  return buildModePolicyFromRoutingState({
+    mode: routing.mode as 'general' | 'operational' | 'programming',
+    task: routing.task as 'direct' | 'plan' | 'review' | 'dev' | 'debug',
+    domain: routing.domain,
+    executor: routing.executor,
+    style: routing.style,
+  }, workspace ?? null)
 }
 
 export function runtimePolicyPayloadForThread(thread: AtlasAiThread | null, focusOverride?: AtlasAiFocus): Record<string, unknown> {
@@ -239,11 +283,22 @@ export function openBrainPayloadForRouting(routing: RoutingState): Record<string
 }
 
 function isRoutingTask(value: unknown): value is RoutingState['task'] {
-  return value === 'direct' || value === 'plan' || value === 'review' || value === 'dev' || value === 'debug'
+  return value === 'auto' || value === 'direct' || value === 'plan' || value === 'review' || value === 'dev' || value === 'debug'
 }
 
 function isRoutingMode(value: unknown): value is RoutingMode {
-  return value === 'general' || value === 'operational' || value === 'programming'
+  return value === 'auto'
+    || value === 'general'
+    || value === 'conversation'
+    || value === 'operational'
+    || value === 'programming'
+    || value === 'research'
+    || value === 'finance'
+    || value === 'marketing'
+    || value === 'strategy'
+    || value === 'personal_development'
+    || value === 'cyber'
+    || value === 'automation'
 }
 
 function isRoutingDomain(value: unknown): value is RoutingState['domain'] {

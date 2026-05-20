@@ -3709,7 +3709,7 @@ function Segmented({
   disabled?: boolean
   onChange: (k: string) => void
 }) {
-  const { c } = useTheme()
+  const { c, name } = useTheme()
   return (
     <View style={[segStyles.track, { backgroundColor: c.surface, borderColor: c.border }]}>
       {options.map((o) => {
@@ -3724,7 +3724,7 @@ function Segmented({
               disabled && { opacity: 0.45 },
               on && {
                 backgroundColor: c.bg,
-                shadowColor: '#1C1916',
+                shadowColor: name === 'dark' ? '#000' : '#1A1612',
                 shadowOpacity: 0.06,
                 shadowRadius: 2,
                 shadowOffset: { width: 0, height: 1 },

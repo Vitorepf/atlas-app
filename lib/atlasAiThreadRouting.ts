@@ -5,16 +5,16 @@ import {
 } from './atlasAiFocus'
 import type {
   AtlasAiMode,
-  AtlasAiRoutingDomain,
-  AtlasAiRoutingTask,
-} from './atlasAiModeContract'
+  AtlasAiTask,
+} from './atlasAi/types'
 
 export type AtlasAiRoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
 export type AtlasAiRoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+export type AtlasAiRoutingDomain = 'auto' | 'atlas' | 'vault-curador' | 'saude' | 'blackink' | 'financas'
 
 export interface AtlasAiThreadRoutingState {
   mode: AtlasAiMode
-  task: AtlasAiRoutingTask
+  task: AtlasAiTask
   domain: AtlasAiRoutingDomain
   executor: AtlasAiRoutingExecutor
   style: AtlasAiRoutingStyle
@@ -36,6 +36,7 @@ export interface ThreadRoutingMetadataOptions {
 export function atlasAiFocusForRouting(routing: Pick<AtlasAiThreadRoutingState, 'mode' | 'task' | 'domain'>): AtlasAiFocus {
   if (routing.mode === 'programming') return 'programming'
   if (routing.mode === 'operational') return 'operational'
+  if (routing.mode === 'research') return 'research'
   if (routing.task === 'dev' || routing.task === 'debug') return 'programming'
   if (routing.task === 'review') return 'review'
   if (routing.task === 'plan') return 'project'
@@ -68,7 +69,8 @@ export function atlasAiModeFromThread(thread: AtlasAiThreadRoutingLike | null | 
   if (task) {
     const t = task.trim().toLowerCase()
     if (t === 'dev' || t === 'debug' || t === 'execute' || t === 'quality_repair') return 'programming'
-    if (t === 'research' || t === 'analysis') return 'operational'
+    if (t === 'research') return 'research'
+    if (t === 'analysis') return 'operational'
   }
 
   // 4. Requested agent / last agent slug · agentes específicos sinalizam
@@ -82,31 +84,52 @@ export function atlasAiModeFromThread(thread: AtlasAiThreadRoutingLike | null | 
     const a = agent.trim().toLowerCase()
     // PT-BR explícitos (canon Atlas)
     if (a === 'desenvolvedor' || a === 'engenheiro' || a === 'programador') return 'programming'
-    if (a === 'pesquisador' || a === 'analista' || a === 'consultor') return 'operational'
+    if (a === 'pesquisador') return 'research'
+    if (a === 'analista' || a === 'consultor') return 'operational'
     // EN/substring fallback
     if (a.includes('dev') || a.includes('code') || a.includes('engineer')) return 'programming'
-    if (a.includes('research') || a.includes('analy')) return 'operational'
+    if (a.includes('research')) return 'research'
+    if (a.includes('analy')) return 'operational'
   }
 
   // 5. Fallback final · derive de focus (geralmente 'general' se nada veio).
   const focus = atlasAiFocusFromThread(thread)
   if (focus === 'programming') return 'programming'
   if (focus === 'operational') return 'operational'
+  if (focus === 'research') return 'research'
   return 'general'
 }
 
 export function normalizeAtlasAiMode(value: unknown, fallback: AtlasAiMode = 'general'): AtlasAiMode {
   if (typeof value !== 'string') return fallback
   const normalized = value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-\s]+/g, '_')
+  if (normalized === 'auto') return 'auto'
   if (normalized === 'programacao' || normalized === 'programming' || normalized === 'dev' || normalized === 'debug') return 'programming'
   if (normalized === 'operacional' || normalized === 'operational' || normalized === 'operations') return 'operational'
-  if (normalized === 'geral' || normalized === 'general' || normalized === 'conversation') return 'general'
+  if (normalized === 'pesquisa' || normalized === 'research') return 'research'
+  if (normalized === 'finance' || normalized === 'financas' || normalized === 'finanças') return 'finance'
+  if (normalized === 'marketing') return 'marketing'
+  if (normalized === 'strategy' || normalized === 'estrategia' || normalized === 'estratégia') return 'strategy'
+  if (normalized === 'personal_development' || normalized === 'pessoal') return 'personal_development'
+  if (normalized === 'cyber' || normalized === 'security' || normalized === 'seguranca' || normalized === 'segurança') return 'cyber'
+  if (normalized === 'automation' || normalized === 'automacao' || normalized === 'automação') return 'automation'
+  if (normalized === 'conversation' || normalized === 'conversa') return 'conversation'
+  if (normalized === 'geral' || normalized === 'general') return 'general'
   return fallback
 }
 
 export function atlasAiModeLabel(mode: AtlasAiMode): string {
+  if (mode === 'auto') return 'Auto'
   if (mode === 'programming') return 'Programação'
   if (mode === 'operational') return 'Operacional'
+  if (mode === 'research') return 'Pesquisa'
+  if (mode === 'finance') return 'Finanças'
+  if (mode === 'marketing') return 'Marketing'
+  if (mode === 'strategy') return 'Estratégia'
+  if (mode === 'personal_development') return 'Pessoal'
+  if (mode === 'cyber') return 'Cyber'
+  if (mode === 'automation') return 'Automação'
+  if (mode === 'conversation') return 'Conversa'
   return 'Geral'
 }
 

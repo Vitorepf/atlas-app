@@ -44,19 +44,29 @@ interface Props {
 //   · routingExecutorAllowedForTask filtra executores
 //   · routingDomainAllowedForMode filtra domínios
 //   · dirty flag habilita Confirmar (ink2 → bronze quando há mudança)
-//   · Reset volta pra ROUTING_DEFAULT (modo geral · atlas decide · auto)
+//   · Reset volta pra ROUTING_DEFAULT (auto/auto · atlas decide)
 // =============================================================================
 
 const MODES: Array<{ key: RoutingMode; label: string; subtitle: string }> = [
+  { key: 'auto',        label: 'Auto',        subtitle: 'Hyperflow decide domínio, flow e runtime pelo contexto' },
   { key: 'general',     label: 'Geral',       subtitle: 'conversa, ideias, pesquisa e organização' },
+  { key: 'conversation', label: 'Conversa',   subtitle: 'troca livre, sem domínio técnico forçado' },
   { key: 'operational', label: 'Operacional', subtitle: 'diagnóstico, evidências, riscos e próximas ações' },
   { key: 'programming', label: 'Programação', subtitle: 'código, testes, automação, scripts e harness' },
+  { key: 'research',    label: 'Pesquisa',    subtitle: 'investigação técnica, mercado, papers e fontes' },
+  { key: 'finance',     label: 'Finanças',    subtitle: 'carteira, empresas, risco e decisão financeira' },
+  { key: 'marketing',   label: 'Marketing',   subtitle: 'campanha, copy, analytics e marca' },
+  { key: 'strategy',    label: 'Estratégia',  subtitle: 'prioridade, trade-off, decisão e operação' },
+  { key: 'personal_development', label: 'Pessoal', subtitle: 'metas, hábitos, rotina e cognição' },
+  { key: 'cyber',       label: 'Cyber',       subtitle: 'segurança defensiva, auditoria e resposta' },
+  { key: 'automation',  label: 'Automação',   subtitle: 'workflow, integração, script e pipeline' },
 ]
 
 const TASKS: Array<{ key: RoutingTask; label: string; subtitle: string; modes: RoutingMode[] }> = [
-  { key: 'direct', label: 'Responder', subtitle: 'resolver a pergunta atual', modes: ['general', 'operational'] },
-  { key: 'plan',   label: 'Planejar',  subtitle: 'desenhar plano de execução antes de agir', modes: ['general', 'operational', 'programming'] },
-  { key: 'review', label: 'Revisar',   subtitle: 'reler, criticar e propor reescrita', modes: ['general', 'operational', 'programming'] },
+  { key: 'auto',   label: 'Auto',      subtitle: 'Hyperflow escolhe o task correto', modes: ['auto'] },
+  { key: 'direct', label: 'Responder', subtitle: 'resolver a pergunta atual', modes: ['general', 'conversation', 'operational', 'research', 'finance', 'marketing', 'strategy', 'personal_development', 'cyber', 'automation'] },
+  { key: 'plan',   label: 'Planejar',  subtitle: 'desenhar plano de execução antes de agir', modes: ['general', 'conversation', 'operational', 'programming', 'research', 'finance', 'marketing', 'strategy', 'personal_development', 'cyber', 'automation'] },
+  { key: 'review', label: 'Revisar',   subtitle: 'reler, criticar e propor reescrita', modes: ['general', 'conversation', 'operational', 'programming', 'research', 'finance', 'marketing', 'strategy', 'personal_development', 'cyber', 'automation'] },
   { key: 'dev',    label: 'Dev',       subtitle: 'implementar feature ou refator', modes: ['programming'] },
   { key: 'debug',  label: 'Debug',     subtitle: 'investigar bug e propor fix', modes: ['programming'] },
 ]
@@ -264,6 +274,14 @@ export function AtlasDecideSheet({ visible, initial, onClose, onConfirm }: Props
 // trocar pra "Programação" deixaria o user com uma combinação inválida (ex:
 // task=responder, domain=blackink, style=claro · não faz sentido pra código).
 function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
+  if (mode === 'auto') {
+    return sanitizeRoutingState({
+      ...ROUTING_DEFAULT,
+      executor: state.executor,
+      style: state.style,
+    })
+  }
+
   if (mode === 'programming') {
     return sanitizeRoutingState({
       ...state,
@@ -291,6 +309,7 @@ function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
   return sanitizeRoutingState({
     ...ROUTING_DEFAULT,
     mode,
+    task: mode === 'conversation' || mode === 'general' ? 'direct' : 'plan',
     executor: state.executor === 'codex_cli' ? 'auto' : state.executor,
   })
 }
@@ -312,8 +331,17 @@ function sameRouting(a: RoutingState, b: RoutingState): boolean {
 // localmente pra evitar dependência circular com console/StatusRouting.
 function decideModeWord(mode: RoutingMode): string {
   switch (mode) {
+    case 'auto': return 'auto'
     case 'operational': return 'operacional'
     case 'programming': return 'programação'
+    case 'conversation': return 'conversa'
+    case 'research': return 'pesquisa'
+    case 'finance': return 'finanças'
+    case 'marketing': return 'marketing'
+    case 'strategy': return 'estratégia'
+    case 'personal_development': return 'pessoal'
+    case 'cyber': return 'cyber'
+    case 'automation': return 'automação'
     default:            return 'geral'
   }
 }

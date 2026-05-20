@@ -38,7 +38,9 @@ const programmingRouting: AtlasAiThreadRoutingState = {
   assert.equal(normalizeAtlasAiMode('programação'), 'programming')
   assert.equal(normalizeAtlasAiMode('operations'), 'operational')
   assert.equal(normalizeAtlasAiMode('operacional'), 'operational')
-  assert.equal(normalizeAtlasAiMode('conversation'), 'general')
+  assert.equal(normalizeAtlasAiMode('conversation'), 'conversation')
+  assert.equal(normalizeAtlasAiMode('research'), 'research')
+  assert.equal(normalizeAtlasAiMode('finanças'), 'finance')
   assert.equal(normalizeAtlasAiMode('unknown', 'operational'), 'operational')
   assert.equal(normalizeAtlasAiFocus('programação'), 'programming')
   assert.equal(normalizeAtlasAiFocus('revisão'), 'review')
@@ -50,10 +52,12 @@ const programmingRouting: AtlasAiThreadRoutingState = {
   assert.equal(atlasAiFocusForRouting({ ...generalRouting, domain: 'vault-curador' }), 'research')
   assert.equal(atlasAiFocusForRouting(operationalRouting), 'operational')
   assert.equal(atlasAiFocusForRouting(programmingRouting), 'programming')
+  assert.equal(atlasAiFocusForRouting({ ...generalRouting, mode: 'research' }), 'research')
 }
 
 {
   assert.equal(atlasAiModeFromThread({ metadata: { current_mode: 'programming' } }), 'programming')
+  assert.equal(atlasAiModeFromThread({ metadata: { current_mode: 'finance' } }), 'finance')
   assert.equal(atlasAiModeFromThread({ source_type: 'inbox_item', metadata: {} }), 'operational')
   assert.equal(atlasAiModeFromThread({ metadata: { atlas_focus: 'general' } }), 'general')
 }

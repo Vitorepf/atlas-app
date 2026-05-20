@@ -2,6 +2,8 @@ import { atlasStorage, ensureMigrationFromAsyncStorage } from '../storage'
 import Constants from 'expo-constants'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as SecureStore from 'expo-secure-store'
+import { withRetry } from '../richInput/uploadRetry'
+import { buildRichInputPayload } from '../richInput/sourceManifest'
 import type { DomainKey } from '../domains'
 import {
   mobileVoiceInterruptIdempotencyKey,
@@ -7790,10 +7792,24 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
         ...jsonInput
       } = input
 
+      // Slice 5b · rich_input_payload canon v1 (atlas.rich_input.payload.v1).
+      // Forward-compat: backend hoje só consome uploaded_images/documents,
+      // mas Forge/Dev futuros vão ler o manifest pra audit trail + dedup
+      // por source_hash. Mobile não popula source_hash (custo CPU SHA-256
+      // em iPhone) · backend pode preencher após processar.
+      const richInputPayload = buildRichInputPayload({
+        imageAttachments: imageAttachments,
+        uploadedImageIds: uploadedImages,
+        fileAttachments: fileAttachments,
+        uploadedDocumentIds: uploadedDocuments,
+        inputText: input.input_text,
+      })
+
       const response = await apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', {
         ...jsonInput,
         uploaded_images: uploadedImages,
         uploaded_documents: uploadedDocuments,
+        rich_input_payload: richInputPayload,
       })
 
       input.on_upload_progress?.({
@@ -7824,6 +7840,13 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
     appendInteractionForm(form, 'include_semantic_context', input.include_semantic_context)
     appendInteractionForm(form, 'context_note_limit', input.context_note_limit)
     appendInteractionForm(form, 'payload', JSON.stringify(input.payload ?? {}))
+    appendInteractionForm(form, 'rich_input_payload', JSON.stringify(buildRichInputPayload({
+      imageAttachments: imageAttachments,
+      uploadedImageIds: [],
+      fileAttachments: fileAttachments,
+      uploadedDocumentIds: [],
+      inputText: input.input_text,
+    })))
 
     imageAttachments.forEach((attachment, index) => {
       form.append('images[]', {
@@ -7849,7 +7872,21 @@ export async function createAiInteraction(input: CreateAiInteractionInput): Prom
     file_attachments: _fileAttachments,
     ...jsonInput
   } = input
-  return apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', jsonInput)
+  const richInputPayload = buildRichInputPayload({
+    imageAttachments: [],
+    uploadedImageIds: [],
+    fileAttachments: [],
+    uploadedDocumentIds: [],
+    inputText: input.input_text,
+  })
+  const hasRichInputPayload = richInputPayload.url_attachments.length > 0
+    || richInputPayload.source_manifest.length > 0
+    || richInputPayload.text_blocks.length > 0
+
+  return apiPost<{ trace: AtlasAiTrace }>('/ai/interactions', {
+    ...jsonInput,
+    ...(hasRichInputPayload ? { rich_input_payload: richInputPayload } : {}),
+  })
 }
 
 export function streamAiInteraction(
@@ -7928,13 +7965,20 @@ async function uploadAiAttachmentInChunks(
         position: offset,
         length: chunkBytes,
       })
-      await apiPost(`/ai/uploads/chunks/${encodeURIComponent(uploadId)}/chunk`, {
-        index: chunkIndex,
-        total_chunks: totalChunks,
-        offset,
-        bytes: chunkBytes,
-        chunk_base64: chunkBase64,
-      })
+      // Resilience: chunked upload POST não tem Idempotency-Key, então o
+      // retry built-in do apiRequest não dispara. withRetry adiciona 3
+      // tentativas com backoff exponencial (280/560/1120ms) idênticas ao
+      // canon desktop. base64 é computada UMA vez fora do retry · retry
+      // reusa o mesmo payload.
+      await withRetry(() =>
+        apiPost(`/ai/uploads/chunks/${encodeURIComponent(uploadId)}/chunk`, {
+          index: chunkIndex,
+          total_chunks: totalChunks,
+          offset,
+          bytes: chunkBytes,
+          chunk_base64: chunkBase64,
+        }),
+      )
     }
 
     uploadedForFile += chunkBytes

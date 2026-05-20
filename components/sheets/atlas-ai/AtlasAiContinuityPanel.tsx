@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, View } from 'react-native'
+import * as Haptics from 'expo-haptics'
 import Animated, {
   Easing,
   FadeInDown,
@@ -107,7 +108,10 @@ export function ContinuityPanel({
       <View style={[styles.continuityTop, (!thread?.title || expanded) ? styles.continuityTopEmpty : null]}>
         {thread?.title && !expanded ? (
           <Pressable
-            onPress={onOpenThreads}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+              onOpenThreads()
+            }}
             hitSlop={8}
             style={({ pressed }) => [styles.continuityTitle, { opacity: pressed ? 0.6 : 1 }]}
           >
@@ -120,7 +124,11 @@ export function ContinuityPanel({
           </Pressable>
         ) : null}
         <Pressable
-          onPress={onToggleExpanded}
+          onPress={() => {
+            // Slice 6ac · haptic Soft no toggle expand/collapse · canon premium
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+            onToggleExpanded()
+          }}
           hitSlop={10}
           style={({ pressed }) => [styles.continuityToggle, { opacity: pressed ? 0.55 : 1 }]}
           accessibilityRole="button"

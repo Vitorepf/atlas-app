@@ -2,13 +2,15 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import { Frau } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import {
-  atlasDefaultTaskForMode,
-  atlasDomainAllowedForMode,
   atlasTaskAllowedForMode,
-  type AtlasAiMode,
-} from '../../lib/atlasAiModeContract'
+  defaultTaskForMode as atlasDefaultTaskForMode,
+} from '../../lib/atlasAi/contract'
+import type {
+  AtlasAiMode,
+  AtlasAiTask,
+} from '../../lib/atlasAi/types'
 
-export type RoutingTask = 'direct' | 'plan' | 'review' | 'dev' | 'debug'
+export type RoutingTask = AtlasAiTask
 export const ROUTING_DOMAIN_OPTIONS = [
   { key: 'auto',          label: 'Auto',    word: 'auto' },
   { key: 'atlas',         label: 'Atlas',   word: 'atlas' },
@@ -31,8 +33,8 @@ export interface RoutingState {
 }
 
 export const ROUTING_DEFAULT: RoutingState = {
-  mode: 'general',
-  task: 'direct',
+  mode: 'auto',
+  task: 'auto',
   domain: 'auto',
   executor: 'auto',
   style: 'clear',
@@ -118,7 +120,9 @@ export function isRoutingDomainKey(value: unknown): value is RoutingDomain {
 }
 
 export function routingDomainAllowedForMode(domain: RoutingDomain, mode: RoutingMode): boolean {
-  return atlasDomainAllowedForMode(domain, mode)
+  if (domain === 'auto') return true
+  if (mode === 'auto' || mode === 'conversation' || mode === 'general') return domain !== 'atlas'
+  return true
 }
 
 function executorVerb(executor: RoutingExecutor): string {
@@ -132,6 +136,7 @@ function executorVerb(executor: RoutingExecutor): string {
 }
 
 function taskWord(task: RoutingTask): string {
+  if (task === 'auto')   return 'decidir'
   if (task === 'dev')    return 'desenvolver'
   if (task === 'debug')  return 'debugar'
   if (task === 'plan')   return 'planejar'
@@ -153,15 +158,35 @@ function styleWord(style: RoutingStyle): string {
 }
 
 function modeWord(mode: RoutingMode): string {
+  if (mode === 'auto') return 'auto'
   switch (mode) {
     case 'operational': return 'operacional'
     case 'programming': return 'programação'
+    case 'conversation': return 'conversa'
+    case 'research': return 'pesquisa'
+    case 'finance': return 'finanças'
+    case 'marketing': return 'marketing'
+    case 'strategy': return 'estratégia'
+    case 'personal_development': return 'pessoal'
+    case 'cyber': return 'cyber'
+    case 'automation': return 'automação'
     default:            return 'geral'
   }
 }
 
 function isRoutingMode(value: unknown): value is RoutingMode {
-  return value === 'general' || value === 'operational' || value === 'programming'
+  return value === 'auto'
+    || value === 'general'
+    || value === 'conversation'
+    || value === 'operational'
+    || value === 'programming'
+    || value === 'research'
+    || value === 'finance'
+    || value === 'marketing'
+    || value === 'strategy'
+    || value === 'personal_development'
+    || value === 'cyber'
+    || value === 'automation'
 }
 
 function isRoutingExecutor(value: unknown): value is RoutingExecutor {
@@ -181,15 +206,16 @@ function defaultTaskForMode(mode: RoutingMode): RoutingTask {
 }
 
 function legacyModeForTask(task: RoutingTask, domain: RoutingDomain): RoutingMode {
+  if (task === 'auto') return 'auto'
   if (task === 'dev' || task === 'debug') return 'programming'
   if (domain === 'atlas' && (task === 'review' || task === 'plan')) return 'operational'
-  return 'general'
+  return 'auto'
 }
 
 function isOverridden(state: RoutingState): boolean {
   return (
-    state.mode !== 'general'
-    || state.task !== 'direct'
+    state.mode !== 'auto'
+    || state.task !== 'auto'
     || state.domain !== 'auto'
     || state.executor !== 'auto'
     || state.style !== 'clear'

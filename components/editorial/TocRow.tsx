@@ -1,5 +1,13 @@
 import { Pressable, StyleSheet, Text, View, type ViewStyle, type StyleProp } from 'react-native'
 import { type ReactNode } from 'react'
+import * as Haptics from 'expo-haptics'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
 import { Frau } from '../../design/Type'
 import { fonts } from '../../design/tokens'
 import { usePalette } from '../../design/theme'
@@ -91,14 +99,14 @@ export function TocRow({
     value
   )
 
-  // Row separator · 1px sólido ink @ 6% opacity (F mockup exato:
-  // rgba(26,22,18,0.06)). hairlineWidth desaparece em iOS retina, então usa
-  // 1px sólido com opacidade controlada via cor rgba.
+  // Slice 6ab · row separator agora usa c.border canon (era rgba hardcoded
+  // warm ink @ 6% que sumia em dark mode slate). Token resolve cream alpha
+  // em dark, ink alpha em light · canon ambos modos.
   const content = (
     <View
       style={[
         styles.row,
-        withDivider && { borderBottomColor: TOC_DIVIDER, borderBottomWidth: 1 },
+        withDivider && { borderBottomColor: c.border, borderBottomWidth: 1 },
         style,
       ]}
     >
@@ -108,17 +116,35 @@ export function TocRow({
     </View>
   )
 
+  // Slice 6ab · haptic Soft + press scale spring quando pressable
+  const pressScale = useSharedValue(1)
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }))
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress?.()
+  }
+
   if (onPress) {
     return (
-      <Pressable
-        onPress={onPress}
-        hitSlop={6}
-        accessibilityLabel={accessibilityLabel}
-        accessibilityRole="button"
-        style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
-      >
-        {content}
-      </Pressable>
+      <Animated.View style={pressAnimStyle}>
+        <Pressable
+          onPress={handlePress}
+          hitSlop={6}
+          accessibilityLabel={accessibilityLabel}
+          accessibilityRole="button"
+          onPressIn={() => {
+            pressScale.value = withTiming(0.98, { duration: 120, easing: Easing.out(Easing.quad) })
+          }}
+          onPressOut={() => {
+            pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
+          }}
+          style={({ pressed }) => ({ opacity: pressed ? 0.72 : 1 })}
+        >
+          {content}
+        </Pressable>
+      </Animated.View>
     )
   }
 
@@ -126,7 +152,6 @@ export function TocRow({
 }
 
 const DOT_STRING = '· '.repeat(80)
-const TOC_DIVIDER = 'rgba(26,22,18,0.06)' // ink @ 6% · F mockup row separator
 
 const styles = StyleSheet.create({
   // marginLeft:32 + marginRight:32 = trilhos internos simétricos.

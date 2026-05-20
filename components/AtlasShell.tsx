@@ -169,7 +169,7 @@ interface ToastProps {
 }
 
 function Toast({ msg, variant }: ToastProps) {
-  const { c } = useTheme()
+  const { c, name } = useTheme()
   const opacity = useSharedValue(0)
   const ty = useSharedValue(-8)
 
@@ -195,7 +195,7 @@ function Toast({ msg, variant }: ToastProps) {
             {
               backgroundColor: c.surface,
               borderColor: c.border,
-              shadowColor: '#1C1916',
+              shadowColor: name === 'dark' ? '#000' : '#1A1612',
             },
             animStyle,
           ]}

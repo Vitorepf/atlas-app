@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
 import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import Animated, { ZoomIn, ZoomOut } from 'react-native-reanimated'
 import { Frau, Mono, Sans } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
 import {
@@ -13,6 +15,7 @@ import {
   type AttachmentUploadPhase,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
+  attachmentBadgeLabel,
   fileExtensionLabel,
   formatBytes,
 } from './attachmentTypes'
@@ -42,52 +45,64 @@ export function AttachmentPreviewStrip({
       keyboardShouldPersistTaps="handled"
     >
       {attachments.map((attachment) => (
-        <Pressable
+        // Slice 6ah · ZoomIn/ZoomOut canon premium quando anexo
+        // adicionado/removido. Spring damping naturals · "thumb pops
+        // into existence" canon iOS.
+        <Animated.View
           key={attachment.id}
-          onPress={() => onOpen?.(attachment)}
-          disabled={!onOpen}
-          accessibilityRole="imagebutton"
-          accessibilityLabel="abrir imagem anexada"
-          style={({ pressed }) => [
-            composer ? styles.composerAttachmentThumb : styles.attachmentThumb,
-            {
-              borderColor: c.border,
-              backgroundColor: c.surface,
-              opacity: pressed ? 0.72 : readonly ? 0.86 : 1,
-            },
-          ]}
+          entering={ZoomIn.springify().damping(16).mass(0.8)}
+          exiting={ZoomOut.duration(220)}
         >
-          <Image
-            source={{ uri: attachment.uri }}
-            resizeMode="cover"
-            style={composer ? styles.composerAttachmentImage : styles.attachmentImage}
-          />
-          {!readonly && onRemove ? (
-            <Pressable
-              onPress={() => onRemove(attachment.id)}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="remover anexo"
-              style={({ pressed }) => [
-                composer ? styles.composerAttachmentRemove : styles.attachmentRemove,
-                {
-                  backgroundColor: composer ? c.ink : c.bg,
-                  borderColor: composer ? c.ink : c.border,
-                  opacity: pressed ? 0.6 : 1,
-                },
-              ]}
-            >
-              <Sans
-                size={composer ? 17 : 13}
-                lineHeight={composer ? 19 : 14}
-                weight="med"
-                color={composer ? c.bg : c.ink}
+          <Pressable
+            onPress={() => onOpen?.(attachment)}
+            disabled={!onOpen}
+            accessibilityRole="imagebutton"
+            accessibilityLabel="abrir imagem anexada"
+            style={({ pressed }) => [
+              composer ? styles.composerAttachmentThumb : styles.attachmentThumb,
+              {
+                borderColor: c.border,
+                backgroundColor: c.surface,
+                opacity: pressed ? 0.72 : readonly ? 0.86 : 1,
+              },
+            ]}
+          >
+            <Image
+              source={{ uri: attachment.uri }}
+              resizeMode="cover"
+              style={composer ? styles.composerAttachmentImage : styles.attachmentImage}
+            />
+            {!readonly && onRemove ? (
+              <Pressable
+                onPress={() => {
+                  // Slice 6ah · haptic Light no remove · canon iOS destructive feedback
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                  onRemove(attachment.id)
+                }}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="remover anexo"
+                style={({ pressed }) => [
+                  composer ? styles.composerAttachmentRemove : styles.attachmentRemove,
+                  {
+                    backgroundColor: composer ? c.ink : c.bg,
+                    borderColor: composer ? c.ink : c.border,
+                    opacity: pressed ? 0.6 : 1,
+                  },
+                ]}
               >
-                ×
-              </Sans>
-            </Pressable>
-          ) : null}
-        </Pressable>
+                <Sans
+                  size={composer ? 17 : 13}
+                  lineHeight={composer ? 19 : 14}
+                  weight="med"
+                  color={composer ? c.bg : c.ink}
+                >
+                  ×
+                </Sans>
+              </Pressable>
+            ) : null}
+          </Pressable>
+        </Animated.View>
       ))}
     </ScrollView>
   )
@@ -113,8 +128,11 @@ export function FileAttachmentPreviewStrip({
       keyboardShouldPersistTaps="handled"
     >
       {attachments.map((attachment) => (
-        <View
+        // Slice 6ah · ZoomIn/ZoomOut · same canon do image strip
+        <Animated.View
           key={attachment.id}
+          entering={ZoomIn.springify().damping(16).mass(0.8)}
+          exiting={ZoomOut.duration(220)}
           style={[
             styles.fileAttachmentChip,
             {
@@ -126,7 +144,7 @@ export function FileAttachmentPreviewStrip({
         >
           <View style={[styles.fileAttachmentIcon, { borderColor: c.border }]}>
             <Sans size={11} lineHeight={13} weight="med" color={c.ink2}>
-              {fileExtensionLabel(attachment.fileName)}
+              {attachmentBadgeLabel(attachment.fileName, attachment.mimeType)}
             </Sans>
           </View>
           <View style={styles.fileAttachmentText}>
@@ -139,7 +157,10 @@ export function FileAttachmentPreviewStrip({
           </View>
           {!readonly && onRemove ? (
             <Pressable
-              onPress={() => onRemove(attachment.id)}
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+                onRemove(attachment.id)
+              }}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel="remover arquivo"
@@ -154,7 +175,7 @@ export function FileAttachmentPreviewStrip({
               <Sans size={12} lineHeight={14} color={c.ink}>×</Sans>
             </Pressable>
           ) : null}
-        </View>
+        </Animated.View>
       ))}
     </ScrollView>
   )
@@ -395,9 +416,15 @@ export function AttachmentSheet({
   return (
     <BottomSheet visible={visible} onClose={onClose} height={460}>
       <View style={styles.attachmentSheetContent}>
-        <Frau italic size={20} lineHeight={28} color={c.ink}>
-          anexar
-        </Frau>
+        {/* Slice 6t · sheet heading canon premium · ✦ inline + Frau italic */}
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+          <Frau italic size={20} lineHeight={28} color={c.ink}>
+            anexar
+          </Frau>
+          <Frau italic weight="med" size={14} color={c.bronze} style={{ opacity: 0.7 }}>
+            ✦
+          </Frau>
+        </View>
         <Mono size={9.5} lineHeight={14} letterSpacing={1.4} color={c.ink3} style={styles.attachmentSheetMeta}>
           VISUAL INPUT · ALTA FIDELIDADE
         </Mono>
@@ -447,9 +474,14 @@ function AttachmentAction({
   onPress: () => void
 }) {
   const { c } = useTheme()
+  // Slice 6t · haptic Soft no press canon premium
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress()
+  }
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
@@ -457,14 +489,16 @@ function AttachmentAction({
         styles.attachmentAction,
         {
           borderTopColor: c.border,
-          opacity: disabled ? 0.45 : pressed ? 0.55 : 1,
+          backgroundColor: pressed ? c.bgRaised : 'transparent',
+          opacity: disabled ? 0.45 : 1,
         },
       ]}
     >
       <View style={styles.attachmentActionText}>
-        <Sans size={17} lineHeight={24} color={accent ? c.bronze : c.ink}>
+        {/* Slice 6t · label em Frau italic (manuscript canon) ao invés de Sans */}
+        <Frau italic size={17} lineHeight={24} color={accent ? c.bronze : c.ink}>
           {label}
-        </Sans>
+        </Frau>
         {detail ? (
           <Mono size={9.5} lineHeight={13} letterSpacing={0.4} color={disabled ? c.ink3 : c.ink2}>
             {detail}
@@ -503,7 +537,7 @@ function apiMediaUrl(url: string): string {
 
 function historicalAttachmentBadge(attachment: AtlasAiAttachment): string {
   if (attachment.kind === 'image') return 'IMG'
-  return fileExtensionLabel(attachment.name)
+  return attachmentBadgeLabel(attachment.name, attachment.mime_type)
 }
 
 function historicalAttachmentMeta(attachment: AtlasAiAttachment): string {
@@ -585,14 +619,20 @@ const styles = StyleSheet.create({
   composerAttachmentThumb: {
     width: 136,
     height: 96,
-    borderRadius: 12,
+    borderRadius: 14, // canon premium sheet-radius family (era 12)
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'visible',
+    // Slice 6p · subtle shadow lift premium · same canon as file chip
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    elevation: 1,
   },
   composerAttachmentImage: {
     width: 134,
     height: 94,
-    borderRadius: 11,
+    borderRadius: 13,
   },
   attachmentRemove: {
     position: 'absolute',
@@ -622,20 +662,26 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   fileAttachmentChip: {
-    width: 220,
-    minHeight: 54,
-    borderRadius: 8,
+    width: 232,
+    minHeight: 58,
+    borderRadius: 14, // sheet-radius family canon (era 8, muito rectangular)
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingLeft: 10,
-    paddingRight: 8,
+    gap: 12,
+    paddingLeft: 12,
+    paddingRight: 10,
+    // Slice 6p · subtle shadow lift premium · canon embossed manuscript
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 1,
   },
   fileAttachmentIcon: {
-    width: 38,
-    height: 34,
-    borderRadius: 6,
+    width: 40,
+    height: 40,
+    borderRadius: 8, // canon premium consistency
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',

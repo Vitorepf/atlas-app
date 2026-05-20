@@ -5,6 +5,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withTiming,
@@ -41,14 +42,21 @@ export function ThinkingState({ startedAtMs, provider }: Props) {
     return () => clearInterval(id)
   }, [startedAtMs])
 
+  // Slice 6ai · reducedMotion guard canon accessibility · pulse infinito
+  // desativa quando user habilita Reduce Motion · opacity fixa 0.65.
+  const reducedMotion = useReducedMotion()
   const opacity = useSharedValue(1)
   useEffect(() => {
+    if (reducedMotion) {
+      opacity.value = withTiming(0.65, { duration: 200 })
+      return
+    }
     opacity.value = withRepeat(
       withTiming(0.3, { duration: 900, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     )
-  }, [opacity])
+  }, [opacity, reducedMotion])
   const pulseStyle = useAnimatedStyle(() => ({ opacity: opacity.value }))
 
   return (

@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, {
   Easing,
   cancelAnimation,
+  interpolateColor,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -67,6 +69,33 @@ export function FieldInline({
   const c = usePalette()
   const hasText = value.trim().length > 0
   const ready = (hasText || canSubmit) && !disabled
+  // Slice 6e · focused state visual canon Atlas premium.
+  // Border-top hairline transita de bronze@15% (idle whisper) para
+  // bronze@55% (focused presence). Subtle mas perceptível — sinaliza
+  // "Atlas escutando", sem virar form-field SaaS chunky.
+  const [isFocused, setIsFocused] = useState(false)
+  const focusedValue = useSharedValue(0)
+  useEffect(() => {
+    focusedValue.value = withTiming(isFocused ? 1 : 0, {
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+    })
+  }, [isFocused, focusedValue])
+  const wrapAnimStyle = useAnimatedStyle(() => ({
+    borderTopColor: interpolateColor(
+      focusedValue.value,
+      [0, 1],
+      // Hex alpha: 26 = ~15%, 8C = ~55%. Bronze whisper → presence canon.
+      [`${c.bronze}26`, `${c.bronze}8C`],
+    ),
+  }))
+
+  // Slice 6f revert · ✦ cursor signature removido após review visual.
+  // O ✦ do send button (BronzeDiamond) já é o signal premium "Atlas
+  // escutando". Um segundo ✦ pulsando lado-a-lado virou ruído visual
+  // (visualizado em mockup atlas-composer-implementation-state.html).
+  // O focused-state border (Slice 6e) + native cursor iOS são o canon
+  // suficiente — premium = restraint, não acúmulo de signals.
   // v18 · ✦ sempre visível quando há onLongPressSend (Voice Mode handler).
   // Sem texto, ✦ continua presente como AFFORDANCE de captura de áudio
   // (long-press hold). Vibe canon: o ato editorial está sempre disponível,
@@ -98,8 +127,10 @@ export function FieldInline({
   }, [ready, visible, sendOpacity, sendScale])
 
   // Idle breathing while ready: 1 ↔ 1.045 over 2.2s — barely there, gives life.
+  // Slice 6ai · reducedMotion guard canon accessibility iOS
+  const reducedMotion = useReducedMotion()
   useEffect(() => {
-    if (ready) {
+    if (ready && !reducedMotion) {
       sendBreath.value = withRepeat(
         withSequence(
           withTiming(1.045, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
@@ -112,7 +143,7 @@ export function FieldInline({
       cancelAnimation(sendBreath)
       sendBreath.value = withTiming(1, { duration: 180 })
     }
-  }, [ready, sendBreath])
+  }, [ready, sendBreath, reducedMotion])
 
   const sendStyle = useAnimatedStyle(() => ({
     opacity: sendOpacity.value,
@@ -131,7 +162,10 @@ export function FieldInline({
     // canon ultra-premium: a hairline acima do composer é sutil whisper
     // bronze, não régua cinza separadora. Vocabulário "papel cream com
     // marca d'água", não "form divider SaaS". `0F` em hex = ~6% opacity.
-    <View style={[styles.wrap, { borderTopColor: `${c.bronze}26` }]}>
+    //
+    // Slice 6e · borderTopColor agora é Animated (interpolate via focused
+    // state). Idle = whisper bronze; focused = presence bronze.
+    <Animated.View style={[styles.wrap, wrapAnimStyle]}>
       {onAttachmentPress ? (
         <Pressable
           onPress={onAttachmentPress}
@@ -162,8 +196,15 @@ export function FieldInline({
         placeholderTextColor={c.ink3}
         multiline={multiline}
         editable={!disabled}
-        onFocus={onFocus}
+        onFocus={() => {
+          setIsFocused(true)
+          onFocus?.()
+        }}
+        onBlur={() => setIsFocused(false)}
         textAlignVertical="top"
+        // Slice 6aj · selection (cursor + highlight) atlas gold canon
+        selectionColor={c.bronze}
+        cursorColor={c.bronze}
         style={[styles.input, { color: c.ink }]}
         returnKeyType="default"
         keyboardType="default"
@@ -223,7 +264,7 @@ export function FieldInline({
           />
         </Pressable>
       </Animated.View>
-    </View>
+    </Animated.View>
   )
 }
 

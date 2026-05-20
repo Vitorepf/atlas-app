@@ -109,10 +109,10 @@
     },
     "extra": {
       "atlas": {
-        "apiHost": "127.0.0.1",
+        "apiHost": "100.80.228.41",
         "apiPort": 3737,
         "apiToken": "local-development-atlas-token-change-me",
-        "liveKitUrl": "ws://127.0.0.1:7880"
+        "liveKitUrl": "ws://100.80.228.41:7880"
       },
       "router": {},
       "eas": {

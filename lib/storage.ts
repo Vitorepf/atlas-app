@@ -6,8 +6,11 @@
  * Mantemos a API async para que callers existentes não mudem assinatura,
  * mas a operação real é instantânea.
  *
- * Em ambiente sem JSI, o construtor lança — caímos num fallback em memória
- * que mantém o estado durante a sessão (suficiente pra dev/web).
+ * Em ambiente sem JSI (Expo Go, web, env sem Nitro Modules), MMKV não
+ * carrega — caímos num fallback AsyncStorage com cache write-through em
+ * memória. Isso preserva persistência cross-reload em qualquer runtime;
+ * antes o fallback era Map() puro e tudo era perdido (tema, host pairing,
+ * routing prefs, etc).
  */
 
 interface BackendStore {
@@ -17,23 +20,82 @@ interface BackendStore {
 }
 
 let backend: BackendStore
+/**
+ * Promise que resolve quando o backend está pronto pra ler dados persistidos.
+ *  - MMKV: resolve instantâneo (storage é síncrono)
+ *  - AsyncStorage fallback: resolve depois de hidratar o cache em memória
+ *
+ * `atlasStorage.getItem/removeItem/multi*` aguardam isso antes de ler/escrever
+ * pra garantir que reads early no boot enxergam dados persistidos.
+ * `*Sync` variants NÃO aguardam (best-effort, retornam null se early).
+ */
+let storageHydrationPromise: Promise<void> = Promise.resolve()
 
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mmkv = require('react-native-mmkv') as { createMMKV?: (config: { id: string }) => { getString(key: string): string | undefined; set(key: string, value: string): void; delete(key: string): void } }
+  const mmkv = require('react-native-mmkv') as { createMMKV?: (config: { id: string }) => { getString(key: string): string | undefined; set(key: string, value: boolean | string | number | ArrayBuffer): void; remove(key: string): boolean } }
   if (typeof mmkv.createMMKV !== 'function') throw new Error('createMMKV missing')
   const instance = mmkv.createMMKV({ id: 'atlas.v1' })
   backend = {
     get: (key) => instance.getString(key),
     set: (key, value) => instance.set(key, value),
-    delete: (key) => instance.delete(key),
+    // MMKV v4 API: instance.remove(key) — NÃO `delete` (que silently nopa).
+    delete: (key) => { instance.remove(key) },
   }
 } catch {
+  // Fallback AsyncStorage com cache em memória write-through.
+  // Hydration roda async no boot; reads sync antes disso retornam undefined.
   const memory = new Map<string, string>()
-  backend = {
-    get: (key) => memory.get(key),
-    set: (key, value) => memory.set(key, value),
-    delete: (key) => memory.delete(key),
+  type AsyncStorageLike = {
+    getItem: (k: string) => Promise<string | null>
+    setItem: (k: string, v: string) => Promise<void>
+    removeItem: (k: string) => Promise<void>
+    getAllKeys?: () => Promise<readonly string[]>
+  }
+  let asyncStorageBackend: AsyncStorageLike | null = null
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const asMod = require('@react-native-async-storage/async-storage') as { default?: AsyncStorageLike }
+    asyncStorageBackend = asMod?.default ?? null
+  } catch {
+    asyncStorageBackend = null
+  }
+
+  if (asyncStorageBackend) {
+    const as: AsyncStorageLike = asyncStorageBackend
+    storageHydrationPromise = (async () => {
+      try {
+        const allKeys = (await as.getAllKeys?.()) ?? []
+        for (const key of allKeys) {
+          try {
+            const value = await as.getItem(key)
+            if (value != null) memory.set(key, value)
+          } catch {
+            // chave individual falhou: ignora.
+          }
+        }
+      } catch {
+        // hydration falhou completa: segue com cache vazio.
+      }
+    })()
+    backend = {
+      get: (key) => memory.get(key),
+      set: (key, value) => {
+        memory.set(key, value)
+        void as.setItem(key, value).catch(() => {})
+      },
+      delete: (key) => {
+        memory.delete(key)
+        void as.removeItem(key).catch(() => {})
+      },
+    }
+  } else {
+    // Last resort: nem MMKV nem AsyncStorage. Sessão vira volátil.
+    backend = {
+      get: (key) => memory.get(key),
+      set: (key, value) => memory.set(key, value),
+      delete: (key) => memory.delete(key),
+    }
   }
 }
 
@@ -135,25 +197,31 @@ export const atlasStorage = {
     backend.delete(key)
   },
   async getItem(key: string): Promise<string | null> {
+    await storageHydrationPromise
     const value = backend.get(key)
     return value === undefined ? null : value
   },
   async setItem(key: string, value: string): Promise<void> {
+    await storageHydrationPromise
     backend.set(key, value)
   },
   async removeItem(key: string): Promise<void> {
+    await storageHydrationPromise
     backend.delete(key)
   },
   async multiSet(pairs: ReadonlyArray<[string, string]>): Promise<void> {
+    await storageHydrationPromise
     for (const [key, value] of pairs) backend.set(key, value)
   },
   async multiGet(keys: ReadonlyArray<string>): Promise<Array<[string, string | null]>> {
+    await storageHydrationPromise
     return keys.map((key) => {
       const value = backend.get(key)
       return [key, value === undefined ? null : value] as [string, string | null]
     })
   },
   async multiRemove(keys: ReadonlyArray<string>): Promise<void> {
+    await storageHydrationPromise
     for (const key of keys) backend.delete(key)
   },
 }

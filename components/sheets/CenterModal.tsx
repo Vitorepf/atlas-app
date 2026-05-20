@@ -25,7 +25,7 @@ interface Props {
 
 // Center confirmation/info modal. Card lifts + scales subtly on entry.
 export function CenterModal({ visible, onClose, children, emphasised, canon }: Props) {
-  const { c } = useTheme()
+  const { c, name } = useTheme()
   const opacity = useSharedValue(0)
   const cardTy = useSharedValue(8)
   const cardScale = useSharedValue(0.985)
@@ -55,17 +55,17 @@ export function CenterModal({ visible, onClose, children, emphasised, canon }: P
           canon
             ? {
                 backgroundColor: c.bg,
-                borderColor: 'rgba(26,22,18,0.18)',
+                borderColor: name === 'dark' ? c.border : 'rgba(26,22,18,0.18)',
                 borderRadius: 4,
                 paddingTop: 28,
                 paddingHorizontal: 24,
                 paddingBottom: 0,
-                shadowColor: '#1C1916',
+                shadowColor: name === 'dark' ? '#000' : '#1A1612',
               }
             : {
                 backgroundColor: c.premium,
                 borderColor: c.border,
-                shadowColor: '#1C1916',
+                shadowColor: name === 'dark' ? '#000' : '#1A1612',
               },
           cardStyle,
         ]}

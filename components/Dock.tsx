@@ -40,7 +40,11 @@ import { RecordModeStrip } from './inbox/RecordModeStrip'
 // visível (long-press hold no ✦ central). Em `/` (Atlas AI), voz é Voice
 // Mode (long-press no ✦ send do composer · conversa por voz, não captura).
 // Em outras rotas, Modo Gravar continua acessível.
-const FOCUSED_ROUTES = new Set(['/', '/capture', '/detail', '/decision'])
+//
+// `/cartografia` entra · canvas vivo de pan/zoom precisa de tela inteira
+// pra navegação dos dedos não competir com tap do dock. Sair via "←" do
+// header da própria Cartografia.
+const FOCUSED_ROUTES = new Set(['/', '/capture', '/detail', '/decision', '/cartografia'])
 const atlasLogoMarfim = require('../assets/brand/atlas-logo-marfim.png')
 
 // Animated Pressable · permite passar style array contendo animated styles
@@ -655,7 +659,7 @@ function DockButton({ item, active, onPress }: DockButtonProps) {
           {item.label.toLowerCase()}
         </Frau>
         <Animated.View
-          style={[styles.btnActiveMark, { backgroundColor: c.bronze }, animatedMarkStyle]}
+          style={[styles.btnActiveMark, { backgroundColor: c.bronze, shadowColor: c.bronze }, animatedMarkStyle]}
           pointerEvents="none"
         />
       </Animated.View>

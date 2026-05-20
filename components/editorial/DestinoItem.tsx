@@ -1,4 +1,12 @@
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native'
+import * as Haptics from 'expo-haptics'
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated'
 import { Frau } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 
@@ -61,8 +69,21 @@ export function DestinoItem({
   const effectiveGlyph = glyph ?? (active ? '✦' : '·')
   const isAtlas = effectiveGlyph === '✦'
 
+  // Slice 6ab · canon premium haptic + press scale spring
+  const pressScale = useSharedValue(1)
+  const pressAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }))
+  const handlePress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onPress?.()
+  }
+
   const content = (
-    <View style={[styles.row, isLast && styles.rowLast, style]}>
+    // Slice 6ab · borderBottom usa c.border token (era rgba hardcoded warm
+    // ink @ 6% que sumia em dark mode). Token resolve cream alpha em dark,
+    // ink alpha em light · canon ambos modos.
+    <View style={[styles.row, { borderBottomColor: c.border }, isLast && styles.rowLast, style]}>
       <Frau
         italic={isAtlas}
         size={18}
@@ -87,16 +108,24 @@ export function DestinoItem({
 
   if (onPress && !disabled) {
     return (
-      <Pressable
-        onPress={onPress}
-        hitSlop={4}
-        accessibilityRole="button"
-        accessibilityLabel={subtitle ? `${label} — ${subtitle}` : label}
-        accessibilityState={{ selected: active, disabled }}
-        style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
-      >
-        {content}
-      </Pressable>
+      <Animated.View style={pressAnimStyle}>
+        <Pressable
+          onPress={handlePress}
+          hitSlop={4}
+          accessibilityRole="button"
+          accessibilityLabel={subtitle ? `${label} — ${subtitle}` : label}
+          accessibilityState={{ selected: active, disabled }}
+          onPressIn={() => {
+            pressScale.value = withTiming(0.98, { duration: 120, easing: Easing.out(Easing.quad) })
+          }}
+          onPressOut={() => {
+            pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
+          }}
+          style={({ pressed }) => ({ opacity: pressed ? 0.72 : 1 })}
+        >
+          {content}
+        </Pressable>
+      </Animated.View>
     )
   }
 
@@ -116,8 +145,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginLeft: 32,
     marginRight: 32,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(26,22,18,0.06)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    // borderBottomColor agora vem inline via c.border (Slice 6ab)
   },
   // Último item de uma section · canon mockup `:last-child { border-bottom: none }`.
   // Sem hairline-bottom evita linha dupla quando próxima SectionHead vier abaixo.
