@@ -36,7 +36,6 @@
   },
   "dependencies": {
     "@atlas/rich-input-canon": "file:../packages/atlas-rich-input-canon",
-    "@config-plugins/react-native-webrtc": "^14.0.0",
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
@@ -83,7 +82,6 @@
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
     "react-native-svg": "15.12.1",
-    "react-native-webrtc": "^124.0.7",
     "react-native-worklets": "0.5.1",
     "tamagui": "^2.0.0-rc.41",
     "zod": "^4.3.6",

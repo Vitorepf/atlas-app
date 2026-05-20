@@ -41,7 +41,6 @@ const expo = {
   plugins: [
     ...(appJson.expo.plugins ?? []),
     '@livekit/react-native-expo-plugin',
-    '@config-plugins/react-native-webrtc',
     'expo-background-task',
     'expo-notifications',
   ],
