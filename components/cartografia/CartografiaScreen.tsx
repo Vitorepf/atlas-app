@@ -219,8 +219,19 @@ export default function CartografiaScreen() {
     const semanticFlow = buildSemanticFlow(source.graphId)
     const flow = semanticFlow.length ? semanticFlow : source.gearFlow ?? []
     return {
+      graphId: source.graphId,
       title: source.name,
       subtitle: source.deck,
+      humanSummary: semanticNode?.human_summary,
+      humanName: semanticNode?.human_name,
+      canonicalName: semanticNode?.canonical_name,
+      technicalName: semanticNode?.technical_name,
+      productName: semanticNode?.product_name,
+      runtimeAcronym: semanticNode?.runtime_acronym,
+      internalProductName: semanticNode?.internal_product_name,
+      technicalRuntime: semanticNode?.technical_runtime,
+      cartographyType: semanticNode?.cartography_type,
+      canonicalSource: semanticNode?.canonical_source,
       kind: source.phase,
       status: semanticNode?.graph_status ?? (source.missingSource ? 'missing' : 'active'),
       source: source.graphSource,
@@ -274,8 +285,19 @@ export default function CartografiaScreen() {
     const semanticNode = findSemanticNode(liveData.semanticGraph, graphId)
     if (!semanticNode) return null
     return {
+      graphId: semanticNode.graph_id,
       title: semanticNode.graph_title,
       subtitle: semanticNode.summary ?? semanticNode.graph_layer ?? semanticNode.graph_world,
+      humanSummary: semanticNode.human_summary,
+      humanName: semanticNode.human_name,
+      canonicalName: semanticNode.canonical_name,
+      technicalName: semanticNode.technical_name,
+      productName: semanticNode.product_name,
+      runtimeAcronym: semanticNode.runtime_acronym,
+      internalProductName: semanticNode.internal_product_name,
+      technicalRuntime: semanticNode.technical_runtime,
+      cartographyType: semanticNode.cartography_type,
+      canonicalSource: semanticNode.canonical_source,
       kind: semanticNode.graph_kind,
       status: semanticNode.graph_status,
       source: semanticNode.graph_source,
@@ -340,6 +362,7 @@ export default function CartografiaScreen() {
     }
 
     return {
+      graphId: adaptedLane.graphId,
       title: lane.name,
       subtitle: lane.deck,
       kind: 'lane',
@@ -372,6 +395,7 @@ export default function CartografiaScreen() {
     if (!continent) return null
     if (id === 'atlas') {
       return {
+        graphId: 'atlas',
         title: continent.name,
         subtitle: 'continente principal: documentação viva do Atlas AI em fluxo visual navegável',
         kind: 'continent',
@@ -394,6 +418,7 @@ export default function CartografiaScreen() {
 
     const scene = CONTINENT_SCENES.find((item) => item.continentId === id)
     return {
+      graphId: id,
       title: continent.name,
       subtitle: continent.deck,
       kind: 'continent',
@@ -416,6 +441,7 @@ export default function CartografiaScreen() {
     const semanticInfo = infoFromSemanticId(node.target_graph_id ?? node.graph_id)
     if (semanticInfo) return semanticInfo
     return {
+      graphId: node.target_graph_id ?? node.graph_id,
       title: node.name,
       subtitle: node.summary,
       kind: node.kind,
@@ -430,6 +456,44 @@ export default function CartografiaScreen() {
       childrenCount: node.gear_flow?.length ?? 0,
     }
   }, [infoFromSemanticId])
+
+  const openInfoByGraphId = useCallback((graphId: string) => {
+    const info = infoFromSemanticId(graphId)
+    if (info) {
+      openGearInfo(info)
+      return
+    }
+    const laneNode = laneNodeByGraphId.get(graphId)
+    if (laneNode) {
+      openGearInfo({
+        graphId: laneNode.graphId,
+        title: laneNode.name,
+        subtitle: laneNode.deck,
+        kind: 'lateral',
+        status: laneNode.missingSource ? 'missing' : 'active',
+        source: laneNode.graphSource,
+        sourcePath: laneNode.sourcePath,
+        nextAction: laneNode.missingSource ? 'Criar ou vincular documento canônico real.' : null,
+      })
+    }
+  }, [infoFromSemanticId, laneNodeByGraphId, openGearInfo])
+
+  const openInfoBySourcePath = useCallback((sourcePath: string) => {
+    if (!liveData.semanticGraph) return
+    const normalized = sourcePath.replace(/^\/+/, '')
+    const semanticNode = liveData.semanticGraph.nodes.find((node) => {
+      const candidates = [
+        node.source_path,
+        node.canonical_source,
+        ...(node.repo_paths ?? []),
+        ...(node.related_paths ?? []),
+      ].filter(Boolean)
+      return candidates.some((candidate) => candidate === normalized || candidate === sourcePath)
+    })
+    if (semanticNode) {
+      openInfoByGraphId(semanticNode.graph_id)
+    }
+  }, [liveData.semanticGraph, openInfoByGraphId])
 
   const continentNodeParentStep = useCallback((id: string): AdaptedPipelineStep | null => {
     const found = continentNodeById.get(id)
@@ -820,6 +884,11 @@ export default function CartografiaScreen() {
     const cont = UNIVERSE_CONTINENTS.find((x) => x.id === nav.continent)
     return cont ? `${cont.count} PEÇAS` : ''
   })()
+  const humanNextMove = nav.view === 'universe'
+    ? 'toque Atlas para entrar'
+    : nav.view === 'subflow'
+      ? 'segure uma peça para ver a fonte'
+      : 'toque uma peça para aprofundar'
 
   return (
     <View
@@ -877,7 +946,9 @@ export default function CartografiaScreen() {
             CARTOGRAFIA
           </Mono>
           <Frau italic size={13} lineHeight={18} color={c.ink2}>
-            mapa vivo do atlas
+            {liveData.humanClarityScore != null
+              ? `clareza ${liveData.humanClarityScore.toFixed(1)} · mapa vivo`
+              : 'mapa vivo do atlas'}
           </Frau>
         </Pressable>
         {/* Cluster premium · indicador do continent (glyph mini sem
@@ -1011,6 +1082,9 @@ export default function CartografiaScreen() {
           <Mono size={10} letterSpacing={1.8} color={c.ink3}>
             {sceneCount}
           </Mono>
+          <Frau italic size={12} lineHeight={16} color={c.ink3} style={styles.sceneHint}>
+            {humanNextMove}
+          </Frau>
         </View>
       ) : null}
 
@@ -1043,6 +1117,8 @@ export default function CartografiaScreen() {
 
       <GearInfoModal
         info={gearInfoState?.items[gearInfoState.index] ?? null}
+        onOpenGraphId={openInfoByGraphId}
+        onOpenSourcePath={openInfoBySourcePath}
         hasPrevious={Boolean(gearInfoState && gearInfoState.index > 0)}
         hasNext={Boolean(gearInfoState && gearInfoState.index < gearInfoState.items.length - 1)}
         onPrevious={() => setGearInfoState((current) =>
@@ -1119,5 +1195,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     alignItems: 'center',
+  },
+  sceneHint: {
+    marginTop: 6,
+    opacity: 0.72,
   },
 })

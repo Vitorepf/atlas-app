@@ -127,6 +127,16 @@ export interface LiveSemanticNode {
   graph_parent: string | null
   graph_status: string | null
   graph_source: GraphSource
+  human_summary?: string | null
+  human_name?: string | null
+  canonical_name?: string | null
+  technical_name?: string | null
+  product_name?: string | null
+  runtime_acronym?: string | null
+  internal_product_name?: string | null
+  technical_runtime?: string | null
+  cartography_type?: string | null
+  canonical_source?: string | null
   layer?: string | null
   doc_schema?: string | null
   owner?: string | null
@@ -191,6 +201,17 @@ export interface CartographyGraphResponse {
   connections: Array<{ from: string; to: string; kind: string }>
   semantic_graph: LiveSemanticGraph | null
   checksum: string | null
+  human_clarity_contract?: {
+    human_clarity?: {
+      schema_version?: string
+      status?: string
+      score?: number
+      target_score?: number
+      grade?: string
+      invariants?: Record<string, boolean>
+    }
+    writes?: boolean
+  } | null
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -466,6 +487,8 @@ export interface CartografiaLiveData {
   connections: AdaptedConnection[]
   /** Audit do graph */
   audit: LiveGraphAudit | null
+  /** Score de clareza visual humana vindo do contrato AURC */
+  humanClarityScore: number | null
   /** Contagem de lanes */
   laneCount: number
   /** Indica se os dados são live (API) ou fallback (estáticos) */
@@ -526,6 +549,9 @@ export function useCartografiaLiveData(): CartografiaLiveData {
   const [audit, setAudit] = useState<LiveGraphAudit | null>(
     () => cachedResponse?.audit ? normalizeAudit(cachedResponse.audit) : null,
   )
+  const [humanClarityScore, setHumanClarityScore] = useState<number | null>(
+    () => cachedResponse?.human_clarity_contract?.human_clarity?.score ?? null,
+  )
   const [laneCount, setLaneCount] = useState(
     () => cachedAdaptedLanes?.length ?? LANE_DEFINITIONS.length,
   )
@@ -552,6 +578,7 @@ export function useCartografiaLiveData(): CartografiaLiveData {
             semantic_graph: response.semantic_graph ?? null,
             audit: normalizeAudit(response.audit),
             checksum: response.checksum ?? null,
+            human_clarity_contract: response.human_clarity_contract ?? null,
           }
         : response
 
@@ -576,6 +603,7 @@ export function useCartografiaLiveData(): CartografiaLiveData {
       setConnections(adaptedConnections)
       setSemanticGraph(graph.semantic_graph)
       setAudit(normalizeAudit(graph.audit))
+      setHumanClarityScore(graph.human_clarity_contract?.human_clarity?.score ?? null)
       setLaneCount(adaptedLanes.length)
       setIsLive(true)
       setError(null)
@@ -604,7 +632,7 @@ export function useCartografiaLiveData(): CartografiaLiveData {
     }
   }, [refresh])
 
-  return { steps, semanticGraph, lanes, connections, audit, laneCount, isLive, loading, error }
+  return { steps, semanticGraph, lanes, connections, audit, humanClarityScore, laneCount, isLive, loading, error }
 }
 
 // ────────────────────────────────────────────────────────────────────

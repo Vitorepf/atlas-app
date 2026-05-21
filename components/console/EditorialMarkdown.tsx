@@ -11,32 +11,33 @@ type Tone = 'operational' | 'contemplative'
 interface Props {
   text: string
   tone?: Tone
+  onLinkPress?: (url: string) => void
 }
 
 // Renders LLM markdown in Atlas typography: italic always Fraunces italic
 // (oralidade), bold takes the body font's weighted variant (peso editorial),
 // inline code in JetBrains Mono on a surface tint (registro). No external
 // markdown library — keeps font/color discipline absolute.
-export function EditorialMarkdown({ text, tone = 'operational' }: Props) {
+export function EditorialMarkdown({ text, tone = 'operational', onLinkPress }: Props) {
   const blocks = useMemo(() => parseBlocks(text), [text])
   return (
     <View style={styles.stack}>
       {blocks.map((block, i) => (
-        <BlockView key={i} block={block} tone={tone} />
+        <BlockView key={i} block={block} tone={tone} onLinkPress={onLinkPress} />
       ))}
     </View>
   )
 }
 
-function BlockView({ block, tone }: { block: Block; tone: Tone }) {
+function BlockView({ block, tone, onLinkPress }: { block: Block; tone: Tone; onLinkPress?: (url: string) => void }) {
   const c = usePalette()
   switch (block.type) {
     case 'paragraph':
-      return <Paragraph spans={block.spans} tone={tone} />
+      return <Paragraph spans={block.spans} tone={tone} onLinkPress={onLinkPress} />
     case 'heading':
-      return <Heading level={block.level} spans={block.spans} tone={tone} />
+      return <Heading level={block.level} spans={block.spans} tone={tone} onLinkPress={onLinkPress} />
     case 'list':
-      return <ListBlock ordered={block.ordered} items={block.items} tone={tone} />
+      return <ListBlock ordered={block.ordered} items={block.items} tone={tone} onLinkPress={onLinkPress} />
     case 'quote':
       return <QuoteBlock spans={block.spans} />
     case 'code':
@@ -65,7 +66,7 @@ function BlockView({ block, tone }: { block: Block; tone: Tone }) {
     case 'divider':
       return <DividerEditorial />
     case 'table':
-      return <TableBlock headers={block.headers} rows={block.rows} tone={tone} />
+      return <TableBlock headers={block.headers} rows={block.rows} tone={tone} onLinkPress={onLinkPress} />
   }
 }
 
@@ -79,10 +80,12 @@ function TableBlock({
   headers,
   rows,
   tone,
+  onLinkPress,
 }: {
   headers: InlineSpan[][]
   rows: InlineSpan[][][]
   tone: Tone
+  onLinkPress?: (url: string) => void
 }) {
   const c = usePalette()
   const colCount = Math.max(headers.length, ...rows.map((r) => r.length))
@@ -119,7 +122,7 @@ function TableBlock({
           {Array.from({ length: colCount }).map((_, ci) => (
             <View key={ci} style={[styles.tableCell, { flex: 1 }]}>
               <Sans size={14} lineHeight={20} color={c.ink}>
-                <InlineRun spans={row[ci] ?? []} tone={tone} />
+                <InlineRun spans={row[ci] ?? []} tone={tone} onLinkPress={onLinkPress} />
               </Sans>
             </View>
           ))}
@@ -129,17 +132,17 @@ function TableBlock({
   )
 }
 
-function Paragraph({ spans, tone }: { spans: InlineSpan[]; tone: Tone }) {
+function Paragraph({ spans, tone, onLinkPress }: { spans: InlineSpan[]; tone: Tone; onLinkPress?: (url: string) => void }) {
   if (tone === 'contemplative') {
     return (
       <Frau size={18} lineHeight={28}>
-        <InlineRun spans={spans} tone={tone} />
+        <InlineRun spans={spans} tone={tone} onLinkPress={onLinkPress} />
       </Frau>
     )
   }
   return (
     <Sans size={16} lineHeight={25}>
-      <InlineRun spans={spans} tone={tone} />
+      <InlineRun spans={spans} tone={tone} onLinkPress={onLinkPress} />
     </Sans>
   )
 }
@@ -148,17 +151,19 @@ function Heading({
   level,
   spans,
   tone,
+  onLinkPress,
 }: {
   level: 1 | 2 | 3
   spans: InlineSpan[]
   tone: Tone
+  onLinkPress?: (url: string) => void
 }) {
   const c = usePalette()
   if (level === 1) {
     return (
       <View style={styles.h1}>
         <Frau size={22} lineHeight={28}>
-          <InlineRun spans={spans} tone={tone} />
+          <InlineRun spans={spans} tone={tone} onLinkPress={onLinkPress} />
         </Frau>
       </View>
     )
@@ -182,7 +187,7 @@ function Heading({
   return (
     <View style={styles.h3}>
       <Sans weight="sb" size={14} lineHeight={20} color={c.ink}>
-        <InlineRun spans={spans} tone={tone} />
+        <InlineRun spans={spans} tone={tone} onLinkPress={onLinkPress} />
       </Sans>
     </View>
   )
@@ -192,10 +197,12 @@ function ListBlock({
   ordered,
   items,
   tone,
+  onLinkPress,
 }: {
   ordered: boolean
   items: InlineSpan[][]
   tone: Tone
+  onLinkPress?: (url: string) => void
 }) {
   const c = usePalette()
   return (
@@ -212,7 +219,7 @@ function ListBlock({
             </Sans>
           )}
           <View style={styles.listBody}>
-            <Paragraph spans={item} tone={tone} />
+            <Paragraph spans={item} tone={tone} onLinkPress={onLinkPress} />
           </View>
         </View>
       ))}
@@ -234,7 +241,7 @@ function QuoteBlock({ spans }: { spans: InlineSpan[] }) {
   )
 }
 
-function InlineRun({ spans, tone }: { spans: InlineSpan[]; tone: Tone }) {
+function InlineRun({ spans, tone, onLinkPress }: { spans: InlineSpan[]; tone: Tone; onLinkPress?: (url: string) => void }) {
   const c = usePalette()
   return (
     <>
@@ -278,6 +285,10 @@ function InlineRun({ spans, tone }: { spans: InlineSpan[]; tone: Tone }) {
             <Text
               key={i}
               onPress={() => {
+                if (onLinkPress) {
+                  onLinkPress(span.url)
+                  return
+                }
                 void Linking.openURL(span.url).catch(() => {})
               }}
               style={{

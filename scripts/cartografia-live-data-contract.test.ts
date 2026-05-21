@@ -165,4 +165,21 @@ assert.equal(
   'GraphAssembler must expose versions both in pipeline/lane atoms and semantic nodes',
 )
 
+for (const humanClaritySurface of [
+  /humanNextMove/,
+  /sceneHint/,
+]) {
+  assert.match(
+    screenSource,
+    humanClaritySurface,
+    `CartografiaScreen must expose human clarity guidance without adding a large blocking overlay [${humanClaritySurface.source}]`,
+  )
+}
+
+assert.doesNotMatch(
+  screenSource,
+  /CLAREZA HUMANA/,
+  'CartografiaScreen must not render a large duplicated human clarity card over the canvas',
+)
+
 console.log('cartografia live data contract tests passed')
