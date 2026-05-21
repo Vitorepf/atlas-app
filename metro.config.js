@@ -1,21 +1,15 @@
 // Atlas mobile · metro config.
 //
-// Extends the Expo defaults so Metro can resolve the shared
-// `@atlas/rich-input-canon` package (declared as a `file:` dep in
-// package.json, symlinked at node_modules/@atlas/rich-input-canon to
-// /Users/vitorepf/develop/Atlas/packages/atlas-rich-input-canon).
+// Extends the Expo defaults for local monorepo development.
 //
-// Two flags are mandatory for the resolution to work:
-//   1. `resolver.unstable_enableSymlinks` — Metro must follow the npm
-//      file: symlink out of node_modules into the shared packages dir.
-//      Without this, requiring `@atlas/rich-input-canon` fails with
-//      "could not be found within the project or in these directories".
-//   2. `watchFolders` — adds the shared packages dir to Metro's watch
-//      graph so HMR + bundling see changes inside the canon.
+// In EAS Build, the app is archived as an isolated project. Sibling package
+// folders may not exist there, so shared watch folders must only be added when
+// present locally.
 //
 // After editing this file you MUST restart Metro with `--clear`:
 //   `npx expo start --clear` (or `npm start -- --clear`).
 const { getDefaultConfig } = require('expo/metro-config')
+const fs = require('fs')
 const path = require('path')
 
 const projectRoot = __dirname
@@ -24,13 +18,19 @@ const sharedPackagesRoot = path.resolve(monorepoRoot, 'packages')
 
 const config = getDefaultConfig(projectRoot)
 
-config.watchFolders = [sharedPackagesRoot]
+const watchFolders = []
+if (fs.existsSync(sharedPackagesRoot)) {
+  watchFolders.push(sharedPackagesRoot)
+}
+config.watchFolders = watchFolders
 
 config.resolver = config.resolver ?? {}
-config.resolver.unstable_enableSymlinks = true
+if (fs.existsSync(sharedPackagesRoot)) {
+  config.resolver.unstable_enableSymlinks = true
+}
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
-  sharedPackagesRoot,
+  ...(fs.existsSync(sharedPackagesRoot) ? [sharedPackagesRoot] : []),
 ]
 // Canon source is `.ts` (no build step) — ensure Metro accepts the
 // extensions when entering shared packages.

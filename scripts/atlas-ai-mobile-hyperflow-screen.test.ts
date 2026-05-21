@@ -32,7 +32,10 @@ const apiClient = file('lib/api/client.ts')
 // V2 Hyperflow contract, not through the old V1 routing adapter.
 assertContains(sheet, "import { buildInteractionPayload } from '../../lib/atlasAi/contract'", 'AtlasAiSheet')
 assertContains(sheet, 'const hyperflowBuild = buildInteractionPayload({', 'AtlasAiSheet')
+assertContains(sheet, 'computeEffort,', 'AtlasAiSheet compute effort contract')
 assertContains(sheet, "...runtimePolicy,", 'AtlasAiSheet payload')
+assertContains(sheet, 'operator_compute_effort: computeEffort', 'AtlasAiSheet payload effort operator hint')
+assertContains(sheet, 'policy_hints: Object.keys(policyHints).length > 0 ? policyHints : undefined', 'AtlasAiSheet payload effort policy hints')
 assertContains(sheet, "app_surface: 'atlas_mobile_ai'", 'AtlasAiSheet payload')
 assertContains(sheet, "surface_id: 'atlas_mobile_ai'", 'AtlasAiSheet domain selection')
 assertContains(sheet, 'conversationContext,', 'AtlasAiSheet context')
@@ -88,16 +91,21 @@ assert.equal(auto.payload.flow_id, 'auto')
 assert.equal(auto.payload.routing_domain, 'auto')
 assert.equal(auto.payload.routing_task, 'auto')
 assert.equal(isAutoAutoCleanPayload(auto.payload), true)
+assert.equal(auto.payload.operator_compute_effort, 'auto')
+assert.equal('compute_effort' in auto.payload, false)
 
 // Explicit programming remains allowed, but only when the operator asks for it.
 const programming = buildInteractionPayload({
   mode: 'programming',
   task: 'dev',
   provider: 'auto',
+  computeEffort: 'max',
   workspaceSlug: 'atlas',
 })
 assert.equal(programming.payload.flow_id, 'programming.dev')
 assert.equal(programming.payload.capability_profile, 'atlas_programming')
+assert.equal(programming.payload.operator_compute_effort, 'max')
+assert.equal(programming.payload.compute_effort, 'max')
 assert.ok('mobile_runtime_policy' in programming.payload)
 
 console.info('✓ atlas ai mobile hyperflow screen integration tests passaram')

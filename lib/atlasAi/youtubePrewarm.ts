@@ -14,7 +14,7 @@ import {
   extractUrls,
   extractYouTubeVideoId,
   normalizeYouTubeUrl,
-} from '@atlas/rich-input-canon'
+} from '../richInput'
 
 export interface ExtractedYoutubeLink {
   /** Canonical URL (https://www.youtube.com/watch?v=ID), guaranteed dedup-friendly. */

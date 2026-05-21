@@ -13,6 +13,8 @@
  * no payload quando `mode==='programming'` explícito.
  */
 
+export type { AtlasComputeEffortChoice } from '../richInput'
+
 /**
  * 12 modos canônicos espelhados do desktop. `auto` é o default — o front
  * NÃO assume domínio.

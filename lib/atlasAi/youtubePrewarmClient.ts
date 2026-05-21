@@ -14,7 +14,7 @@ import type {
   YoutubeIngestionStatus,
   YoutubeTranscriptStatus,
   YoutubeTranslationStatus,
-} from '@atlas/rich-input-canon'
+} from '../richInput'
 
 export interface YoutubePrewarmItem {
   url: string

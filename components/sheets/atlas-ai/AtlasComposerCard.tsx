@@ -20,6 +20,11 @@ import { useEffect, useState } from 'react'
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { BlurView } from 'expo-blur'
 import * as Haptics from 'expo-haptics'
+import {
+  labelAtlasComputeEffortShort,
+  nextAtlasComputeEffort,
+  type AtlasComputeEffortChoice,
+} from '../../../lib/richInput'
 import Animated, {
   Easing,
   FadeInDown,
@@ -45,6 +50,8 @@ import {
 interface Props {
   /** Atlas mode atual (label exibido na pill auto). */
   modeLabel: string
+  computeEffort: AtlasComputeEffortChoice
+  onComputeEffortChange: (next: AtlasComputeEffortChoice) => void
   /** Draft text · usado pra mostrar input value e calcular `hasText`. */
   value: string
   onChangeText: (next: string) => void
@@ -76,6 +83,8 @@ interface Props {
 
 export function AtlasComposerCard({
   modeLabel,
+  computeEffort,
+  onComputeEffortChange,
   value,
   onChangeText,
   onSubmit,
@@ -228,6 +237,10 @@ export function AtlasComposerCard({
   const handlePillPress = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
     onOpenRouting()
+  }
+  const handleEffortPress = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+    onComputeEffortChange(nextAtlasComputeEffort(computeEffort))
   }
   const handleAttachPress = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
@@ -398,7 +411,14 @@ export function AtlasComposerCard({
             disabled={disabled}
             label={`${modeLabel} · tocar para configurar conversa`}
             c={c}
-            modeLabel={modeLabel}
+            text={modeLabel}
+          />
+          <PressablePillScale
+            onPress={handleEffortPress}
+            disabled={disabled}
+            label={`esforço ${labelAtlasComputeEffortShort(computeEffort)} · tocar para alternar`}
+            c={c}
+            text={labelAtlasComputeEffortShort(computeEffort)}
           />
           {!canSubmit && onVoiceTap ? (
             <PressableIconScale
@@ -524,13 +544,13 @@ function PressablePillScale({
   disabled,
   label,
   c,
-  modeLabel,
+  text,
 }: {
   onPress: () => void
   disabled: boolean
   label: string
   c: ReturnType<typeof useTheme>['c']
-  modeLabel: string
+  text: string
 }) {
   const pressScale = useSharedValue(1)
   const pressAnimStyle = useAnimatedStyle(() => ({
@@ -561,7 +581,7 @@ function PressablePillScale({
       >
         <View style={[styles.pillDot, { backgroundColor: c.bronze, opacity: 0.95 }]} />
         <Frau italic size={13} lineHeight={16} color={c.ink2} numberOfLines={1}>
-          {modeLabel}
+          {text}
         </Frau>
       </Pressable>
     </Animated.View>
@@ -702,6 +722,7 @@ const styles = StyleSheet.create({
   actionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
     gap: 10,
   },
   actionRight: {
@@ -752,6 +773,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 999,
     minHeight: 28,
+    maxWidth: 118,
   },
   pillDot: {
     width: 5.5,

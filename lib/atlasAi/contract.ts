@@ -25,12 +25,14 @@
  * Substitui `lib/atlasAiModeContract.ts` (V1, marcado @deprecated).
  */
 import type {
+  AtlasComputeEffortChoice,
   AtlasAiFocus,
   AtlasAiMode,
   AtlasAiProvider,
   AtlasAiProviderChoice,
   AtlasAiTask,
 } from './types'
+import { atlasComputeEffortForPayload, normalizeAtlasComputeEffort } from '../richInput'
 
 export const ATLAS_AI_MODE_CONTRACT_VERSION = 2
 
@@ -214,6 +216,7 @@ export interface AtlasAiPayloadInput {
   mode: AtlasAiMode
   task: AtlasAiTask
   provider: AtlasAiProviderChoice
+  computeEffort?: AtlasComputeEffortChoice | null
   workspaceSlug: string | null
   routingDomain?: string | null
   conversationContext?: Record<string, unknown> | Array<Record<string, unknown>>
@@ -242,6 +245,8 @@ export function buildInteractionPayload(input: AtlasAiPayloadInput): AtlasAiPayl
   const workflowMode = input.task === 'debug' ? 'dev' : input.task
   const flowId = flowIdForMode(input.mode, input.task)
   const domainId = domainIdForFlow(flowId)
+  const computeEffort = normalizeAtlasComputeEffort(input.computeEffort)
+  const requestedComputeEffort = atlasComputeEffortForPayload(computeEffort)
 
   // Auto-mode: front NÃO assume domínio. Programming explícito mantém
   // workspaceSlug como domínio de roteamento por compat com Atlas Dev.
@@ -268,7 +273,15 @@ export function buildInteractionPayload(input: AtlasAiPayloadInput): AtlasAiPayl
     workspace: input.workspaceSlug ?? undefined,
     atlas_mode_contract: modeContractForRouting(input.mode, input.task),
     quality_policy: qualityPolicyForMode(input.mode),
+    operator_compute_effort: computeEffort,
     conversation_context: input.conversationContext ?? undefined,
+  }
+
+  if (requestedComputeEffort) {
+    payload.compute_effort = requestedComputeEffort
+    payload.policy_hints = {
+      compute_effort: requestedComputeEffort,
+    }
   }
 
   if (input.mode === 'programming') {

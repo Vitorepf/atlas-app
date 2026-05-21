@@ -28,6 +28,13 @@ const atlasExtra = appJson.expo.extra?.atlas ?? {}
 
 const expo = {
   ...appJson.expo,
+  updates: {
+    ...(appJson.expo.updates ?? {}),
+    url: 'https://u.expo.dev/9fd23e13-65fd-4775-a72d-7b6ab9108769',
+  },
+  runtimeVersion: appJson.expo.runtimeVersion ?? {
+    policy: 'appVersion',
+  },
   extra: {
     ...(appJson.expo.extra ?? {}),
     atlas: {

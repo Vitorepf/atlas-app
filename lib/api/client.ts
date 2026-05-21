@@ -4382,12 +4382,20 @@ export interface AtlasAiQualityAction {
 export interface AtlasAiProviderHealth {
   id: string | null
   provider: AtlasAiProvider | string
+  provider_label?: string | null
+  enabled?: boolean
   model?: string | null
   model_label?: string | null
   model_tier?: string | null
   model_source?: string | null
+  model_alias?: string | null
+  model_selection?: 'auto' | 'fixed' | string | null
+  default_model_alias?: string | null
+  model_catalog?: AtlasAiProviderModelCatalogItem[]
   allow_auto?: boolean
   allow_manual?: boolean
+  fallback_model?: string | null
+  fallback_model_label?: string | null
   premium_model?: string | null
   premium_model_label?: string | null
   status: 'online' | 'degraded' | 'offline' | 'unknown'
@@ -4522,16 +4530,31 @@ export interface AtlasAiActiveJob {
 
 export interface AtlasAiProviderModelPolicy {
   provider: AtlasAiProvider | string
+  provider_label?: string | null
+  enabled?: boolean
   model: string | null
   model_label: string | null
   model_tier: string | null
   model_source: string | null
+  model_alias?: string | null
+  model_selection?: 'auto' | 'fixed' | string | null
+  default_model_alias?: string | null
+  model_catalog?: AtlasAiProviderModelCatalogItem[]
   allow_auto: boolean
   allow_manual: boolean
   fallback_model?: string | null
   fallback_model_label?: string | null
   premium_model?: string | null
   premium_model_label?: string | null
+}
+
+export interface AtlasAiProviderModelCatalogItem {
+  key: string
+  alias?: string | null
+  model?: string | null
+  label: string
+  tier?: string | null
+  description?: string | null
 }
 
 export interface AtlasAiModelPolicy {
@@ -4743,6 +4766,7 @@ export interface AtlasAiFlowProfileUpdateResponse {
 export interface AtlasAiRuntimeSettings {
   source?: string
   updated_at?: string | null
+  default_provider_selection?: 'auto' | 'fixed' | string
   default_provider: AtlasAiProvider | string
   default_tier: string
   council_allow_auto: boolean
@@ -4762,6 +4786,7 @@ export interface AtlasAiRuntimeSettings {
 
 export interface AtlasAiRuntimeSettingsPatch {
   default_provider?: AtlasAiProvider | string
+  default_provider_selection?: 'auto' | 'fixed' | string
   default_tier?: string
   council_allow_auto?: boolean
   providers?: Record<string, {
@@ -4769,6 +4794,7 @@ export interface AtlasAiRuntimeSettingsPatch {
     model_label?: string | null
     model_tier?: string | null
     model_identity?: string | null
+    default_model_alias?: string | null
     allow_auto?: boolean
     allow_manual?: boolean
   }>
@@ -4788,6 +4814,19 @@ export interface AtlasAiRuntimeSettingsPatch {
 export interface AiProvidersStatusResponse {
   generated_at?: string
   runtime_settings?: AtlasAiRuntimeSettings
+  provider_choice_catalog?: {
+    schema_version?: string
+    default_provider_selection?: 'auto' | 'fixed' | string
+    default_provider?: AtlasAiProvider | string
+    default_provider_options?: Array<{
+      key: string
+      provider?: AtlasAiProvider | string | null
+      label: string
+      description?: string | null
+    }>
+    providers?: AtlasAiProviderModelPolicy[]
+  }
+  default_provider_selection?: 'auto' | 'fixed' | string
   default_provider?: AtlasAiProvider | string
   default_model?: AtlasAiProviderModelPolicy
   model_policy?: AtlasAiModelPolicy

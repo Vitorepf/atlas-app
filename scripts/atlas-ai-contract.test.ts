@@ -94,6 +94,8 @@ assert.equal(autoResult.payload.routing_domain, 'auto')
 assert.equal(autoResult.payload.flow_id, 'auto')
 assert.equal(autoResult.payload.domain_id, 'auto')
 assert.equal(autoResult.payload.decision_mode, 'atlas_decide')
+assert.equal(autoResult.payload.operator_compute_effort, 'auto')
+assert.ok(!('compute_effort' in autoResult.payload), 'compute_effort não é forçado em auto')
 assert.ok(
   !('capability_profile' in autoResult.payload),
   'auto/auto NUNCA carrega capability_profile',
@@ -129,6 +131,7 @@ const progResult = buildInteractionPayload({
   mode: 'programming',
   task: 'dev',
   provider: 'claude_cli',
+  computeEffort: 'deep',
   workspaceSlug: 'atlas',
 })
 assert.equal(progResult.payload.atlas_mode, 'programming')
@@ -139,6 +142,9 @@ assert.equal(progResult.payload.capability_profile, 'atlas_programming')
 assert.equal(progResult.payload.permission_policy, 'full_access')
 assert.equal(progResult.payload.requested_provider, 'claude_cli')
 assert.equal(progResult.payload.operator_requested_provider, 'claude_cli')
+assert.equal(progResult.payload.operator_compute_effort, 'deep')
+assert.equal(progResult.payload.compute_effort, 'deep')
+assert.deepEqual(progResult.payload.policy_hints, { compute_effort: 'deep' })
 assert.equal(progResult.provider, 'claude_cli')
 // mobile-specific block preservado
 assert.ok('mobile_runtime_policy' in progResult.payload, 'mobile_runtime_policy block deve estar presente')

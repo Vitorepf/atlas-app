@@ -616,6 +616,7 @@ export type MobileVoiceEndpointingInput = {
   silenceAfterSpeechMs?: number
   noSpeechTimeoutMs?: number
   maxTurnMs?: number
+  maxTurnAfterSpeechMs?: number
   qualityFirst?: boolean
 }
 
@@ -673,6 +674,7 @@ export function mobileVoiceEndpointingDecision(
   })
   const noSpeechTimeoutMs = Math.max(minTurnMs, Math.round(input.noSpeechTimeoutMs ?? 60_000))
   const maxTurnMs = Math.max(noSpeechTimeoutMs, Math.round(input.maxTurnMs ?? 1_800_000))
+  const maxTurnAfterSpeechMs = Math.max(minTurnMs, Math.round(input.maxTurnAfterSpeechMs ?? 120_000))
   const hasEnoughSpeech = speechMs >= minSpeechMs
 
   if (durationMs >= maxTurnMs) {
@@ -690,6 +692,10 @@ export function mobileVoiceEndpointingDecision(
 
   if (durationMs < minTurnMs) {
     return { action: 'continue', reason: 'min_turn_not_reached' }
+  }
+
+  if (durationMs >= maxTurnAfterSpeechMs) {
+    return { action: 'finish', reason: 'quality_turn_limit_reached' }
   }
 
   const lastSpeechAtMs = input.lastSpeechAtMs

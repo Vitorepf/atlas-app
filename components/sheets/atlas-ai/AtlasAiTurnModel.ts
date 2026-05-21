@@ -19,13 +19,13 @@ import { extractHyperflow } from '../../../lib/atlasAi/hyperflowRuntime'
 import {
   summarizeYouTubeVideo,
   type YouTubeVideoSummary,
-} from '@atlas/rich-input-canon'
+} from '../../../lib/richInput'
 import type { FeedbackAction } from './AtlasAiQualityFeedback'
 import type { TurnBody } from './AtlasAiTurnBody'
 import { providerWord } from './threadHistoryModel'
 
 /**
- * Canonical YouTube summary — projected by `@atlas/rich-input-canon` from
+ * Canonical YouTube summary — projected by `../../../lib/richInput` from
  * `trace.job.payload.youtube_ingestion.videos[]`. Three independent
  * dimensions: ingestion, transcript, translation. NEVER claim translation
  * that did not happen. See `atlas-server/docs/rich-input/youtube-canon.md`.
@@ -357,7 +357,7 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-// YouTube label/source helpers migrated to `@atlas/rich-input-canon`
+// YouTube label/source helpers migrated to `../../../lib/richInput`
 // (`youtubeIngestionStatusLabel`, `youtubeTranscriptStatusLabel`,
 // `youtubeTranslationStatusLabel`, `summarizeYouTubeVideo`). See
 // `atlas-server/docs/rich-input/youtube-canon.md`.

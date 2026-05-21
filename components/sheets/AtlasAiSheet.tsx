@@ -36,6 +36,11 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter, usePathname } from 'expo-router'
+import {
+  atlasComputeEffortForPayload,
+  normalizeAtlasComputeEffort,
+  type AtlasComputeEffortChoice,
+} from '../../lib/richInput'
 import { SideSheet } from './SideSheet'
 import { Frau, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
@@ -202,6 +207,7 @@ import { copyToClipboard } from './atlas-ai/AtlasAiClipboard'
 import { AtlasAiHeader } from './atlas-ai/AtlasAiHeader'
 import {
   PENDING_SUBMISSION_RETRY_DELAY_MS,
+  COMPUTE_EFFORT_KEY,
   ROUTING_KEY,
   THREAD_PAGE_SIZE,
   pinnedTraceStorageKey,
@@ -331,12 +337,13 @@ const ATLAS_VOICE_RECORDING_OPTIONS = {
 
 const MOBILE_VOICE_AUTO_START_DELAY_MS = 420
 const MOBILE_VOICE_POST_PLAYBACK_MIC_GUARD_MS = 1_400
-const MOBILE_VOICE_SPEECH_THRESHOLD_DB = -50
+const MOBILE_VOICE_SPEECH_THRESHOLD_DB = -38
 const MOBILE_VOICE_MIN_TURN_MS = 5_000
 const MOBILE_VOICE_MIN_SPEECH_MS = 2_000
 const MOBILE_VOICE_MIN_VOICED_METERING_SAMPLES = Math.ceil(MOBILE_VOICE_MIN_SPEECH_MS / 150)
 const MOBILE_VOICE_SILENCE_AFTER_SPEECH_MS = 18_000
 const MOBILE_VOICE_NO_SPEECH_TIMEOUT_MS = 90_000
+const MOBILE_VOICE_MAX_TURN_AFTER_SPEECH_MS = 120_000
 const MOBILE_VOICE_MAX_TURN_MS = 1_800_000
 const MOBILE_VOICE_QUALITY_FIRST_ENDPOINTING = true
 
@@ -400,6 +407,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [routing, setRouting] = useState<RoutingState>(ROUTING_DEFAULT)
+  const [computeEffort, setComputeEffort] = useState<AtlasComputeEffortChoice>('auto')
   const [routingOpen, setRoutingOpen] = useState(false)
   // v18 · destinoOverride · canon Atlas Decide. Quando user tap em "trocar",
   // alterna entre captura/conversa. Tarefa/projeto são definidos depois,
@@ -790,6 +798,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const [operationBusy, setOperationBusy] = useState<string | null>(null)
   const [bootstrapRetrying, setBootstrapRetrying] = useState(false)
   const [routingHydrated, setRoutingHydrated] = useState(false)
+  const [computeEffortHydrated, setComputeEffortHydrated] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [executionOpen, setExecutionOpen] = useState(false)
@@ -1873,6 +1882,27 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (!routingHydrated) return
     void atlasStorage.setItem(ROUTING_KEY, JSON.stringify(routing))
   }, [routing, routingHydrated])
+
+  useEffect(() => {
+    let cancelled = false
+    atlasStorage.getItem(COMPUTE_EFFORT_KEY)
+      .then((stored) => {
+        if (cancelled) return
+        setComputeEffort(normalizeAtlasComputeEffort(stored))
+      })
+      .finally(() => {
+        if (!cancelled) setComputeEffortHydrated(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!computeEffortHydrated) return
+    void atlasStorage.setItem(COMPUTE_EFFORT_KEY, computeEffort)
+  }, [computeEffort, computeEffortHydrated])
 
   useEffect(() => {
     if (!visible && voiceModeOpen) {
@@ -3856,6 +3886,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       minSpeechMs: MOBILE_VOICE_MIN_SPEECH_MS,
       silenceAfterSpeechMs: MOBILE_VOICE_SILENCE_AFTER_SPEECH_MS,
       noSpeechTimeoutMs: MOBILE_VOICE_NO_SPEECH_TIMEOUT_MS,
+      maxTurnAfterSpeechMs: MOBILE_VOICE_MAX_TURN_AFTER_SPEECH_MS,
       maxTurnMs: MOBILE_VOICE_MAX_TURN_MS,
       qualityFirst: MOBILE_VOICE_QUALITY_FIRST_ENDPOINTING,
     })
@@ -4030,6 +4061,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           mode: routingSnapshot.mode,
           task: routingSnapshot.task,
           provider: routingSnapshot.executor,
+          computeEffort,
           workspaceSlug: currentThread?.workspace ?? null,
           routingDomain: routingSnapshot.domain === 'auto' ? undefined : routingSnapshot.domain,
           conversationContext,
@@ -4053,6 +4085,14 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           ...threadRuntimePolicy,
           ...(threadOriginPayload ?? {}),
         }
+        const requestedComputeEffort = atlasComputeEffortForPayload(computeEffort)
+        const runtimePolicyHints =
+          typeof runtimePolicy.policy_hints === 'object' && runtimePolicy.policy_hints !== null
+            ? runtimePolicy.policy_hints as Record<string, unknown>
+            : {}
+        const policyHints = requestedComputeEffort
+          ? { ...runtimePolicyHints, compute_effort: requestedComputeEffort }
+          : runtimePolicyHints
 
         void recordAtlasAiEvent({
           eventName: 'interaction_request_started',
@@ -4066,6 +4106,8 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             new_thread: threadId == null,
             execution_policy: executionPolicy,
             decision_mode: decisionMode,
+            compute_effort: computeEffort,
+            requested_compute_effort: requestedComputeEffort ?? null,
             context_strategy_hint: attachmentAnalysisPreferred ? 'long_context_or_multimodal' : undefined,
             image_attachments: attachments.length,
           },
@@ -4119,6 +4161,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
             requested_agent: routingSnapshot.domain === 'auto' ? undefined : routingSnapshot.domain,
             requested_provider: provider,
             operator_requested_provider: routingSnapshot.executor,
+            operator_compute_effort: computeEffort,
+            compute_effort: requestedComputeEffort,
+            policy_hints: Object.keys(policyHints).length > 0 ? policyHints : undefined,
             context_strategy_hint: attachmentAnalysisPreferred ? 'long_context_or_multimodal' : undefined,
             visual_input: attachments.length > 0
               ? {
@@ -5184,6 +5229,8 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           recording={recordingActive}
           turnCount={turns.length}
           mode={routing.mode}
+          computeEffort={computeEffort}
+          onComputeEffortChange={setComputeEffort}
         />
       </Animated.View>
 

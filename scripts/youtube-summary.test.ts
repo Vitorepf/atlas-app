@@ -3,7 +3,7 @@
  *
  * Locks the projection contract surfaced by `youtubeSourcesFromTrace`
  * (mobile turn model) — which delegates to `summarizeYouTubeVideo` in
- * `@atlas/rich-input-canon`. Mobile and desktop both consume the canon, so
+ * `../lib/richInput`. Mobile and desktop both consume the canon, so
  * this test mirrors the canon shape from the mobile side and proves that
  * removing the local mapping helpers did not regress UX behavior.
  *
@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict'
 
-import { summarizeYouTubeVideo } from '@atlas/rich-input-canon'
+import { summarizeYouTubeVideo } from '../lib/richInput'
 
 function fixtureTrace(videos: unknown[]): {
   job: { id: string; payload: { youtube_ingestion: { videos: unknown[] } } }

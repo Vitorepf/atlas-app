@@ -947,75 +947,39 @@ export function SettingsSheet() {
             </Mono>
           </Row>
           <Row name="Default AI" desc={runtimeSettingsDescription(aiStatus)}>
-            <Segmented
-              value={
-                (aiStatus?.default_provider ?? 'claude_cli') === 'codex_cli'
-                  ? 'codex_cli'
-                  : (aiStatus?.default_provider ?? 'claude_cli') === 'gemini_cli'
-                    ? 'gemini_cli'
-                    : 'claude_cli'
-              }
-              options={[
-                { key: 'claude_cli', label: 'Claude' },
-                { key: 'codex_cli', label: 'Codex' },
-                { key: 'gemini_cli', label: 'Gemini' },
-              ]}
+            <ChoiceButton
+              value={defaultProviderChoice(aiStatus)}
+              options={defaultProviderOptions(aiStatus)}
               onChange={(provider) => {
                 void saveAiRuntimeSettings({ default_provider: provider })
               }}
             />
           </Row>
-          <Row name="Modelo Claude" desc={providerModelDescription(aiStatus, 'claude_cli')}>
-            <Segmented
-              value={providerModelChoice(aiStatus, 'claude_cli')}
-              options={providerModelOptions('claude_cli')}
-              onChange={(choice) => {
-                void saveAiRuntimeSettings({ providers: { claude_cli: modelPatchForChoice('claude_cli', choice) } })
-              }}
-            />
-          </Row>
-          <Row name="Modelo Codex" desc={providerModelDescription(aiStatus, 'codex_cli')}>
-            <Segmented
-              value={providerModelChoice(aiStatus, 'codex_cli')}
-              options={providerModelOptions('codex_cli')}
-              onChange={(choice) => {
-                void saveAiRuntimeSettings({ providers: { codex_cli: modelPatchForChoice('codex_cli', choice) } })
-              }}
-            />
-          </Row>
-          <Row name="Modelo Gemini" desc={providerModelDescription(aiStatus, 'gemini_cli')}>
-            <Segmented
-              value={providerModelChoice(aiStatus, 'gemini_cli')}
-              options={providerModelOptions('gemini_cli')}
-              onChange={(choice) => {
-                void saveAiRuntimeSettings({ providers: { gemini_cli: modelPatchForChoice('gemini_cli', choice) } })
-              }}
-            />
-          </Row>
-          <Row name="Codex automático" desc={providerAutomationDescription(aiStatus, 'codex_cli')}>
-            <Segmented
-              value={modelPolicyByProvider(aiStatus, 'codex_cli')?.allow_auto ? 'on' : 'off'}
-              options={[
-                { key: 'off', label: 'OFF' },
-                { key: 'on', label: 'ON' },
-              ]}
-              onChange={(value) => {
-                void saveAiRuntimeSettings({ providers: { codex_cli: { allow_auto: value === 'on' } } })
-              }}
-            />
-          </Row>
-          <Row name="Gemini automático" desc={providerAutomationDescription(aiStatus, 'gemini_cli')}>
-            <Segmented
-              value={modelPolicyByProvider(aiStatus, 'gemini_cli')?.allow_auto ? 'on' : 'off'}
-              options={[
-                { key: 'off', label: 'OFF' },
-                { key: 'on', label: 'ON' },
-              ]}
-              onChange={(value) => {
-                void saveAiRuntimeSettings({ providers: { gemini_cli: { allow_auto: value === 'on' } } })
-              }}
-            />
-          </Row>
+          {providerCatalogRows(aiStatus).map((provider) => (
+            <Row key={`model-${provider.provider}`} name={`Modelo ${provider.provider_label ?? providerLabel(provider.provider)}`} desc={providerModelDescription(aiStatus, provider.provider)}>
+              <ChoiceButton
+                value={providerModelChoice(aiStatus, provider.provider)}
+                options={providerModelOptions(aiStatus, provider.provider)}
+                onChange={(choice) => {
+                  void saveAiRuntimeSettings({ providers: { [provider.provider]: modelPatchForChoice(aiStatus, provider.provider, choice) } })
+                }}
+              />
+            </Row>
+          ))}
+          {providerCatalogRows(aiStatus).map((provider) => (
+            <Row key={`auto-${provider.provider}`} name={`${provider.provider_label ?? providerLabel(provider.provider)} automático`} desc={providerAutomationDescription(aiStatus, provider.provider)}>
+              <Segmented
+                value={modelPolicyByProvider(aiStatus, provider.provider)?.allow_auto ? 'on' : 'off'}
+                options={[
+                  { key: 'off', label: 'OFF' },
+                  { key: 'on', label: 'ON' },
+                ]}
+                onChange={(value) => {
+                  void saveAiRuntimeSettings({ providers: { [provider.provider]: { allow_auto: value === 'on' } } })
+                }}
+              />
+            </Row>
+          ))}
           <Row name="Budget AI" desc={aiBudgetDescription(aiStatus)}>
             <Segmented
               value={aiStatus?.budget?.enabled ? 'on' : 'off'}
@@ -1028,42 +992,22 @@ export function SettingsSheet() {
               }}
             />
           </Row>
-          <Row name="Limite Claude" desc={providerBudgetDescription(aiStatus, 'claude_cli')}>
-            <Segmented
-              value={providerBudgetChoice(aiStatus, 'claude_cli')}
-              options={budgetPresetOptions()}
-              onChange={(value) => {
-                void saveAiRuntimeSettings({ budget: { providers: { claude_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
-              }}
-            />
-          </Row>
-          <Row name="Limite Codex" desc={providerBudgetDescription(aiStatus, 'codex_cli')}>
-            <Segmented
-              value={providerBudgetChoice(aiStatus, 'codex_cli')}
-              options={budgetPresetOptions()}
-              onChange={(value) => {
-                void saveAiRuntimeSettings({ budget: { providers: { codex_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
-              }}
-            />
-          </Row>
-          <Row name="Limite Gemini" desc={providerBudgetDescription(aiStatus, 'gemini_cli')}>
-            <Segmented
-              value={providerBudgetChoice(aiStatus, 'gemini_cli')}
-              options={budgetPresetOptions()}
-              onChange={(value) => {
-                void saveAiRuntimeSettings({ budget: { providers: { gemini_cli: { max_visible_tokens: budgetValueForChoice(value) } } } })
-              }}
-            />
-          </Row>
-          <Row name="Worker Claude" desc={providerWorkerDescription(aiStatus, 'claude_cli')}>
-            <StatusBadge status={providerWorkerStatus(aiStatus, 'claude_cli')} />
-          </Row>
-          <Row name="Worker Codex" desc={providerWorkerDescription(aiStatus, 'codex_cli')}>
-            <StatusBadge status={providerWorkerStatus(aiStatus, 'codex_cli')} />
-          </Row>
-          <Row name="Worker Gemini" desc={providerWorkerDescription(aiStatus, 'gemini_cli')}>
-            <StatusBadge status={providerWorkerStatus(aiStatus, 'gemini_cli')} />
-          </Row>
+          {providerCatalogRows(aiStatus).map((provider) => (
+            <Row key={`budget-${provider.provider}`} name={`Limite ${provider.provider_label ?? providerLabel(provider.provider)}`} desc={providerBudgetDescription(aiStatus, provider.provider)}>
+              <ChoiceButton
+                value={providerBudgetChoice(aiStatus, provider.provider)}
+                options={budgetPresetOptions()}
+                onChange={(value) => {
+                  void saveAiRuntimeSettings({ budget: { providers: { [provider.provider]: { max_visible_tokens: budgetValueForChoice(value) } } } })
+                }}
+              />
+            </Row>
+          ))}
+          {providerCatalogRows(aiStatus).map((provider) => (
+            <Row key={`worker-${provider.provider}`} name={`Worker ${provider.provider_label ?? providerLabel(provider.provider)}`} desc={providerWorkerDescription(aiStatus, provider.provider)}>
+              <StatusBadge status={providerWorkerStatus(aiStatus, provider.provider)} />
+            </Row>
+          ))}
           <Row name="Fila AI" desc={aiQueueDescription(aiStatus)}>
             <Mono size={12} letterSpacing={0.48} color={aiQueueHasWork(aiStatus) ? c.bronze : c.ink2}>
               {aiQueueValue(aiStatus)}
@@ -1887,11 +1831,13 @@ function transcriptionQueueDescription(health: AtlasHealth | null): string {
 }
 
 function providerLabel(provider: string | null | undefined): string {
+  if (provider === 'auto') return 'Auto'
   if (provider === 'claude_cli') return 'Claude CLI'
   if (provider === 'codex_cli') return 'Codex CLI'
   if (provider === 'gemini_cli') return 'Gemini CLI'
   if (provider === 'claude_codex') return 'Conselho'
-  return provider ?? 'padrão'
+  if (!provider) return 'padrão'
+  return provider.replace(/_cli$/, '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
 function activeAiSessionsDescription(jobs: AtlasAiJob[], loading: boolean): string {
@@ -2171,6 +2117,9 @@ function firstNumber(...values: unknown[]): number | null {
 
 function defaultProviderDescription(status: AiProvidersStatusResponse | null): string {
   if (!status) return 'Ainda não verificado'
+  if (defaultProviderChoice(status) === 'auto') {
+    return 'Atlas Decide escolhe o melhor provider permitido para cada tarefa'
+  }
   const model = status.default_model
   const label = model?.model_label || model?.model || 'modelo padrão do CLI'
   const tier = model?.model_tier ? ` · tier ${model.model_tier}` : ''
@@ -2203,9 +2152,10 @@ function runtimeSettingsDescription(status: AiProvidersStatusResponse | null): s
   const source = status.model_policy?.source ?? status.runtime_settings?.source ?? 'config'
   const updated = status.model_policy?.updated_at ?? status.runtime_settings?.updated_at
   const when = updated ? ` · atualizado ${formatRelativeSync(updated)}` : ''
+  const mode = defaultProviderChoice(status) === 'auto' ? 'Auto · ' : ''
   return source === 'database'
-    ? `Persistido no Atlas DB${when}`
-    : `Usando .env/config como fallback${when}`
+    ? `${mode}persistido no Atlas DB${when}`
+    : `${mode}usando .env/config como fallback${when}`
 }
 
 function aiPolicyProfilesDescription(profiles: AtlasAiPolicyProfilesResponse | null): string {
@@ -2591,85 +2541,163 @@ function toolPolicyPatchForPreset(preset: string): Record<string, unknown> {
 function providerModelDescription(status: AiProvidersStatusResponse | null, provider: string): string {
   const policy = modelPolicyByProvider(status, provider)
   if (!policy) return 'Modelo ainda não verificado'
+  if (providerModelChoice(status, provider) === 'auto') {
+    return 'Auto · Atlas Decide escolhe o melhor modelo permitido dentro deste provider'
+  }
   const label = policy.model_label || policy.model || 'CLI default'
   const tier = policy.model_tier ? ` · tier ${policy.model_tier}` : ''
   return `${label}${tier} · id ${policy.model ?? 'default'}`
 }
 
-const CLAUDE_MODEL_CHOICES = {
-  default: { model: 'claude-sonnet-4-6', model_label: 'Claude Sonnet 4.6', model_tier: 'daily' },
-  premium: { model: 'claude-opus-4-7', model_label: 'Claude Opus 4.7', model_tier: 'premium' },
-  fallback: { model: 'claude-haiku-4-5', model_label: 'Claude Haiku 4.5', model_tier: 'daily' },
-} as const
+function providerCatalogRows(status: AiProvidersStatusResponse | null) {
+  const rows = status?.provider_choice_catalog?.providers?.length
+    ? status.provider_choice_catalog.providers
+    : status?.model_policy?.providers ?? status?.providers ?? []
 
-const CODEX_MODEL_CHOICES = {
-  default: { model: 'gpt-5.3-codex-spark', model_label: 'GPT-5.3-Codex-Spark', model_tier: 'daily' },
-  premium: { model: 'gpt-5.5', model_label: 'GPT-5.5', model_tier: 'premium' },
-  fallback: { model: 'gpt-5.4-mini', model_label: 'GPT-5.4-Mini', model_tier: 'daily' },
-} as const
-
-const GEMINI_MODEL_CHOICE = {
-  model: 'gemini-3.1-pro-preview',
-  model_label: 'Gemini 3.1 Pro Preview',
-  model_tier: 'premium',
-} as const
-
-function providerModelChoice(status: AiProvidersStatusResponse | null, provider: string): string {
-  const model = modelPolicyByProvider(status, provider)?.model
-  if (provider === 'claude_cli') {
-    if (model === CLAUDE_MODEL_CHOICES.premium.model) return 'premium'
-    if (model === CLAUDE_MODEL_CHOICES.fallback.model) return 'fallback'
-    return 'default'
-  }
-  if (provider === 'codex_cli') {
-    if (model === CODEX_MODEL_CHOICES.premium.model) return 'premium'
-    if (model === CODEX_MODEL_CHOICES.fallback.model) return 'fallback'
-    return 'default'
-  }
-  if (provider === 'gemini_cli') return 'default'
-  return 'default'
+  return rows.filter((provider) => (
+    provider.provider !== 'claude_codex'
+    && (provider.enabled ?? true)
+    && (provider.allow_manual || provider.allow_auto)
+  ))
 }
 
-function providerModelOptions(provider: string): SegOption[] {
-  if (provider === 'gemini_cli') {
-    return [{ key: 'default', label: '3.1 Pro' }]
-  }
+function defaultProviderChoice(status: AiProvidersStatusResponse | null): string {
+  const selection = status?.provider_choice_catalog?.default_provider_selection
+    ?? status?.default_provider_selection
+    ?? status?.runtime_settings?.default_provider_selection
 
-  if (provider === 'claude_cli') {
-    return [
-      { key: 'default', label: 'Sonnet' },
-      { key: 'premium', label: 'Opus' },
-      { key: 'fallback', label: 'Haiku' },
-    ]
+  return selection === 'auto' ? 'auto' : String(status?.default_provider ?? 'claude_cli')
+}
+
+function defaultProviderOptions(status: AiProvidersStatusResponse | null): SegOption[] {
+  const catalog = status?.provider_choice_catalog?.default_provider_options
+  if (catalog?.length) {
+    return catalog.map((option) => ({
+      key: option.key,
+      label: compactSegmentLabel(option.label),
+    }))
   }
 
   return [
-    { key: 'default', label: 'Spark' },
-    { key: 'premium', label: '5.5' },
-    { key: 'fallback', label: 'Mini' },
+    { key: 'auto', label: 'Auto' },
+    ...providerCatalogRows(status).map((provider) => ({
+      key: String(provider.provider),
+      label: compactSegmentLabel(provider.provider_label ?? providerLabel(provider.provider)),
+    })),
   ]
 }
 
-function modelPatchForChoice(provider: string, choice: string) {
-  if (provider === 'gemini_cli') {
-    return modelPatch(GEMINI_MODEL_CHOICE)
+function providerModelChoice(status: AiProvidersStatusResponse | null, provider: string): string {
+  const policy = modelPolicyByProvider(status, provider)
+  if (!policy) return 'auto'
+  if (policy.model_selection === 'auto' || policy.default_model_alias === 'auto') return 'auto'
+  const catalog = providerModelCatalog(policy)
+  const model = policy.model
+  const alias = policy.model_alias
+
+  return catalog.find((item) => item.key !== 'auto' && (item.key === alias || item.alias === alias || item.model === model))?.key
+    ?? (catalog.some((item) => item.key === 'default') ? 'default' : catalog[0]?.key ?? 'auto')
+}
+
+function providerModelOptions(status: AiProvidersStatusResponse | null, provider: string): SegOption[] {
+  return providerModelCatalog(modelPolicyByProvider(status, provider)).map((item) => ({
+    key: item.key,
+    label: compactModelLabel(item),
+  }))
+}
+
+function providerModelCatalog(policy: ReturnType<typeof modelPolicyByProvider>): ProviderModelCatalogOption[] {
+  const catalog = policy?.model_catalog?.length ? policy.model_catalog : []
+  if (catalog.length) return completeProviderModelCatalog(policy, catalog)
+
+  const generated: ProviderModelCatalogOption[] = [{ key: 'auto', alias: 'auto', model: null, label: 'Auto', tier: null }]
+  if (policy?.model) generated.push({ key: 'default', alias: 'default', model: policy.model, label: policy.model_label || policy.model, tier: policy.model_tier ?? null })
+  if (policy?.premium_model) generated.push({ key: 'premium', alias: 'premium', model: policy.premium_model, label: policy.premium_model_label || policy.premium_model, tier: 'premium' })
+  if (policy?.fallback_model) generated.push({ key: 'fallback', alias: 'fallback', model: policy.fallback_model, label: policy.fallback_model_label || policy.fallback_model, tier: policy.model_tier ?? null })
+
+  return completeProviderModelCatalog(policy, generated)
+}
+
+function completeProviderModelCatalog(
+  policy: ReturnType<typeof modelPolicyByProvider>,
+  catalog: ProviderModelCatalogOption[],
+): ProviderModelCatalogOption[] {
+  if (policy?.provider !== 'gemini_cli') return catalog
+
+  const hasFlash = catalog.some((item) => item.key === 'gemini_flash' || item.alias === 'gemini_flash' || item.model === 'gemini-3.5-flash')
+  const hasPro = catalog.some((item) => item.key === 'gemini_pro' || item.alias === 'gemini_pro' || item.model === 'gemini-3.1-pro-preview')
+  const completed = [...catalog]
+
+  if (!hasFlash) {
+    completed.splice(Math.min(1, completed.length), 0, {
+      key: 'gemini_flash',
+      alias: 'gemini_flash',
+      model: 'gemini-3.5-flash',
+      label: 'Gemini 3.5 Flash',
+      tier: 'daily',
+    })
   }
 
-  if (provider === 'claude_cli') {
-    const model = choice === 'premium'
-      ? CLAUDE_MODEL_CHOICES.premium
-      : choice === 'fallback'
-        ? CLAUDE_MODEL_CHOICES.fallback
-        : CLAUDE_MODEL_CHOICES.default
-    return modelPatch(model)
+  if (!hasPro) {
+    completed.push({
+      key: 'gemini_pro',
+      alias: 'gemini_pro',
+      model: 'gemini-3.1-pro-preview',
+      label: 'Gemini 3.1 Pro',
+      tier: 'premium',
+    })
   }
 
-  const model = choice === 'premium'
-    ? CODEX_MODEL_CHOICES.premium
-    : choice === 'fallback'
-      ? CODEX_MODEL_CHOICES.fallback
-      : CODEX_MODEL_CHOICES.default
-  return modelPatch(model)
+  return completed
+}
+
+function modelPatchForChoice(status: AiProvidersStatusResponse | null, provider: string, choice: string) {
+  if (choice === 'auto') {
+    return {
+      default_model_alias: 'auto',
+      model: null,
+      model_identity: null,
+      model_label: null,
+      model_tier: null,
+    }
+  }
+
+  const selected = providerModelCatalog(modelPolicyByProvider(status, provider)).find((item) => item.key === choice)
+  if (!selected?.model) {
+    return {
+      default_model_alias: 'auto',
+      model: null,
+      model_identity: null,
+      model_label: null,
+      model_tier: null,
+    }
+  }
+
+  return {
+    ...modelPatch({
+      model: selected.model,
+      model_label: selected.label || selected.model,
+      model_tier: selected.tier || 'daily',
+    }),
+    default_model_alias: selected.alias || selected.key,
+  }
+}
+
+function compactSegmentLabel(label: string): string {
+  return label
+    .replace(/\s+CLI$/i, '')
+    .replace(/^Gemini\s+/i, '')
+    .replace(/^Claude\s+/i, '')
+    .replace(/^GPT-5\./i, '5.')
+    .replace(/^GPT-/i, '')
+    .replace(/Codex-/i, '')
+    .replace(/\s+Preview$/i, '')
+}
+
+function compactModelLabel(item: ProviderModelCatalogOption): string {
+  if (item.key === 'gemini_flash' || item.alias === 'gemini_flash') return '3.5 Flash'
+  if (item.key === 'gemini_pro' || item.alias === 'gemini_pro') return '3.1 Pro'
+  return compactSegmentLabel(item.label)
 }
 
 function modelPatch(model: { model: string; model_label: string; model_tier: string }) {
@@ -3698,6 +3726,82 @@ interface SegOption {
   label: string
 }
 
+interface ProviderModelCatalogOption {
+  key: string
+  alias?: string | null
+  model?: string | null
+  label: string
+  tier?: string | null
+}
+
+function ChoiceButton({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string
+  options: SegOption[]
+  disabled?: boolean
+  onChange: (k: string) => void
+}) {
+  const { c, name } = useTheme()
+  const [open, setOpen] = useState(false)
+  const selected = options.find((option) => option.key === value) ?? options[0]
+
+  const handleChange = (key: string) => {
+    setOpen(false)
+    onChange(key)
+  }
+
+  return (
+    <View style={choiceStyles.wrap}>
+      <Pressable
+        disabled={disabled}
+        onPress={() => setOpen((current) => !current)}
+        style={({ pressed }) => [
+          choiceStyles.button,
+          {
+            borderColor: open ? c.prussian : c.border,
+            backgroundColor: pressed || open ? c.surface : 'transparent',
+            opacity: disabled ? 0.45 : 1,
+            shadowColor: name === 'dark' ? '#000' : '#1A1612',
+          },
+        ]}
+      >
+        <Sans weight="med" size={13.5} lineHeight={18} color={c.ink} numberOfLines={1}>
+          {selected?.label ?? value}
+        </Sans>
+        <Mono size={12} letterSpacing={0.2} color={open ? c.prussian : c.ink2}>
+          {open ? '↑' : '↓'}
+        </Mono>
+      </Pressable>
+      {open && options.length > 0 ? (
+        <View style={[choiceStyles.menu, { borderColor: c.border, backgroundColor: c.bg }]}>
+          {options.map((option, index) => {
+            const current = option.key === selected?.key
+            return (
+            <Pressable
+              key={option.key}
+              onPress={() => handleChange(option.key)}
+              style={({ pressed }) => [
+                choiceStyles.option,
+                index > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth },
+                (pressed || current) && { backgroundColor: c.surface },
+              ]}
+            >
+              <Sans weight="med" size={13} lineHeight={18} color={current ? c.ink : c.ink2} numberOfLines={1}>
+                {option.label}
+              </Sans>
+            </Pressable>
+            )
+          })}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
 function Segmented({
   value,
   options,
@@ -3973,5 +4077,38 @@ const segStyles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
+  },
+})
+
+const choiceStyles = StyleSheet.create({
+  wrap: {
+    width: 168,
+    alignItems: 'stretch',
+    gap: 6,
+  },
+  button: {
+    minHeight: 38,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  menu: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  option: {
+    minHeight: 36,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
   },
 })

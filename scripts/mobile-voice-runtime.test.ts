@@ -124,6 +124,7 @@ import { sha256Hex } from '../lib/sha256'
     minSpeechMs: 2_000,
     silenceAfterSpeechMs: 18_000,
     noSpeechTimeoutMs: 90_000,
+    maxTurnAfterSpeechMs: 120_000,
     maxTurnMs: 1_800_000,
     qualityFirst: true,
   }
@@ -196,6 +197,16 @@ import { sha256Hex } from '../lib/sha256'
       lastSpeechAtMs: 18_000,
     }),
     { action: 'finish', reason: 'silence_after_speech' },
+  )
+  assert.deepEqual(
+    mobileVoiceEndpointingDecision({
+      ...base,
+      durationMs: 121_000,
+      nowMs: 121_000,
+      speechMs: 70_000,
+      lastSpeechAtMs: 120_800,
+    }),
+    { action: 'finish', reason: 'quality_turn_limit_reached' },
   )
   assert.deepEqual(
     mobileVoiceEndpointingDecision({

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Frau, Mono, Sans } from '../../design/Type'
 import { useTheme } from '../../design/theme'
 import type { MobileVoiceRecordingBlockReason } from '../../lib/atlasVoiceRuntime'
+import { ensureLiveKitGlobals, hasLiveKitWebRtcGlobals } from '../../lib/livekitGlobals'
 
 declare const require: (moduleName: string) => unknown
 
@@ -71,12 +72,23 @@ interface Props {
 const STATE_LABELS: Record<VoiceModeState, string> = {
   starting:      'Atlas preparando.',
   connecting:    'Atlas conectando.',
-  listening:     'Pronto para ouvir.',
-  transcribing:  'Atlas transcrevendo.',
-  thinking:      'Atlas pensando.',
-  speaking:      'Atlas falando.',
+  listening:     'Pode falar. Estou ouvindo.',
+  transcribing:  'Fala enviada. Estou transcrevendo.',
+  thinking:      'Pedido recebido. Estou pensando.',
+  speaking:      'Estou respondendo em voz.',
   reconnecting:  'Atlas reconectando.',
   failed:        'Atlas não conseguiu continuar.',
+}
+
+const STATE_DETAIL_LABELS: Record<VoiceModeState, string> = {
+  starting:      'Preparando a sessão de voz.',
+  connecting:    'Conectando a conversa em tempo real.',
+  listening:     'Quando você terminar e fizer uma pausa, eu envio sozinho.',
+  transcribing:  'Sua fala já saiu do microfone. Agora estou entendendo o texto.',
+  thinking:      'O Atlas recebeu o pedido e está preparando a resposta.',
+  speaking:      'A resposta está saindo em voz. Depois volto a escutar.',
+  reconnecting:  'Reconectando sem fechar a conversa.',
+  failed:        'Algo falhou neste turno. Você pode encerrar e abrir de novo.',
 }
 
 const STATE_ACCESSIBILITY_LABELS: Record<VoiceModeState, string> = {
@@ -152,22 +164,23 @@ export function VoiceModeSheet({
   const c = useTheme().c
   const insets = useSafeAreaInsets()
   const effectiveState = recording ? 'listening' : state
-  const stateLabel = statusDetail?.trim() || (recording ? 'Atlas ouvindo.' : STATE_LABELS[state])
+  const stateLabel = recording ? 'Pode falar. Estou ouvindo.' : STATE_LABELS[state]
+  const stateDetail = statusDetail?.trim() || (recording ? STATE_DETAIL_LABELS.listening : STATE_DETAIL_LABELS[state])
   const markColor = effectiveState === 'failed' ? c.recRed : c.bronze
   const pressDisabled = true
   const interactionOpacity = 1
   const actionLabel = state === 'failed'
     ? unavailableActionLabel(recordingUnavailableReason, state)
     : recording
-      ? 'Envio automático após pausa'
+      ? 'Ouvindo agora'
       : state === 'speaking'
-        ? 'Resposta em voz'
+        ? 'Falando'
         : state === 'thinking'
-          ? 'Preparando resposta'
+          ? 'Aguarde a resposta'
           : state === 'transcribing'
-            ? 'Entendendo sua fala'
+            ? 'Transcrevendo'
             : liveKitSession
-              ? 'Conversa conectada'
+              ? 'Pronto'
               : 'Preparando voz'
   const accessibilityLabel = recording
     ? 'Atlas está ouvindo.'
@@ -260,6 +273,10 @@ export function VoiceModeSheet({
             {stateLabel}
           </Frau>
 
+          <Sans size={13} lineHeight={18} color={c.ink3} align="center" style={styles.stateDetail}>
+            {stateDetail}
+          </Sans>
+
           <View style={[styles.holdHint, { borderColor: markColor }]}>
             <Sans weight="med" size={14} lineHeight={18} color={markColor} align="center">
               {actionLabel}
@@ -305,7 +322,7 @@ function LiveKitVoiceTransport({
 
   useEffect(() => {
     if (!AudioSession) {
-      onError?.('LiveKit nativo ausente neste build. Rode um development build com WebRTC.')
+      onError?.('Voz em tempo real indisponível neste build. Gere um build iOS com WebRTC nativo ativo.')
       return
     }
     let mounted = true
@@ -352,6 +369,10 @@ function getLiveKitNative(): {
   }
 
   try {
+    if (!ensureLiveKitGlobals() || !hasLiveKitWebRtcGlobals()) {
+      return null
+    }
+
     const livekit = require('@livekit/react-native') as {
       AudioSession?: {
         startAudioSession: () => Promise<void>
@@ -471,6 +492,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   stateLabel: {
+    letterSpacing: 0,
+  },
+  stateDetail: {
+    maxWidth: 320,
+    marginTop: 10,
     letterSpacing: 0,
   },
   holdHint: {

@@ -1,3 +1,5 @@
+import { isYouTubeUrl } from '../../../lib/richInput/youtube'
+
 export type DecideDestino = 'captura' | 'conversa'
 
 export interface AtlasAiDraftDecision {
@@ -28,6 +30,10 @@ export function decideInitialAtlasDestination(text: string): AtlasAiDraftDecisio
   const trimmed = normalizeInput(text)
   if (!trimmed) {
     return { destino: null, confidence: 0, reasons: ['vazio'] }
+  }
+
+  if (isYouTubeUrl(trimmed)) {
+    return { destino: 'conversa', confidence: 0.96, reasons: ['video do YouTube'] }
   }
 
   const wordCount = countWords(trimmed)

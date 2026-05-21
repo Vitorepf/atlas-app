@@ -1,15 +1,40 @@
 let registered = false
 declare const require: (moduleName: string) => unknown
+declare const global: {
+  navigator?: { mediaDevices?: unknown }
+  RTCPeerConnection?: unknown
+  RTCSessionDescription?: unknown
+  RTCIceCandidate?: unknown
+}
 
-export function ensureLiveKitGlobals(): void {
-  if (registered) return
+export function hasLiveKitWebRtcGlobals(): boolean {
+  return Boolean(
+    global.navigator?.mediaDevices
+      && global.RTCPeerConnection
+      && global.RTCSessionDescription
+      && global.RTCIceCandidate,
+  )
+}
+
+export function ensureLiveKitGlobals(): boolean {
+  if (registered && hasLiveKitWebRtcGlobals()) return true
+
   try {
-    // LiveKit depends on native WebRTC modules. In an old Expo Go/dev-client
-    // binary the native module may not exist yet; do not crash app startup.
+    // LiveKit depends on native WebRTC globals before Room connects.
     const livekit = require('@livekit/react-native') as { registerGlobals?: () => void }
     livekit.registerGlobals?.()
-    registered = true
   } catch {
-    registered = false
+    try {
+      const webrtc = require('@livekit/react-native-webrtc') as { registerGlobals?: () => void }
+      webrtc.registerGlobals?.()
+    } catch {
+      registered = false
+      return false
+    }
   }
+
+  registered = hasLiveKitWebRtcGlobals()
+  return registered
 }
+
+ensureLiveKitGlobals()

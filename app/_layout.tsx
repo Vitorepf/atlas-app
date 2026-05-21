@@ -1,3 +1,5 @@
+import '../lib/livekitGlobals'
+
 import { useEffect } from 'react'
 import { View } from 'react-native'
 import { Stack } from 'expo-router'
@@ -14,6 +16,7 @@ import { useAtlasFonts } from '../design/fonts'
 import { AtlasShell } from '../components/AtlasShell'
 import { useAutoHealthKitSync } from '../lib/autoHealthSync'
 import { useAtlasDeepLinks } from '../lib/deepLinks'
+import { useMobileOtaUpdates } from '../lib/mobileOtaUpdates'
 import { useAtlasPushNotifications } from '../lib/pushNotifications'
 
 // Defaults conservadores para mobile: cache curto suficiente pra deduplicar
@@ -111,6 +114,7 @@ function ThemedRoot() {
 }
 
 function AtlasRuntimeHooks() {
+  useMobileOtaUpdates()
   useAutoHealthKitSync()
   useAtlasDeepLinks()
   useAtlasPushNotifications()

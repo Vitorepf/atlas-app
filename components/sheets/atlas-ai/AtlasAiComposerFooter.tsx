@@ -1,4 +1,5 @@
 import { StyleSheet, View } from 'react-native'
+import type { AtlasComputeEffortChoice } from '../../../lib/richInput'
 import Animated, {
   FadeIn,
   FadeOut,
@@ -52,6 +53,8 @@ export function AtlasAiComposerFooter({
   turnCount,
   decideEnabled,
   mode,
+  computeEffort,
+  onComputeEffortChange,
 }: {
   footerPaddingBottom: number
   copyToast: string | null
@@ -76,6 +79,8 @@ export function AtlasAiComposerFooter({
   turnCount: number
   /** V2 canon · routing mode atual (auto/general/operational/programming/etc) */
   mode: string
+  computeEffort: AtlasComputeEffortChoice
+  onComputeEffortChange: (next: AtlasComputeEffortChoice) => void
 }) {
   const { c } = useTheme()
   const attachmentCount = draftAttachments.length + draftFileAttachments.length
@@ -207,6 +212,8 @@ export function AtlasAiComposerFooter({
       {/* THE CARD · canon promise · placeholder hero + action row interno */}
       <AtlasComposerCard
         modeLabel={labelForMode(mode)}
+        computeEffort={computeEffort}
+        onComputeEffortChange={onComputeEffortChange}
         value={draft}
         onChangeText={onChangeDraft}
         onSubmit={onSubmit}

@@ -20,6 +20,9 @@ import {
   assert.equal(classifyDecideDestino('acho que eu estou travando de novo'), 'conversa')
   assert.equal(classifyDecideDestino('organizar minha vida'), 'conversa')
   assert.equal(classifyDecideDestino('isso aqui faz sentido para você'), 'conversa')
+  assert.equal(classifyDecideDestino('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), 'conversa')
+  assert.equal(classifyDecideDestino('nota https://youtu.be/dQw4w9WgXcQ'), 'conversa')
+  assert.equal(classifyDecideDestino('lembrar https://www.youtube.com/shorts/dQw4w9WgXcQ'), 'conversa')
   assert.equal(classifyDecideDestino(''), null)
 }
 
@@ -31,6 +34,11 @@ import {
 
   const ambiguous = decideInitialAtlasDestination('pensar sobre produto')
   assert.equal(ambiguous.destino, 'conversa')
+
+  const youtube = decideInitialAtlasDestination('comprar depois https://www.youtube.com/live/dQw4w9WgXcQ')
+  assert.equal(youtube.destino, 'conversa')
+  assert.equal(youtube.confidence >= 0.9, true)
+  assert.equal(youtube.reasons.includes('video do YouTube'), true)
 }
 
 {
