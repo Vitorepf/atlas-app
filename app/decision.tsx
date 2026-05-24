@@ -1,75 +1,93 @@
 import { StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
-import { PrimaryButton } from '../components/PrimaryButton'
-import { Frau, Label, Sans } from '../design/Type'
+import {
+  Masthead,
+  EditorialDateline,
+  SectionHead,
+  FolioFooter,
+} from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import { dailyFolio, editorialDateLine } from '../lib/folio'
+import { Frau, Mono } from '../design/Type'
 import { usePalette } from '../design/theme'
+import { useMemo } from 'react'
 
+// Tela DECISÃO · empty state canon editorial divino.
+// Substituiu greeting "Nenhuma decisão ativa" + PrimaryButton por Masthead+
+// Dateline + SectionHeads numeradas + EditorialEmptyLine pattern + SignatureGesture.
 export default function DecisionScreen() {
   const c = usePalette()
   const router = useRouter()
+  const folio = useMemo(() => dailyFolio(), [])
 
   return (
-    <Screen>
-      <View style={{ marginBottom: 22 }}>
-        <Label>Decisão estruturada</Label>
-        <Frau
-          size={32}
-          lineHeight={36}
-          letterSpacing={-0.64}
-          color={c.ink}
-          style={{ marginTop: 8 }}
-        >
-          Nenhuma decisão ativa
+    <Screen bare>
+      <PressableTextScale onPress={() => router.back()} hitSlop={8} accessibilityLabel="voltar">
+        <Masthead title="DECISÃO" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline date={editorialDateLine()} edition="estruturada · sem decisão ativa" />
+
+      {/* i. CONTEXTO */}
+      <SectionHead numeral="i" title="Contexto" />
+      <View style={styles.contentRail}>
+        <Frau italic size={17} lineHeight={26} color={c.ink}>
+          <Frau
+            weight="med"
+            size={24}
+            color={c.bronze}
+            style={{
+              textShadowColor: c.inkCarving,
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 0,
+            }}
+          >
+            S
+          </Frau>
+          em decisão registrada no backend.
         </Frau>
       </View>
 
-      <Field label="Contexto">
-        <EmptyField label="Sem decisão registrada no backend." />
-      </Field>
+      {/* ii. ALTERNATIVAS */}
+      <SectionHead numeral="ii" title="Alternativas consideradas" />
+      <View style={styles.contentRail}>
+        <Frau italic size={15} lineHeight={22} color={c.ink2}>
+          As alternativas aparecem aqui quando o recurso entrar no escopo da API.
+        </Frau>
+      </View>
 
-      <Field label="Alternativas consideradas">
-        <EmptyField label="As alternativas aparecem aqui quando o recurso entrar no escopo da API." tall />
-      </Field>
+      {/* iii. CUSTO */}
+      <SectionHead numeral="iii" title="Custo de não decidir" />
+      <View style={styles.contentRail}>
+        <Frau italic size={15} lineHeight={22} color={c.ink2}>
+          Sem dado registrado.
+        </Frau>
+      </View>
 
-      <Field label="Custo de não decidir">
-        <EmptyField label="Sem dado registrado." />
-      </Field>
+      {/* Gesture footer · "voltar." */}
+      <View style={styles.gestureFooter}>
+        <SignatureGesture
+          label="voltar."
+          onPress={() => router.back()}
+          seal="commit"
+          haptic="soft"
+          accessibilityLabel="voltar à tela anterior"
+        />
+      </View>
 
-      <View style={{ height: 28 }} />
-      <PrimaryButton label="Voltar" variant="secondary" onPress={() => router.back()} />
+      <FolioFooter number={folio.number} suffix="decisão" />
     </Screen>
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <View style={{ marginTop: 22 }}>
-      <Label style={{ marginBottom: 8 }}>{label}</Label>
-      {children}
-    </View>
-  )
-}
-
-function EmptyField({ label, tall }: { label: string; tall?: boolean }) {
-  const c = usePalette()
-
-  return (
-    <View style={[styles.field, tall && styles.fieldTall, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <Sans size={14.5} lineHeight={22} color={c.ink2}>
-        {label}
-      </Sans>
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
-  field: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 56,
+  contentRail: {
+    marginHorizontal: 32,
   },
-  fieldTall: { minHeight: 110 },
+  gestureFooter: {
+    marginTop: 36,
+    marginHorizontal: 32,
+    alignItems: 'flex-start',
+  },
 })

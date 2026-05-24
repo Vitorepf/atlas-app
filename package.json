@@ -6,7 +6,7 @@
     "start": "expo start",
     "typecheck": "tsc --noEmit",
     "test:health": "tsx scripts/health-metrics.test.ts",
-    "test:atlas-ai": "tsx scripts/atlas-ai-runtime.test.ts && tsx scripts/atlas-ai-thread-routing.test.ts && tsx scripts/atlas-ai-thread-history.test.ts && tsx scripts/atlas-ai-decide.test.ts && tsx scripts/atlas-ai-domain-catalog.test.ts && tsx scripts/atlas-operational-bootstrap.test.ts && tsx scripts/mobile-deep-link.test.ts && tsx scripts/atlas-ai-streaming.test.ts && tsx scripts/mobile-voice-runtime.test.ts && tsx scripts/mobile-voice-ux-contract.test.ts",
+    "test:atlas-ai": "tsx scripts/atlas-ai-runtime.test.ts && tsx scripts/atlas-ai-thread-routing.test.ts && tsx scripts/atlas-ai-thread-history.test.ts && tsx scripts/atlas-ai-decide.test.ts && tsx scripts/atlas-ai-domain-catalog.test.ts && tsx scripts/atlas-ai-workspace-context.test.ts && tsx scripts/atlas-ai-mobile-workspace-selector.test.ts && tsx scripts/atlas-operational-bootstrap.test.ts && tsx scripts/mobile-deep-link.test.ts && tsx scripts/atlas-ai-streaming.test.ts && tsx scripts/mobile-voice-runtime.test.ts && tsx scripts/mobile-voice-ux-contract.test.ts",
     "test:front": "npm run test:health && npm run test:atlas-ai && npm run test:memory && npm run test:engineering",
     "test:memory": "tsx scripts/memory-review-filters.test.ts && tsx scripts/memory-review-navigation.test.ts && tsx scripts/memory-review-shortcuts.test.ts && tsx scripts/memory-review-batch.test.ts && tsx scripts/memory-review-safety.test.ts && tsx scripts/memory-home-summary.test.ts && tsx scripts/memory-provider-projection.test.ts && tsx scripts/open-brain.test.ts",
     "test:engineering": "tsx scripts/engineering-knowledge.test.ts && tsx scripts/engineering-tool-runtime.test.ts && tsx scripts/inbox-models.test.ts && tsx scripts/rivals-battery.test.ts",
@@ -39,6 +39,7 @@
     "test:cartografia": "tsx scripts/cartografia-coverage-audit.ts && tsx scripts/cartografia-visual-drilldown.test.ts && tsx scripts/cartografia-real-graph-coverage.test.ts && tsx scripts/cartografia-modal-contract.test.ts && tsx scripts/cartografia-navigation-contract.test.ts && tsx scripts/cartografia-search-coverage.test.ts && tsx scripts/cartografia-live-data-contract.test.ts"
   },
   "dependencies": {
+    "@atlas/rich-input-canon": "file:../packages/atlas-rich-input-canon",
     "@expo-google-fonts/fraunces": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",

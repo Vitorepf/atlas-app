@@ -1,12 +1,11 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { MonthDay } from '../../lib/agenda'
 import type { MilestoneKind } from '../../lib/atlasMilestones'
+import { PressableSurfaceScale } from '../atlas-ui/PressableScale'
 
 // Label do marker mono caps · "FUNDAÇÃO", "ANIVERSÁRIO", "1 ANO".
-// Apenas pra dias com milestone do Atlas. Matemática editorial: rotular o
-// dia com a natureza do marco, não a contagem (que vai no `meta`).
 function milestoneMarkerLabel(kind: MilestoneKind): string | null {
   switch (kind) {
     case 'foundation': return 'FUNDAÇÃO'
@@ -25,23 +24,18 @@ interface Props {
 }
 
 // Linha de um dia do calendário mensal · TOC editorial linear.
-//   md-num: mono med 12 (width 22, ink default)
+//   md-num: mono med 12 (width 22, ink default · inkCarving se today)
 //   md-dow: mono caps 9.5 ink3 (width 26)
 //   leader: dot leader (mono pontos · 40% opacity)
 //   md-meta: italic Frau 13 ink2 default
-//   md-marker (today): "hoje" mono caps small bronze
-//   md-holiday: italic Frau 11 ink3 — marginalia segunda linha (feriado
-//                quando o dia tem outro meta principal · ex.: dia com tasks
-//                + feriado), ou bronze quando milestone
+//   md-marker (today/milestone): mono caps small bronze
 //
-// Estados (canon):
-//   - past: num/dow/meta → ink3
-//   - weekend: num/dow → ink2 italic
-//   - empty: meta → ink3 italic (livre/descanso)
-//   - today: bg bronze@4%, num/dow/meta → bronze med, marker "HOJE" mono caps
-//   - major: meta → bronze med (task urgent)
-//   - milestone: meta → bronze med + marker "FUNDAÇÃO"/"ANIVERSÁRIO"
-//   - holiday: meta → ink2 (fica como meta principal só se sem tasks)
+// Round agenda polish · ganhou:
+//   – PressableSurfaceScale (scale 0.985 + opacity 0.55 + spring + haptic Soft)
+//   – Today bg via c.bronzeWash (era rgba hardcoded)
+//   – Today border via c.bronzeAccent (era rgba hardcoded)
+//   – Default border via c.borderSoft (era rgba)
+//   – Today num ganha textShadow inkCarving (letterpress · canon ATLAS/dropcap)
 export function MonthDayRow({ day, onPress }: Props) {
   const c = usePalette()
   const isMilestone = day.state === 'milestone'
@@ -75,12 +69,10 @@ export function MonthDayRow({ day, onPress }: Props) {
     : day.isEmpty
     ? c.ink3
     : c.ink2
-  const numWeight = 'med'  // mono med default canon
+  const numWeight = 'med'
   const metaWeight = accent ? 'med' : 'reg'
-  const todayBg = day.isToday ? 'rgba(155,122,63,0.04)' : undefined
+  const todayBg = day.isToday ? c.bronzeWash : undefined
 
-  // Marker editorial quando dia tem milestone · "FUNDAÇÃO", "ANIVERSÁRIO",
-  // "1 ANO" etc. Usa o kind do milestone pra escolher palavra.
   const milestoneMarker = day.milestone ? milestoneMarkerLabel(day.milestone.kind) : null
 
   const row = (
@@ -89,9 +81,7 @@ export function MonthDayRow({ day, onPress }: Props) {
         styles.row,
         {
           backgroundColor: todayBg,
-          borderBottomColor: day.isToday
-            ? 'rgba(155,122,63,0.18)'
-            : 'rgba(26,22,18,0.04)',
+          borderBottomColor: day.isToday ? c.bronzeAccent : c.borderSoft,
           marginHorizontal: day.isToday ? -8 : 0,
           paddingHorizontal: day.isToday ? 8 : 0,
         },
@@ -103,7 +93,16 @@ export function MonthDayRow({ day, onPress }: Props) {
         letterSpacing={0.4}
         color={numColor}
         weight={numWeight}
-        style={styles.num}
+        style={[
+          styles.num,
+          day.isToday
+            ? {
+                textShadowColor: c.inkCarving,
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 0,
+              }
+            : null,
+        ]}
       >
         {String(day.num).padStart(2, '0')}
       </Mono>
@@ -117,8 +116,6 @@ export function MonthDayRow({ day, onPress }: Props) {
         {day.dow.toUpperCase()}
       </Mono>
       <DotLeader />
-      {/* Meta · usa Frau italic; Major events em Frau italic med bronze;
-          Today em Frau italic med bronze. Empty em Frau italic ink3. */}
       <View style={styles.metaBlock}>
         <Frau italic weight={metaWeight === 'med' ? 'med' : undefined} size={13} lineHeight={19} color={metaColor}>
           {day.meta}
@@ -157,14 +154,13 @@ export function MonthDayRow({ day, onPress }: Props) {
 
   if (onPress) {
     return (
-      <Pressable
+      <PressableSurfaceScale
         onPress={() => onPress(day)}
-        accessibilityRole="button"
+        haptic="soft"
         accessibilityLabel={`${day.dow} ${day.num}: ${day.meta}`}
-        style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
       >
         {row}
-      </Pressable>
+      </PressableSurfaceScale>
     )
   }
   return row
@@ -194,7 +190,7 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     paddingVertical: 6,
     gap: 10,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   num: {
     width: 22,

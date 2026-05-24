@@ -5,6 +5,9 @@ import * as Device from 'expo-device'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { PrimaryButton } from '../components/PrimaryButton'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { fonts } from '../design/tokens'
 import { usePalette } from '../design/theme'
@@ -210,14 +213,15 @@ export default function MobilePairingScreen() {
         </Mono>
       </View>
 
-      <View style={styles.hero}>
-        <Label>Mobile Gateway</Label>
-        <Frau size={42} lineHeight={44} color={c.ink} style={{ marginTop: 6 }}>
-          Pareamento seguro
-        </Frau>
-        <Sans size={14} lineHeight={20} color={c.ink2} style={{ marginTop: 10 }}>
+      {/* Masthead canon · PAREAMENTO + dateline mobile gateway. */}
+      <PressableTextScale onPress={() => router.back()} hitSlop={8} accessibilityLabel="voltar">
+        <Masthead title="PAREAMENTO" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline date={editorialDateLine()} edition="mobile gateway · atlas server" />
+      <View style={styles.contentRail}>
+        <Frau italic size={15} lineHeight={22} color={c.ink2}>
           Conecte este app ao seu Atlas server pra ativar Inbox operacional, push e deep links.
-        </Sans>
+        </Frau>
       </View>
 
       {loading ? (
@@ -612,6 +616,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   hero: {
+    marginBottom: 22,
+  },
+  contentRail: {
+    marginHorizontal: 32,
     marginBottom: 22,
   },
   stack: {

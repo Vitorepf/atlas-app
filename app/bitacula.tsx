@@ -3,6 +3,9 @@ import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import {
@@ -319,15 +322,19 @@ export default function BitaculaScreen() {
         </Mono>
       </View>
 
-      <View style={styles.header}>
-        <Label>Bitácula</Label>
-        <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
-          Caderno de bordo
-        </Frau>
-        <Mono size={12} letterSpacing={0.24} color={c.ink2} style={{ marginTop: 8 }}>
-          {activeBehaviors.length}/12 ativos · {allLogs.length} registros
-        </Mono>
-      </View>
+      {/* Masthead canon · BITÁCULA + dateline com caderno-de-bordo metric.
+          Substituiu greeting "Caderno de bordo" Frau 42 servil. */}
+      <PressableTextScale
+        onPress={() => router.replace('/edicao')}
+        accessibilityLabel="voltar para edição"
+        hitSlop={8}
+      >
+        <Masthead title="BITÁCULA" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline
+        date={editorialDateLine()}
+        edition={`${activeBehaviors.length}/12 ativos · ${allLogs.length} registros`}
+      />
 
       <SectionHeader label="Registrar fator relevante" />
       <View style={[styles.panel, { backgroundColor: c.surface, borderColor: c.border }]}>

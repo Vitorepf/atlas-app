@@ -395,24 +395,24 @@ export function Dock() {
           },
         ]}
       >
-        {/* Atmospheric layers · 3 gradients compostos pra realismo óptico:
-            - dockLight: luz marfim warm top-center (fonte de luz)
-            - dockTopRim: rim light crisp na borda superior (light catching edge,
-              como couro de Hermès Birkin captura sun)
-            - dockAmbience: sombra bronze sutil bottom (peso do papel)
-            Tudo clipped ao pill shape via overflow:hidden. */}
+        {/* Atmospheric layers · 3 gradients compostos pra realismo óptico.
+            Light mode: luz marfim warm top + rim white crisp + ambiente bronze bottom.
+            Dark mode: cream+white em slate VIRA mancha cinza-clara visível ("dock
+            encardido"). Em dark a luz é bronze sutil top + ambiente bronze bottom ·
+            zero white/cream pra não criar halo encardido sobre o ✦. */}
         <View pointerEvents="none" style={styles.dockAtmosphere}>
           <Svg width="100%" height="100%">
             <Defs>
+              {/* Top light · light mode usa cream warm marfim · dark mode usa
+                  bronze muito sutil (0.025) · zero "mancha branca" em slate. */}
               <RadialGradient id="dockLight" cx="50%" cy="0%" r="80%" fx="50%" fy="0%">
-                <Stop offset="0%" stopColor="#F4EFE6" stopOpacity={name === 'dark' ? '0.06' : '0.10'} />
-                <Stop offset="65%" stopColor="#F4EFE6" stopOpacity="0" />
+                <Stop offset="0%" stopColor={name === 'dark' ? '#d4a85a' : '#F4EFE6'} stopOpacity={name === 'dark' ? '0.025' : '0.10'} />
+                <Stop offset="65%" stopColor={name === 'dark' ? '#d4a85a' : '#F4EFE6'} stopOpacity="0" />
               </RadialGradient>
-              {/* Top rim light · crisp highlight na borda superior fading rápido.
-                  Pico em -2% (acima do pill) cria sensação de luz incidindo no rim.
-                  Apple-tier depth signal. */}
+              {/* Top rim · só renderizado em light (opacity 0 em dark · cream
+                  white sobre slate vira halo encardido sobre o ✦ central). */}
               <RadialGradient id="dockTopRim" cx="50%" cy="-2%" r="55%" fx="50%" fy="-2%">
-                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={name === 'dark' ? '0.10' : '0.16'} />
+                <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={name === 'dark' ? '0' : '0.16'} />
                 <Stop offset="40%" stopColor="#FFFFFF" stopOpacity="0" />
               </RadialGradient>
               <RadialGradient id="dockAmbience" cx="50%" cy="100%" r="65%" fx="50%" fy="100%">

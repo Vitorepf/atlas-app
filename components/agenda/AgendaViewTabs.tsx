@@ -1,6 +1,7 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau } from '../../design/Type'
 import { usePalette } from '../../design/theme'
+import { PressableTextScale } from '../atlas-ui/PressableScale'
 
 export type AgendaView = 'hoje' | 'semana' | 'mes'
 
@@ -21,8 +22,13 @@ const TABS: TabSpec[] = [
 ]
 
 // View tabs · "Hoje · Semana · Mês" centralizado, baseline align, gap 16.
-// Inactive: Frau 17 ink3. Active: Frau med 17 ink + underline bronze 1.5px.
+// Inactive: Frau 17 ink3. Active: Frau med 17 ink + textShadow inkCarving
+// (letterpress canon) + underline bronze 1.5px.
 // Separadores `·` em Frau ink3 entre tabs. Cadência 28px top/bottom.
+//
+// Round agenda polish · ganhou PressableTextScale (scale 0.97 spring +
+// haptic Soft) + textShadow inkCarving no active label. Selo letterpress
+// no tab atual, igual ATLAS masthead canon.
 export function AgendaViewTabs({ value, onChange }: Props) {
   const c = usePalette()
   return (
@@ -31,12 +37,10 @@ export function AgendaViewTabs({ value, onChange }: Props) {
         const isActive = tab.key === value
         return (
           <View key={tab.key} style={styles.tabGroup}>
-            <Pressable
+            <PressableTextScale
               onPress={() => onChange(tab.key)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isActive }}
+              haptic="soft"
               accessibilityLabel={tab.label}
-              style={({ pressed }) => ({ opacity: pressed && !isActive ? 0.55 : 1 })}
             >
               <View>
                 <Frau
@@ -44,6 +48,15 @@ export function AgendaViewTabs({ value, onChange }: Props) {
                   lineHeight={22}
                   weight={isActive ? 'med' : 'reg'}
                   color={isActive ? c.ink : c.ink3}
+                  style={
+                    isActive
+                      ? {
+                          textShadowColor: c.inkCarving,
+                          textShadowOffset: { width: 0, height: 1 },
+                          textShadowRadius: 0,
+                        }
+                      : undefined
+                  }
                 >
                   {tab.label}
                 </Frau>
@@ -51,7 +64,7 @@ export function AgendaViewTabs({ value, onChange }: Props) {
                   <View style={[styles.underline, { backgroundColor: c.bronze }]} />
                 ) : null}
               </View>
-            </Pressable>
+            </PressableTextScale>
             {idx < TABS.length - 1 ? (
               <Frau size={17} lineHeight={22} color={c.ink3} style={styles.sep}>
                 ·

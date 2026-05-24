@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { HorizonDay } from '../../lib/agenda'
+import { PressableTextScale } from '../atlas-ui/PressableScale'
 
 interface Props {
   days: HorizonDay[]
@@ -15,10 +17,11 @@ interface Props {
 //                                     · ink3 italic se empty)
 //
 // Quando TODOS os dias estão vazios ("livre"), substitui as 7 rows por uma
-// frase única editorial — vocabulário Don Corleone "semana protegida" em
-// vez de repetição "livre × 7" que vira ruído. Detecta automaticamente.
+// frase única editorial — vocabulário Don Corleone "semana protegida".
 //
-// Cabe na cabeça pelo formato linear (canon TDAH).
+// Round agenda polish · PressableTextScale + haptic Soft em cada row.
+// rgba hardcoded → c.borderSoft. Stagger fade-in down 40ms × idx (papel
+// pousando, não cascata).
 export function AgendaHorizon({ days, onSelectDay }: Props) {
   const c = usePalette()
   const allEmpty = days.length > 0 && days.every((d) => d.isEmpty)
@@ -48,9 +51,9 @@ export function AgendaHorizon({ days, onSelectDay }: Props) {
             style={[
               styles.row,
               idx === 0
-                ? { borderTopColor: 'rgba(26,22,18,0.06)', borderTopWidth: 1 }
+                ? { borderTopColor: c.borderSoft, borderTopWidth: StyleSheet.hairlineWidth }
                 : null,
-              { borderBottomColor: 'rgba(26,22,18,0.06)' },
+              { borderBottomColor: c.borderSoft },
             ]}
           >
             <Mono
@@ -68,29 +71,30 @@ export function AgendaHorizon({ days, onSelectDay }: Props) {
             </Frau>
           </View>
         )
-        if (onSelectDay) {
-          return (
-            <Pressable
-              key={day.date.toISOString()}
-              onPress={() => onSelectDay(day)}
-              accessibilityRole="button"
-              accessibilityLabel={`${day.dayLabel}: ${day.meta}`}
-              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
-            >
-              {row}
-            </Pressable>
-          )
-        }
-        return <View key={day.date.toISOString()}>{row}</View>
+        const content = onSelectDay ? (
+          <PressableTextScale
+            onPress={() => onSelectDay(day)}
+            haptic="soft"
+            accessibilityLabel={`${day.dayLabel}: ${day.meta}`}
+          >
+            {row}
+          </PressableTextScale>
+        ) : (
+          row
+        )
+        return (
+          <Animated.View
+            key={day.date.toISOString()}
+            entering={FadeInDown.duration(380).delay(40 * idx).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}
+          >
+            {content}
+          </Animated.View>
+        )
       })}
     </View>
   )
 }
 
-// Dot leader · sequência de pontos `· · · ·` em mono ink3 com opacity 45%.
-// Match do CSS canon `border-bottom: 1.5px dotted` é difícil de replicar em
-// React Native sem hairline; usamos sequência tipográfica que dá visual
-// equivalente ("········") em mono small.
 function DotLeader() {
   const c = usePalette()
   return (
@@ -118,7 +122,7 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     paddingVertical: 8,
     gap: 8,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   day: {
     width: 64,

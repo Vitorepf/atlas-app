@@ -13,7 +13,7 @@ function MobileGatewayBanner({ onPress }: { onPress: () => void }) {
     <View
       style={[
         styles.opEmptyCanon,
-        { borderTopColor: 'rgba(26,22,18,0.18)' },
+        { borderTopColor: 'rgba(233,238,242,0.05)' },
       ]}
     >
       <Mono
@@ -171,7 +171,7 @@ export function OperationalEmptyState({ title, body }: { title: string; body: st
     <View
       style={[
         styles.opEmptyCanon,
-        { borderTopColor: 'rgba(26,22,18,0.18)' },
+        { borderTopColor: 'rgba(233,238,242,0.05)' },
       ]}
     >
       <Mono

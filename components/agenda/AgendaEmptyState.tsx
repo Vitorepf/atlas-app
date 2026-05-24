@@ -1,6 +1,7 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
+import { PressableTextScale } from '../atlas-ui/PressableScale'
 
 interface Props {
   /** Eyebrow mono caps small bronze (opcional · contexto operacional). */
@@ -9,25 +10,21 @@ interface Props {
   statement: string
   /** Prosa explicativa Frau italic 14 ink2 (opcional). */
   prose?: string
-  /** Action editorial · link mono caps bronze com underline 1.5px.
-   *  Vocabulário canon: "PAREAR", "PLANEJAR DIA", "ABRIR INBOX". */
+  /** Action editorial · link mono caps bronze com underline 1.5px. */
   action?: { label: string; onPress: () => void }
   /** Loading da action · disabled state com peso menor. */
   loading?: boolean
 }
 
-// Empty state editorial canônico · vocabulário "Mobile Gateway desconectado"
-// do mockup. Substitui empty states genéricos ("Sem X.") por estrutura rica:
+// Empty state editorial canônico · vocabulário "Mobile Gateway desconectado".
+// Substitui empty states genéricos por estrutura rica:
 //   eyebrow mono caps · contexto operacional
 //   statement Frau italic 19 · frase principal (Atlas DNA)
 //   prose Frau italic 14 · explicação curta
 //   action mono caps bronze · link editorial (nunca botão pill SaaS)
 //
-// Aplicado em todas as seções da Agenda quando há ausência de dados:
-// AGORA sem próximo, RESTO DO DIA em silêncio, AMANHÃ vazio.
-//
-// Anti-pattern banido: botão pill colored com sombra. Atlas usa link
-// underlined bronze · peso editorial não-SaaS.
+// Round agenda polish · ação ganhou PressableTextScale + haptic Light
+// (commit) + spring scale. Underline bronze 1.5px mantido como selo.
 export function AgendaEmptyState({ eyebrow, statement, prose, action, loading = false }: Props) {
   const c = usePalette()
   return (
@@ -53,27 +50,25 @@ export function AgendaEmptyState({ eyebrow, statement, prose, action, loading = 
         </Frau>
       ) : null}
       {action ? (
-        <Pressable
-          onPress={loading ? undefined : action.onPress}
-          accessibilityRole="button"
-          accessibilityLabel={action.label}
-          accessibilityState={{ disabled: loading }}
-          style={({ pressed }) => [
-            styles.actionWrap,
-            { opacity: loading ? 0.45 : pressed ? 0.55 : 1 },
-          ]}
-        >
-          <Mono
-            size={11}
-            lineHeight={14}
-            letterSpacing={1.6}
-            color={c.bronze}
-            weight="med"
-            style={[styles.actionLabel, { borderBottomColor: c.bronze }]}
+        <View style={styles.actionWrap}>
+          <PressableTextScale
+            onPress={loading ? () => {} : action.onPress}
+            disabled={loading}
+            haptic="light"
+            accessibilityLabel={action.label}
           >
-            {action.label.toUpperCase()}
-          </Mono>
-        </Pressable>
+            <Mono
+              size={11}
+              lineHeight={14}
+              letterSpacing={1.6}
+              color={c.bronze}
+              weight="med"
+              style={[styles.actionLabel, { borderBottomColor: c.bronze, opacity: loading ? 0.45 : 1 }]}
+            >
+              {action.label.toUpperCase()}
+            </Mono>
+          </PressableTextScale>
+        </View>
       ) : null}
     </View>
   )

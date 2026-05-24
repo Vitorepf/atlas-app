@@ -3,6 +3,9 @@ import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import {
@@ -216,15 +219,14 @@ export default function SleepScreen() {
         </Mono>
       </View>
 
-      <View style={styles.header}>
-        <Label>Sono</Label>
-        <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
-          Noite de sono
-        </Frau>
-        <Mono size={12} letterSpacing={0.24} color={c.ink2} style={{ marginTop: 8 }}>
-          {night?.wakeTime ? formatLongDate(night.wakeTime) : 'Sem noite registrada'}
-        </Mono>
-      </View>
+      {/* Masthead canon · SONO + dateline com última coleta wake. */}
+      <PressableTextScale onPress={() => router.back()} hitSlop={8} accessibilityLabel="voltar">
+        <Masthead title="SONO" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline
+        date={night?.wakeTime ? formatLongDate(night.wakeTime) : editorialDateLine()}
+        edition={night?.wakeTime ? 'noite registrada · saúde apple' : 'sem noite registrada'}
+      />
 
       <View style={styles.tileGrid}>
         <View style={styles.tileRow}>

@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { CodexReveal } from '../components/CodexReveal'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import { editorialDateLine } from '../lib/folio'
 import { Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -225,27 +229,23 @@ export default function RivalsScreen() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadReport() }} />}
     >
       <CodexReveal index={0}>
-        <View style={styles.header}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label>Atlas Engineering</Label>
-            <Sans weight="sb" size={24} lineHeight={30} color={c.ink}>
-              Atlas Rivals
-            </Sans>
-            <Mono size={10.5} lineHeight={15} letterSpacing={0.1} color={c.ink2}>
-              Arena competitiva · Atlas vs providers · {report?.generated_at ? dateLabel(report.generated_at) : 'sem report'}
-            </Mono>
-          </View>
-          <Pressable
+        {/* Masthead canon · RIVALS + dateline arena competitiva. */}
+        <PressableTextScale onPress={() => router.replace('/edicao')} hitSlop={8} accessibilityLabel="voltar para edição">
+          <Masthead title="RIVALS" folio={null} />
+        </PressableTextScale>
+        <EditorialDateline
+          date={editorialDateLine()}
+          edition={`arena competitiva · ${report?.generated_at ? dateLabel(report.generated_at) : 'sem report'}`}
+        />
+        {/* Gesture canon "bench." tap pra navegar a engineering */}
+        <View style={{ alignItems: 'flex-end', marginTop: -16, marginBottom: 16, marginHorizontal: 32 }}>
+          <SignatureGesture
+            label="abrir bench."
             onPress={() => router.push('/engineering')}
-            style={({ pressed }) => [
-              styles.backButton,
-              { borderColor: c.border, backgroundColor: pressed ? c.premium : c.surface },
-            ]}
-          >
-            <Mono size={10.5} lineHeight={14} letterSpacing={0.1} color={c.prussian}>
-              bench
-            </Mono>
-          </Pressable>
+            seal="commit"
+            haptic="soft"
+            accessibilityLabel="abrir engineering bench"
+          />
         </View>
       </CodexReveal>
 

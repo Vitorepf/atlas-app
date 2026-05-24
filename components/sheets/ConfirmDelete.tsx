@@ -85,7 +85,7 @@ function Body({
       <View
         style={[
           styles.actions,
-          { borderTopColor: 'rgba(26,22,18,0.12)' },
+          { borderTopColor: 'rgba(233,238,242,0.06)' },
         ]}
       >
         <Pressable
@@ -102,7 +102,7 @@ function Body({
           </Frau>
         </Pressable>
         <View
-          style={[styles.cellDivider, { backgroundColor: 'rgba(26,22,18,0.12)' }]}
+          style={[styles.cellDivider, { backgroundColor: 'rgba(233,238,242,0.06)' }]}
         />
         <Pressable
           onPress={onConfirm}

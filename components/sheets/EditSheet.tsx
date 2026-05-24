@@ -187,7 +187,7 @@ export function EditSheet() {
             style={[
               styles.footer,
               {
-                borderTopColor: 'rgba(26,22,18,0.12)',
+                borderTopColor: 'rgba(233,238,242,0.06)',
                 backgroundColor: c.bg,
               },
             ]}
@@ -204,7 +204,7 @@ export function EditSheet() {
                   style={({ pressed }) => [
                     styles.pill,
                     {
-                      borderColor: active ? c.bronze : 'rgba(26,22,18,0.18)',
+                      borderColor: active ? c.bronze : 'rgba(233,238,242,0.05)',
                       backgroundColor: active
                         ? 'rgba(155,122,63,0.04)'
                         : 'transparent',
@@ -235,7 +235,7 @@ export function EditSheet() {
             {tags.map((t, idx) => (
               <View
                 key={t}
-                style={[styles.tag, { borderColor: 'rgba(26,22,18,0.18)' }]}
+                style={[styles.tag, { borderColor: 'rgba(233,238,242,0.05)' }]}
               >
                 <Mono
                   size={10}
@@ -260,7 +260,7 @@ export function EditSheet() {
             <View
               style={[
                 styles.addTag,
-                { borderColor: 'rgba(168,159,144,0.6)' },
+                { borderColor: 'rgba(212,168,90,0.34)' },
               ]}
             >
               <Frau italic size={13} lineHeight={18} color={c.ink2}>

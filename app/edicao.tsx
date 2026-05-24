@@ -1,19 +1,21 @@
-import { InteractionManager, Pressable, StyleSheet, TextInput, View, type PressableProps, type ViewStyle, type StyleProp } from 'react-native'
+import { Pressable, StyleSheet, View, InteractionManager, type PressableProps, type StyleProp, type ViewStyle } from 'react-native'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'expo-router'
 import * as Location from 'expo-location'
+import * as Haptics from 'expo-haptics'
 import Animated, {
   Easing,
   FadeIn,
+  FadeInDown,
   FadeOut,
   interpolateColor,
   LinearTransition,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated'
 import { Screen } from '../components/Screen'
-import { SectionHeader } from '../components/SectionHeader'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import {
   Masthead,
@@ -23,6 +25,14 @@ import {
   EditorialPullQuote,
   FolioFooter,
 } from '../components/editorial'
+import {
+  TaskEditorSheet,
+  BlockEditorInline,
+  MiniActionPill,
+  type TaskEditorDraft,
+  type BlockDraft,
+} from '../components/edition'
+import { PressableTextScale, PressableSurfaceScale } from '../components/atlas-ui/PressableScale'
 import { usePalette } from '../design/theme'
 import { useOverlays } from '../lib/overlays'
 import { useShell } from '../components/AtlasShell'
@@ -81,39 +91,21 @@ const CHECKIN_STATES: Array<{ key: AtlasCheckin['state']; label: string }> = [
   { key: 'pause', label: 'Pausa' },
 ]
 
-type TaskEditDraft = {
-  title: string
-  priority: 'low' | 'normal' | 'high' | 'urgent'
-  estimatedMinutes: string
-  energyRequired: 'low' | 'medium' | 'high'
-  dueDate: string
-  plannedDate: string
-  startTime: string
-}
-
-const PRIORITY_CHOICES: Array<{ key: TaskEditDraft['priority']; label: string }> = [
-  { key: 'urgent', label: 'Urgente' },
-  { key: 'high', label: 'Alta' },
-  { key: 'normal', label: 'Normal' },
-  { key: 'low', label: 'Baixa' },
-]
-
-const ENERGY_CHOICES: Array<{ key: TaskEditDraft['energyRequired']; label: string }> = [
-  { key: 'low', label: 'Baixa' },
-  { key: 'medium', label: 'Média' },
-  { key: 'high', label: 'Alta' },
-]
+// Draft types vivem em components/edition · TaskEditorDraft + BlockDraft.
+// As listas de choice (priority/energy) ficam internas do TaskEditorSheet.
 
 // Atlas DNA: peso, não cascata. Página chega inteira (settle no Screen.tsx).
-// CodexPressable abaixo é o único motion da home: release mais lento que
-// press · sensação de cera oxidada / latão envelhecido sob o dedo.
+// Motion canônico da home agora vive em components/atlas-ui/PressableScale
+// (PressableSurfaceScale = press 0.985 + opacity 0.55 release exhale).
+// CheckinPill/LevelPill mantêm cinema custom (interpolateColor do texto)
+// mas ganharam o canon de press scale spring + haptic Soft em round 2.
 
 const exhaleEase = () => Easing.bezier(0.16, 1, 0.3, 1)
 const pressInEase = () => Easing.bezier(0.32, 0, 0.67, 0)
 
 // Components animados pra interpolar color em texto · createAnimatedComponent
-// faz Sans/Mono/Frau receberem useAnimatedStyle no style prop sem hack.
-const AnimatedSans = Animated.createAnimatedComponent(Sans)
+// faz Mono/Frau receberem useAnimatedStyle no style prop sem hack.
+// (AnimatedSans removido com TaskChip; ChoicePill agora vive em components/edition/Pills.tsx)
 const AnimatedMono = Animated.createAnimatedComponent(Mono)
 const AnimatedFrau = Animated.createAnimatedComponent(Frau)
 
@@ -153,56 +145,45 @@ function passiveSignalTime(signal: AtlasPassiveSignal): number {
   return Number.isFinite(time) ? time : 0
 }
 
+// CodexPressable removido (round 2) · DNA migrou pra PressableSurfaceScale
+// em components/atlas-ui (mesmo timing 220ms in / 360ms out, scale 0.985,
+// opacity 1→0.55, exhale bezier). Toda surface pressionável da home agora
+// herda canon único. Restraint: 50 linhas a menos, zero perda visual.
+
 /**
- * CodexPressable · Pressable com transição animada de press state.
- * Opacity 1→0.55 (220ms in · 360ms out) + scale 1→0.985.
- * Release mais lento que press = sensação de cera, não de botão.
+ * EditorialEmptyLine · empty state imperativo com drop cap bronze inline.
+ *
+ * Vocabulário canon: primeira letra em Frau med upright bronze (inkCarving
+ * textShadow) + resto em Frau italic ink. Imperativos seco do hub edição:
+ *   "D"efinir missão.
+ *   "C"apturar primeira tarefa.
+ *
+ * Implementação · uses nested <Frau> (which renders as nested <Text>) com
+ * lineHeight unificado no outer. Em RN, nested Text alinha baseline
+ * automaticamente. Outer Frau italic 17 ditando lineHeight; inner Frau
+ * med 24 upright apenas muda fontSize + family + color · linha única
+ * visualmente, sem flex row hack que quebrou no device real.
  */
-function CodexPressable({
-  onPress,
-  onLongPress,
-  hitSlop,
-  accessibilityRole,
-  accessibilityLabel,
-  style,
-  children,
-}: {
-  onPress?: () => void
-  onLongPress?: () => void
-  hitSlop?: PressableProps['hitSlop']
-  accessibilityRole?: PressableProps['accessibilityRole']
-  accessibilityLabel?: string
-  style?: StyleProp<ViewStyle>
-  children: ReactNode
-}) {
-  const opacity = useSharedValue(1)
-  const scale = useSharedValue(1)
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }],
-  }))
-
+function EditorialEmptyLine({ text }: { text: string }) {
+  const c = usePalette()
+  const first = text.charAt(0)
+  const rest = text.slice(1)
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      hitSlop={hitSlop}
-      accessibilityRole={accessibilityRole}
-      accessibilityLabel={accessibilityLabel}
-      onPressIn={() => {
-        opacity.value = withTiming(0.55, { duration: 220, easing: pressInEase() })
-        scale.value = withTiming(0.985, { duration: 220, easing: pressInEase() })
-      }}
-      onPressOut={() => {
-        opacity.value = withTiming(1, { duration: 360, easing: exhaleEase() })
-        scale.value = withTiming(1, { duration: 360, easing: exhaleEase() })
-      }}
-    >
-      <Animated.View style={[style, animatedStyle]}>
-        {children}
-      </Animated.View>
-    </Pressable>
+    <Frau italic size={17} lineHeight={26} color={c.ink}>
+      <Frau
+        weight="med"
+        size={24}
+        color={c.bronze}
+        style={{
+          textShadowColor: c.inkCarving,
+          textShadowOffset: { width: 0, height: 1 },
+          textShadowRadius: 0,
+        }}
+      >
+        {first}
+      </Frau>
+      {rest}
+    </Frau>
   )
 }
 
@@ -231,10 +212,10 @@ export default function HomeScreen() {
   const [agenda, setAgenda] = useState<AtlasTaskAgendaResponse | null>(() => readCachedAgenda())
   const [agendaLoading, setAgendaLoading] = useState(false)
   const [selectedTask, setSelectedTask] = useState<AtlasAgendaTask | null>(null)
-  const [taskDraft, setTaskDraft] = useState<TaskEditDraft>(() => emptyTaskDraft())
+  const [taskDraft, setTaskDraft] = useState<TaskEditorDraft>(() => emptyTaskDraft())
   const [taskEvents, setTaskEvents] = useState<AtlasTaskEvent[]>([])
   const [blockEditorOpen, setBlockEditorOpen] = useState(false)
-  const [blockDraft, setBlockDraft] = useState({ title: 'Compromisso', startTime: '13:00', endTime: '14:00' })
+  const [blockDraft, setBlockDraft] = useState<BlockDraft>({ title: 'Compromisso', startTime: '13:00', endTime: '14:00' })
   const [calendarBusyTaskId, setCalendarBusyTaskId] = useState<string | null>(null)
   const [agendaPlanning, setAgendaPlanning] = useState(false)
   const [weekPlanning, setWeekPlanning] = useState(false)
@@ -609,7 +590,7 @@ export default function HomeScreen() {
     }
   }
 
-  const addTaskToAppleCalendar = async (task: AtlasAgendaTask, draft?: TaskEditDraft) => {
+  const addTaskToAppleCalendar = async (task: AtlasAgendaTask, draft?: TaskEditorDraft) => {
     if (calendarBusyTaskId) return
 
     if (!canUseAppleCalendar()) {
@@ -805,13 +786,18 @@ export default function HomeScreen() {
           <EditorialPullQuote quote={pullquoteText} attribution={pullquoteAttribution} />
         ) : null}
 
-        {/* i. AGENDA · diário de intenção · tap abre tela de calendário. */}
-        <SectionHead
-          numeral="i"
-          title="Agenda"
-          deck={standfirstAgenda()}
-          onPress={() => router.push('/agenda')}
-        />
+        {/* i. AGENDA · diário de intenção · tap abre tela de calendário.
+            Round 3 polish · stagger fade-in 60ms × idx · cada section head
+            entra como tipografia editorial assentando (não cascata SaaS).
+            Sincroniza com Screen.tsx atlasSettle 280ms. */}
+        <Animated.View entering={FadeInDown.duration(460).delay(60).easing(exhaleEase()).springify().damping(22).stiffness(180)}>
+          <SectionHead
+            numeral="i"
+            title="Agenda"
+            deck={standfirstAgenda()}
+            onPress={() => router.push('/agenda')}
+          />
+        </Animated.View>
 
       {/* Estado · TDAH ergonomic move · how-you-are before what-you-do.
           Compact pill when state is fresh; full panel when stale or absent. */}
@@ -820,7 +806,7 @@ export default function HomeScreen() {
           entering={FadeIn.duration(420)}
           exiting={FadeOut.duration(220)}
         >
-          <Pressable
+          <PressableTextScale
             onPress={() => {
               setCheckinState(null)
               setEnergyLevel(null)
@@ -828,15 +814,22 @@ export default function HomeScreen() {
               setCheckinEditing(true)
             }}
             hitSlop={8}
-            style={({ pressed }) => [styles.checkinDone, { opacity: pressed ? 0.6 : 1 }]}
+            haptic="soft"
+            accessibilityLabel="refazer check-in"
+            style={styles.checkinDone}
           >
             {/* Sem ✓ Unicode · vocabulário SaaS (form validated, parabéns).
                 Tipografia editorial italic já carrega o sentido de "está
-                feito" pela presença + ação "refazer" depois do separador. */}
-            <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.55 }}>
-              check-in registrado · refazer
-            </Frau>
-          </Pressable>
+                feito" pela presença + ação "refazer" depois do separador.
+                Round 4 polish · hairline-bottom prussianSeal ecoa o gesto
+                "registrar." que foi feito · simetria visual entre o ato e
+                seu compact-state. */}
+            <View style={[styles.checkinDoneSeal, { borderBottomColor: c.prussianSeal }]}>
+              <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.55 }}>
+                check-in registrado · refazer
+              </Frau>
+            </View>
+          </PressableTextScale>
         </Animated.View>
       ) : (
         <Animated.View
@@ -845,7 +838,13 @@ export default function HomeScreen() {
           style={styles.estadoInline}
           layout={LinearTransition.duration(360).easing(exhaleEase())}
         >
-          <Label>Estado</Label>
+          {/* Round 3 polish · label ESTADO vira bronze quando nenhum estado
+              foi escolhido AINDA · signal sutil de "esse slot aguarda gesto",
+              sem virar badge SaaS. Volta ao ink2 default assim que user
+              escolhe qualquer estado. */}
+          <Label color={checkinState === null && energyLevel === null && moodLevel === null ? c.bronze : undefined}>
+            Estado
+          </Label>
           <View style={styles.choiceRow}>
             {CHECKIN_STATES.flatMap((state, idx) => [
               idx > 0 ? <DotSep key={`sep-${state.key}`} /> : null,
@@ -894,9 +893,10 @@ export default function HomeScreen() {
 
           {canSaveCheckin ? (
             <Animated.View entering={FadeIn.duration(420)} exiting={FadeOut.duration(220)}>
-              <CodexPressable
+              <PressableSurfaceScale
                 onPress={() => { void saveCheckin() }}
-                accessibilityLabel="Registrar check-in"
+                accessibilityLabel="registrar check-in"
+                haptic="light"
                 style={styles.saveCheckin}
               >
                 <View style={styles.saveCheckinSignature}>
@@ -913,7 +913,7 @@ export default function HomeScreen() {
                     registrar.
                   </Frau>
                 </View>
-              </CodexPressable>
+              </PressableSurfaceScale>
             </Animated.View>
           ) : null}
         </Animated.View>
@@ -923,43 +923,57 @@ export default function HomeScreen() {
           Estado preenchido: label "MISSÃO" + título italic 19 + detail mono.
           Estado vazio: imperativo seco "Definir missão →" — F philosophy
           (silêncio ou comando, NUNCA "— Nenhuma X" apologético). */}
-      {mission ? (
-        <Pressable onPress={() => router.push('/ritual')} hitSlop={6} style={styles.missionEditorial}>
-          <Label>Missão</Label>
-          <Frau italic size={17} lineHeight={24} color={c.ink} style={{ marginTop: 6 }}>
-            {mission.title}
-          </Frau>
-          {mission.detail ? (
-            <Mono size={11} lineHeight={15} letterSpacing={0.22} color={c.ink2} style={{ marginTop: 6 }}>
-              {mission.detail}
-            </Mono>
-          ) : null}
-        </Pressable>
-      ) : (
-        <Pressable
-          onPress={() => router.push('/ritual')}
-          hitSlop={6}
-          style={({ pressed }) => [styles.missionEditorial, { opacity: pressed ? 0.55 : 1 }]}
-        >
-          <Label>Missão</Label>
-          {/* Empty state em Frau italic 17 (matches mission.body filled) — preserva
-              integridade tipográfica editorial, sem seta Unicode (vibe SaaS). O
-              ponto final imperativo cumpre o papel da seta: imperativo seco. */}
-          <Frau italic size={17} lineHeight={24} color={c.ink} style={{ marginTop: 6 }}>
-            Definir missão.
-          </Frau>
-        </Pressable>
-      )}
+      {/* Missão preenchida ou vazia · ambos usam EditorialEmptyLine pra
+          consistência absoluta. Quando preenchida, mission.detail vira
+          subtitle mono caps tiny abaixo (canon "subtitle metadata"). */}
+      <PressableSurfaceScale
+        onPress={() => router.push('/ritual')}
+        hitSlop={6}
+        haptic="soft"
+        accessibilityLabel={mission ? `abrir missão · ${mission.title}` : 'definir missão do dia'}
+        style={styles.missionEditorial}
+      >
+        {/* Round 6 polish · MISSÃO label vira bronze quando vazia (canon ESTADO).
+            Sinal sutil "esse slot aguarda gesto ritual". Quando preenchida,
+            volta a ink2 default · estado neutro. */}
+        <Label color={mission ? undefined : c.bronze}>Missão</Label>
+        <View style={{ marginTop: 6 }}>
+          <EditorialEmptyLine text={mission ? mission.title : 'Definir missão.'} />
+        </View>
+        {mission?.detail ? (
+          <Mono size={10.5} lineHeight={14} letterSpacing={1.4} color={c.ink3} style={{ marginTop: 8, textTransform: 'uppercase' }}>
+            {mission.detail}
+          </Mono>
+        ) : null}
+      </PressableSurfaceScale>
 
       {agenda && agenda.tasks.length > 0 ? (
-        <View style={[styles.agendaPanel, styles.tierBlock, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <View style={[styles.agendaPanel, styles.tierBlock, { backgroundColor: c.surface, borderColor: c.border, overflow: 'hidden' }]}>
+          {/* Inner top highlight · canon embossed manuscript Don Corleone.
+              Sutil 1px cream alpha 0.04 acima do papel slate dá peso de
+              carving sob o dedo · sensação de página dobrada e selada. */}
+          <View style={styles.agendaPanelHighlight} pointerEvents="none" />
+          {/* Inner bottom shade · fecha o emboss canon do composer.
+              1px black alpha 0.10 (mais discreto que composer 0.18 porque
+              o agendaPanel não é card hero · é página de papel). */}
+          <View style={styles.agendaPanelShade} pointerEvents="none" />
           <>
             {(agendaExpanded ? agenda.tasks.slice(0, 3) : agenda.tasks.slice(0, 1)).map((task, index) => (
               <View
                 key={task.id}
                 style={[
                   styles.agendaTaskShell,
-                  { borderColor: c.border, marginTop: index === 0 ? 0 : 12 },
+                  // Round 2 polish · divisor visível entre task blocks:
+                  // border-top hairline cream alpha 0.10 + padding-top 14
+                  // pra ritmo respiratório entre as tarefas. Sem isso o
+                  // segundo task fica colando no primeiro · com isso a
+                  // página respira como manuscrito copiado, não como list.
+                  index > 0 && {
+                    marginTop: 14,
+                    paddingTop: 14,
+                    borderTopColor: c.border,
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                  },
                 ]}
               >
                 {/* Meta row · F vocabulary: time prussian + priority BRONZE caps + min mono + intent mono. */}
@@ -1004,27 +1018,47 @@ export default function HomeScreen() {
                   </Sans>
                 </View>
 
-                {/* Actions · F vocabulary: mono caps com separadores · (não buttons). */}
+                {/* Actions · F vocabulary: mono caps com separadores · (não buttons).
+                    Cada ação tem press canon (scale 0.97 + spring + haptic Soft)
+                    via PressableTextScale · "Feita" usa haptic Light (commit).
+                    "Adiar" usa Soft (escolha). "Editar" Soft. */}
                 <View style={styles.taskActionsRow}>
-                  <Pressable onPress={() => { void markTaskDone(task) }} hitSlop={6}>
+                  <PressableTextScale
+                    onPress={() => { void markTaskDone(task) }}
+                    hitSlop={6}
+                    haptic="light"
+                    accessibilityLabel="marcar tarefa como feita"
+                  >
                     <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Feita</Mono>
-                  </Pressable>
+                  </PressableTextScale>
                   <Mono size={10.5} color={c.ink3}>·</Mono>
-                  <Pressable onPress={() => { void deferAgendaTask(task) }} hitSlop={6}>
+                  <PressableTextScale
+                    onPress={() => { void deferAgendaTask(task) }}
+                    hitSlop={6}
+                    haptic="soft"
+                    accessibilityLabel="adiar tarefa"
+                  >
                     <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Adiar</Mono>
-                  </Pressable>
+                  </PressableTextScale>
                   <Mono size={10.5} color={c.ink3}>·</Mono>
-                  <Pressable onPress={() => { void openTaskEditor(task) }} hitSlop={6}>
+                  <PressableTextScale
+                    onPress={() => { void openTaskEditor(task) }}
+                    hitSlop={6}
+                    haptic="soft"
+                    accessibilityLabel="editar tarefa"
+                  >
                     <Mono size={10.5} letterSpacing={1.4} color={c.ink2} style={styles.uppercase}>Editar</Mono>
-                  </Pressable>
+                  </PressableTextScale>
                 </View>
               </View>
             ))}
 
-            <Pressable
+            <PressableTextScale
               onPress={() => setAgendaExpanded((value) => !value)}
               hitSlop={8}
-              style={({ pressed }) => [styles.agendaToggle, { opacity: pressed ? 0.6 : 1 }]}
+              haptic="soft"
+              accessibilityLabel={agendaExpanded ? 'recolher agenda' : 'ver agenda completa'}
+              style={styles.agendaToggle}
             >
               <Frau italic size={13} lineHeight={18} color={c.ink} style={{ opacity: 0.5 }}>
                 {agendaExpanded
@@ -1033,173 +1067,49 @@ export default function HomeScreen() {
                     ? `ver agenda completa · ${agenda.tasks.length} no dia`
                     : 'ver agenda completa'}
               </Frau>
-            </Pressable>
+            </PressableTextScale>
 
             {agendaExpanded ? (
               <View style={styles.agendaActions}>
-                <MiniAction
-                  label={agendaPlanning ? 'Planejando' : 'Planejar hoje'}
+                <MiniActionPill
+                  label={agendaPlanning ? 'planejando' : 'planejar hoje'}
                   onPress={() => { void planTodayAgenda() }}
+                  disabled={agendaPlanning}
                 />
-                <MiniAction
-                  label={weekPlanning ? 'Planejando' : 'Planejar semana'}
+                <MiniActionPill
+                  label={weekPlanning ? 'planejando' : 'planejar semana'}
                   onPress={() => { void planWeekAgenda() }}
+                  disabled={weekPlanning}
                 />
-                <MiniAction
-                  label={calendarBusyTaskId === 'agenda' ? 'Marcando' : 'Marcar plano'}
+                <MiniActionPill
+                  label={calendarBusyTaskId === 'agenda' ? 'marcando' : 'marcar plano'}
                   onPress={() => { void addAgendaPlanToAppleCalendar() }}
+                  disabled={calendarBusyTaskId === 'agenda'}
                 />
               </View>
             ) : null}
+
             {selectedTask ? (
-              <View style={[styles.taskEditor, { borderColor: c.border, backgroundColor: c.bg }]}>
-                <View style={styles.agendaHeader}>
-                  <Sans weight="sb" size={13.5} lineHeight={18} color={c.ink} style={{ flex: 1 }}>
-                    Ajustar tarefa
-                  </Sans>
-                  <Pressable onPress={closeTaskEditor}>
-                    <Mono size={10.5} lineHeight={14} letterSpacing={0.2} color={c.ink2}>fechar</Mono>
-                  </Pressable>
-                </View>
-                <TextInput
-                  value={taskDraft.title}
-                  onChangeText={(title) => setTaskDraft((draft) => ({ ...draft, title }))}
-                  placeholder="título"
-                  placeholderTextColor={c.ink2}
-                  style={[styles.input, { borderColor: c.border, color: c.ink }]}
-                />
-                <View style={styles.choiceRow}>
-                  {PRIORITY_CHOICES.map((choice) => (
-                    <TaskChip
-                      key={choice.key}
-                      label={choice.label}
-                      active={taskDraft.priority === choice.key}
-                      onPress={() => setTaskDraft((draft) => ({ ...draft, priority: choice.key }))}
-                    />
-                  ))}
-                </View>
-                <View style={styles.choiceRow}>
-                  {ENERGY_CHOICES.map((choice) => (
-                    <TaskChip
-                      key={choice.key}
-                      label={`energia ${choice.label.toLowerCase()}`}
-                      active={taskDraft.energyRequired === choice.key}
-                      onPress={() => setTaskDraft((draft) => ({ ...draft, energyRequired: choice.key }))}
-                    />
-                  ))}
-                </View>
-                <View style={styles.formRow}>
-                  <TextInput
-                    value={taskDraft.estimatedMinutes}
-                    onChangeText={(estimatedMinutes) => setTaskDraft((draft) => ({ ...draft, estimatedMinutes }))}
-                    keyboardType="number-pad"
-                    placeholder="min"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
-                  />
-                  <TextInput
-                    value={taskDraft.dueDate}
-                    onChangeText={(dueDate) => setTaskDraft((draft) => ({ ...draft, dueDate }))}
-                    placeholder="prazo AAAA-MM-DD"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, { borderColor: c.border, color: c.ink, flex: 1 }]}
-                  />
-                </View>
-                <View style={styles.formRow}>
-                  <TextInput
-                    value={taskDraft.plannedDate}
-                    onChangeText={(plannedDate) => setTaskDraft((draft) => ({ ...draft, plannedDate }))}
-                    placeholder="dia AAAA-MM-DD"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, { borderColor: c.border, color: c.ink, flex: 1 }]}
-                  />
-                  <TextInput
-                    value={taskDraft.startTime}
-                    onChangeText={(startTime) => setTaskDraft((draft) => ({ ...draft, startTime }))}
-                    placeholder="hora"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
-                  />
-                </View>
-                {taskEvents.length > 0 ? (
-                  <View style={[styles.eventList, { borderTopColor: c.border }]}>
-                    {taskEvents.slice(0, 3).map((event) => (
-                      <Mono key={event.id} size={10.5} lineHeight={14} letterSpacing={0.18} color={c.ink2}>
-                        {eventLabel(event.event_type)} · {formatAgendaTime(event.occurred_at)}
-                      </Mono>
-                    ))}
-                  </View>
-                ) : null}
-                <Pressable
-                  onPress={() => { void saveTaskDraft() }}
-                  style={({ pressed }) => [
-                    styles.saveTask,
-                    { backgroundColor: c.ink, opacity: pressed ? 0.88 : 1 },
-                  ]}
-                >
-                  <Sans weight="sb" size={13} color={c.bg} align="center">Salvar tarefa</Sans>
-                </Pressable>
-                <Pressable
-                  onPress={() => { void addTaskToAppleCalendar(selectedTask, taskDraft) }}
-                  style={({ pressed }) => [
-                    styles.saveTask,
-                    { backgroundColor: c.prussian, opacity: pressed ? 0.88 : 1 },
-                  ]}
-                >
-                  <Sans weight="sb" size={13} color={c.bg} align="center">
-                    {calendarBusyTaskId === selectedTask.id ? 'Marcando…' : 'Salvar no Calendário Apple'}
-                  </Sans>
-                </Pressable>
-              </View>
+              <TaskEditorSheet
+                draft={taskDraft}
+                onDraftChange={setTaskDraft}
+                onClose={closeTaskEditor}
+                onCommit={() => { void saveTaskDraft() }}
+                onSealCalendar={() => { void addTaskToAppleCalendar(selectedTask, taskDraft) }}
+                calendarBusy={calendarBusyTaskId === selectedTask.id}
+                events={taskEvents}
+              />
             ) : null}
           </>
+
           {agendaExpanded ? (
-            <View style={[styles.blockEditor, { borderTopColor: c.border }]}>
-              <Pressable onPress={() => setBlockEditorOpen((open) => !open)} style={styles.blockHeader}>
-                <Sans weight="sb" size={12.5} lineHeight={16} color={c.ink}>
-                  Bloquear horário
-                </Sans>
-                <Mono size={10.5} lineHeight={14} letterSpacing={0.2} color={c.ink2}>
-                  {blockEditorOpen ? 'fechar' : 'abrir'}
-                </Mono>
-              </Pressable>
-              {blockEditorOpen ? (
-                <>
-                  <TextInput
-                    value={blockDraft.title}
-                    onChangeText={(title) => setBlockDraft((draft) => ({ ...draft, title }))}
-                    placeholder="compromisso"
-                    placeholderTextColor={c.ink2}
-                    style={[styles.input, { borderColor: c.border, color: c.ink }]}
-                  />
-                  <View style={styles.formRow}>
-                    <TextInput
-                      value={blockDraft.startTime}
-                      onChangeText={(startTime) => setBlockDraft((draft) => ({ ...draft, startTime }))}
-                      placeholder="início"
-                      placeholderTextColor={c.ink2}
-                      style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
-                    />
-                    <TextInput
-                      value={blockDraft.endTime}
-                      onChangeText={(endTime) => setBlockDraft((draft) => ({ ...draft, endTime }))}
-                      placeholder="fim"
-                      placeholderTextColor={c.ink2}
-                      style={[styles.input, styles.inputCompact, { borderColor: c.border, color: c.ink }]}
-                    />
-                    <Pressable
-                      onPress={() => { void createAgendaBlock() }}
-                      style={({ pressed }) => [
-                        styles.blockSave,
-                        { backgroundColor: c.prussian, opacity: pressed ? 0.88 : 1 },
-                      ]}
-                    >
-                      <Sans weight="sb" size={12.5} color={c.bg}>Salvar</Sans>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
-            </View>
+            <BlockEditorInline
+              open={blockEditorOpen}
+              draft={blockDraft}
+              onDraftChange={setBlockDraft}
+              onToggleOpen={() => setBlockEditorOpen((open) => !open)}
+              onCommit={() => { void createAgendaBlock() }}
+            />
           ) : null}
         </View>
       ) : agendaLoading ? (
@@ -1213,94 +1123,124 @@ export default function HomeScreen() {
         // Empty state F philosophy · imperativo seco em Frau italic 17, sem
         // seta Unicode. Mantém integridade tipográfica editorial (Sans choca
         // o vocabulário Frau-dominante da home, → vira "next button" SaaS).
-        <Pressable
+        <PressableTextScale
           onPress={() => router.push('/capture')}
           hitSlop={6}
-          style={({ pressed }) => [styles.tierBlock, { opacity: pressed ? 0.55 : 1 }]}
+          haptic="soft"
+          accessibilityLabel="capturar primeira tarefa do dia"
+          style={styles.tierBlock}
         >
-          <Frau italic size={17} lineHeight={24} color={c.ink}>
-            Capturar primeira tarefa.
-          </Frau>
-        </Pressable>
+          <EditorialEmptyLine text="Capturar primeira tarefa." />
+        </PressableTextScale>
       )}
 
-        <SectionHead numeral="ii" title="Operação Atlas" deck="dossiês abertos · arquivo vivo" />
+        <Animated.View entering={FadeInDown.duration(460).delay(120).easing(exhaleEase()).springify().damping(22).stiffness(180)}>
+          <SectionHead numeral="ii" title="Operação Atlas" deck="dossiês abertos · arquivo vivo" />
+        </Animated.View>
 
       {/* Codex austero · 10/10 sussurro · sem box, sem subtitle, sem CTA.
           Título Frau italic com ponto terminal (pontuação de tratado) +
           classification em caps tiny right-aligned + hairline entre.
           Vocabulário Penguin Classics / Hermès Le Carré / Cucinelli Solomeo. */}
         {/* TOC editorial · cada dossiê é uma linha label · dot leader · descrição.
-            Vocabulário de TOC de livro encadernado / Monocle daily briefing. */}
-        <TocRow
-          label="Memory"
-          value={memoryHome.title.replace(/[.!?]+$/, '').toLowerCase()}
-          onPress={() => router.push('/memory')}
-          accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}.`}
-          variant="codex"
-        />
-        <TocRow
-          label="Open Brain"
-          value="recall e context pack"
-          onPress={() => router.push('/open-brain')}
-          accessibilityLabel="Abrir Atlas Open Brain · recall e context pack."
-          variant="codex"
-        />
-        <TocRow
-          label="Engineering"
-          value="harness runner e atlas-bench"
-          onPress={() => router.push('/engineering')}
-          accessibilityLabel="Abrir Atlas Engineering · harness runner e bench."
-          variant="codex"
-        />
-        <TocRow
-          label="Rivals"
-          value="relatório fair claude"
-          onPress={() => router.push('/rivals')}
-          accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
-          variant="codex"
-        />
-        <TocRow
-          label="Cartografia"
-          value="mapa vivo do atlas"
-          onPress={() => router.push('/cartografia')}
-          accessibilityLabel="Abrir Cartografia · mapa vivo do Atlas."
-          variant="codex"
-        />
+            Vocabulário de TOC de livro encadernado / Monocle daily briefing.
+            Round 4 polish · stagger fade-in 40ms × idx · TOC entra como
+            páginas de livro folheadas uma a uma, não cascata SaaS. */}
+        <Animated.View entering={FadeInDown.duration(420).delay(140).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Memory"
+            value={memoryHome.title.replace(/[.!?]+$/, '').toLowerCase()}
+            onPress={() => router.push('/memory')}
+            accessibilityLabel={`Abrir memória do Atlas. ${memoryHome.title}.`}
+            variant="codex"
+            live={memoryReviewQueue != null && memoryReviewQueue.total > 0}
+          />
+        </Animated.View>
+        <Animated.View entering={FadeInDown.duration(420).delay(180).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Open Brain"
+            value="recall e context pack"
+            onPress={() => router.push('/open-brain')}
+            accessibilityLabel="Abrir Atlas Open Brain · recall e context pack."
+            variant="codex"
+          />
+        </Animated.View>
+        <Animated.View entering={FadeInDown.duration(420).delay(220).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Engineering"
+            value="harness runner e atlas-bench"
+            onPress={() => router.push('/engineering')}
+            accessibilityLabel="Abrir Atlas Engineering · harness runner e bench."
+            variant="codex"
+          />
+        </Animated.View>
+        <Animated.View entering={FadeInDown.duration(420).delay(260).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Rivals"
+            value="relatório fair claude"
+            onPress={() => router.push('/rivals')}
+            accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
+            variant="codex"
+          />
+        </Animated.View>
+        <Animated.View entering={FadeInDown.duration(420).delay(300).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Cartografia"
+            value="mapa vivo do atlas"
+            onPress={() => router.push('/cartografia')}
+            accessibilityLabel="Abrir Cartografia · mapa vivo do Atlas."
+            variant="codex"
+          />
+        </Animated.View>
 
-        <SectionHead numeral="iii" title="Tecido" deck="constelações · fios soltos" />
+        <Animated.View entering={FadeInDown.duration(460).delay(180).easing(exhaleEase()).springify().damping(22).stiffness(180)}>
+          <SectionHead numeral="iii" title="Tecido" deck="constelações · fios soltos" />
+        </Animated.View>
 
         <ConstelacaoWhisper onPress={() => router.push('/celestial')} />
 
-        <SectionHead numeral="iv" title="Portas" />
+        <Animated.View entering={FadeInDown.duration(460).delay(240).easing(exhaleEase()).springify().damping(22).stiffness(180)}>
+          <SectionHead numeral="iv" title="Portas" />
+        </Animated.View>
 
       {/* Portas · destinos não duplicados pelo dock ou pelos 4 dossiês.
           Vocabulário TOC editorial: cada porta é label · dot leader · estado.
-          Variante 'doorway' = label italic (vs codex weight medium). */}
-      <TocRow
-        label="bitácula"
-        value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
-        onPress={() => router.push('/bitacula')}
-        variant="doorway"
-      />
-      <TocRow
-        label="saúde"
-        value={healthValue(sleep, hrv)}
-        onPress={() => router.push('/health')}
-        variant="doorway"
-      />
-      <TocRow
-        label="plano"
-        value="abrir"
-        onPress={() => router.push('/projects')}
-        variant="doorway"
-      />
-      <TocRow
-        label="rotinas"
-        value="montar dia"
-        onPress={() => router.push('/routines')}
-        variant="doorway"
-      />
+          Variante 'doorway' = label italic (vs codex weight medium).
+          Round 4 polish · stagger fade-in continuando do TOC codex. */}
+      <Animated.View entering={FadeInDown.duration(420).delay(340).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+        <TocRow
+          label="bitácula"
+          value={`${activeBehaviorCount} ${activeBehaviorCount === 1 ? 'ativo' : 'ativos'}`}
+          onPress={() => router.push('/bitacula')}
+          variant="doorway"
+          live={activeBehaviorCount > 0}
+        />
+      </Animated.View>
+      <Animated.View entering={FadeInDown.duration(420).delay(380).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+        <TocRow
+          label="saúde"
+          value={healthValue(sleep, hrv)}
+          onPress={() => router.push('/health')}
+          variant="doorway"
+          live={sleep != null || hrv != null}
+        />
+      </Animated.View>
+      <Animated.View entering={FadeInDown.duration(420).delay(420).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+        <TocRow
+          label="plano"
+          value="abrir"
+          onPress={() => router.push('/projects')}
+          variant="doorway"
+        />
+      </Animated.View>
+      <Animated.View entering={FadeInDown.duration(420).delay(460).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+        <TocRow
+          label="rotinas"
+          value="montar dia"
+          onPress={() => router.push('/routines')}
+          variant="doorway"
+        />
+      </Animated.View>
 
       {/* Folio rodapé · "— FOLIO N —" mono caps centralizado · fecha a página
           como rodapé de livro encadernado. Sem isso a home fica "aberta",
@@ -1325,11 +1265,12 @@ function CheckinPill({
   const c = usePalette()
   // Variante F editorial · inline italic Frau, sem prussian background pill.
   // Active = bronze + weight medium; inactive = ink3 + weight regular.
-  // Smooth 380ms exhale entre estados via interpolateColor no texto · sem
-  // mudança de layout (sem scale, sem border). Press feedback minimal:
-  // opacity 1→0.55 sem scale (evita shift em layout inline).
+  // Smooth 380ms exhale entre estados via interpolateColor no texto.
+  // Round 2 polish: ganhou press scale 0.94 + haptic Soft no select.
+  // Scale fica no texto (não no container) pra evitar layout shift inline.
   const activeProgress = useSharedValue(active ? 1 : 0)
   const pressProgress = useSharedValue(0)
+  const pressScale = useSharedValue(1)
 
   useEffect(() => {
     activeProgress.value = withTiming(active ? 1 : 0, {
@@ -1345,17 +1286,25 @@ function CheckinPill({
       [c.ink3, c.bronze],
     ),
     opacity: 1 - pressProgress.value * 0.45,
+    transform: [{ scale: pressScale.value }],
   }))
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+        onPress()
+      }}
       hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={`selecionar estado ${label.toLowerCase()}`}
       onPressIn={() => {
         pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
+        pressScale.value = withTiming(0.94, { duration: 120, easing: pressInEase() })
       }}
       onPressOut={() => {
         pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
+        pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
       }}
     >
       <Animated.View>
@@ -1379,8 +1328,10 @@ function LevelPill({
   const c = usePalette()
   // Variante F editorial · numeral inline em mono, sem prussian background.
   // Active = bronze + weight medium; inactive = ink3 + weight regular.
+  // Round 2 polish: ganhou press scale 0.94 + haptic Soft (canon CheckinPill).
   const activeProgress = useSharedValue(active ? 1 : 0)
   const pressProgress = useSharedValue(0)
+  const pressScale = useSharedValue(1)
 
   useEffect(() => {
     activeProgress.value = withTiming(active ? 1 : 0, {
@@ -1396,17 +1347,25 @@ function LevelPill({
       [c.ink3, c.bronze],
     ),
     opacity: 1 - pressProgress.value * 0.45,
+    transform: [{ scale: pressScale.value }],
   }))
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {})
+        onPress()
+      }}
       hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={`selecionar nível ${level}`}
       onPressIn={() => {
         pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
+        pressScale.value = withTiming(0.94, { duration: 120, easing: pressInEase() })
       }}
       onPressOut={() => {
         pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
+        pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
       }}
     >
       <Animated.View>
@@ -1418,95 +1377,9 @@ function LevelPill({
   )
 }
 
-function TaskChip({
-  label,
-  active,
-  onPress,
-}: {
-  label: string
-  active: boolean
-  onPress: () => void
-}) {
-  const c = usePalette()
-  // Cinema unificado · mesma vocabulary CheckinPill/LevelPill.
-  const activeProgress = useSharedValue(active ? 1 : 0)
-  const pressProgress = useSharedValue(0)
-
-  useEffect(() => {
-    activeProgress.value = withTiming(active ? 1 : 0, {
-      duration: 380,
-      easing: exhaleEase(),
-    })
-  }, [active, activeProgress])
-
-  const animatedChipStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      ['rgba(0,0,0,0)', c.prussian],
-    ),
-    borderColor: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      [c.border, c.prussian],
-    ),
-    opacity: 1 - pressProgress.value * 0.45,
-    transform: [{ scale: 1 - pressProgress.value * 0.025 }],
-  }))
-
-  const animatedTextStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(
-      activeProgress.value,
-      [0, 1],
-      [c.ink2, c.bg],
-    ),
-  }))
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => {
-        pressProgress.value = withTiming(1, { duration: 220, easing: pressInEase() })
-      }}
-      onPressOut={() => {
-        pressProgress.value = withTiming(0, { duration: 360, easing: exhaleEase() })
-      }}
-    >
-      <Animated.View style={[styles.taskChip, animatedChipStyle]}>
-        <AnimatedSans weight="med" size={11.5} style={animatedTextStyle}>
-          {label}
-        </AnimatedSans>
-      </Animated.View>
-    </Pressable>
-  )
-}
-
-function MiniAction({
-  label,
-  onPress,
-}: {
-  label: string
-  onPress: () => void
-}) {
-  const c = usePalette()
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.miniAction,
-        {
-          borderColor: c.border,
-          backgroundColor: pressed ? c.premium : 'transparent',
-        },
-      ]}
-    >
-      <Sans weight="sb" size={11.5} color={c.prussian}>
-        {label}
-      </Sans>
-    </Pressable>
-  )
-}
+// TaskChip e MiniAction antigos (Sans sb prussian, radius 16) foram
+// substituídos por ChoicePill e MiniActionPill em components/edition/Pills.tsx
+// — canon do composer: radius 999, gold dot, Frau italic 13, press scale spring.
 
 // (Removido) TierMark · substituído por SectionHead (components/editorial/) na
 // variante F · numeral romano + caps title + standfirst + hairline. Vocabulário
@@ -1520,18 +1393,22 @@ function ConstelacaoWhisper({ onPress }: { onPress: () => void }) {
   // F mockup tecido vocabulary · italic Frau corpo + Mono caps inline pra
   // estatística/destino · texto editorial corrido (não label+value lateral).
   return (
-    <CodexPressable
+    <PressableSurfaceScale
       onPress={onPress}
       hitSlop={6}
-      accessibilityLabel="Abrir constelação · o céu de Atlas"
+      haptic="soft"
+      accessibilityLabel="abrir constelação · o céu de Atlas"
       style={styles.whisper}
     >
       <Frau italic size={14} lineHeight={21} color={c.ink2}>
         veias do tecido ·{' '}
-        <Mono size={11} lineHeight={21} letterSpacing={1.0} color={c.ink}>O CÉU DE ATLAS</Mono>
+        {/* Round 3 polish · "O CÉU DE ATLAS" em bronze · era ink uniforme.
+            Marca-d'água celestial canon · 1-2 acentos bronze por view, e esse
+            é o ponto-de-portal pro Bilderatlas. Sutil mas com peso de selo. */}
+        <Mono size={11} lineHeight={21} letterSpacing={1.0} color={c.bronze}>O CÉU DE ATLAS</Mono>
         {' '}· constelação aberta.
       </Frau>
-    </CodexPressable>
+    </PressableSurfaceScale>
   )
 }
 
@@ -1691,7 +1568,7 @@ function formatAgendaTime(value?: string | null): string {
   }).format(date)
 }
 
-function emptyTaskDraft(): TaskEditDraft {
+function emptyTaskDraft(): TaskEditorDraft {
   return {
     title: '',
     priority: 'normal',
@@ -1703,7 +1580,7 @@ function emptyTaskDraft(): TaskEditDraft {
   }
 }
 
-function draftFromTask(task: AtlasAgendaTask): TaskEditDraft {
+function draftFromTask(task: AtlasAgendaTask): TaskEditorDraft {
   return {
     title: task.title,
     priority: normalizePriority(task.priority),
@@ -1717,7 +1594,7 @@ function draftFromTask(task: AtlasAgendaTask): TaskEditDraft {
 
 function calendarWindowForTask(
   task: AtlasAgendaTask,
-  draft?: TaskEditDraft,
+  draft?: TaskEditorDraft,
 ): { startsAt: string; endsAt: string; estimatedMinutes: number } | null {
   const estimatedMinutes = draft
     ? parseClampedInt(draft.estimatedMinutes, 5, 480, task.estimated_minutes)
@@ -1754,13 +1631,13 @@ function calendarNotesForTask(task: AtlasAgendaTask): string {
   ].filter(Boolean).join('\n')
 }
 
-function normalizePriority(priority: string): TaskEditDraft['priority'] {
+function normalizePriority(priority: string): TaskEditorDraft['priority'] {
   return priority === 'urgent' || priority === 'high' || priority === 'low' || priority === 'normal'
     ? priority
     : 'normal'
 }
 
-function normalizeEnergy(energy: string): TaskEditDraft['energyRequired'] {
+function normalizeEnergy(energy: string): TaskEditorDraft['energyRequired'] {
   return energy === 'low' || energy === 'high' || energy === 'medium'
     ? energy
     : 'medium'
@@ -1927,8 +1804,11 @@ const styles = StyleSheet.create({
   // Constelação whisper · slightly more weight than a doorway (italic 17 vs 15)
   // to signal "this is the polymath antessala", not just another module.
   // marginLeft:32 + marginRight:32 = trilhos internos simétricos (x=64..329).
+  // Round 5 calibração · paddingVertical 14→4. O SectionHead acima já tem
+  // marginBottom 28 · 14 extra no whisper criava gap ~42px isolando o tecido.
+  // Agora gap ~32px · whisper respira sem ficar ilhado.
   whisper: {
-    paddingVertical: 14,
+    paddingVertical: 4,
     paddingLeft: 0,
     marginLeft: 32,
     marginRight: 32,
@@ -1964,25 +1844,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
-  // Agenda panel · same codex card vocabulary as engineeringEntry/mission.
-  // Radius 4 (manuscript page), hairline border, generous breath.
+  // Agenda panel · manuscript page embossed.
+  // Radius 4 (manuscript canon) + inner top highlight 1px alpha cream 0.04
+  // + sutil shadow 0/1/4 alpha 0.10 dá peso de papel sob o dedo · canon
+  // embossed do composer adaptado pra "página de agenda" (não card SaaS).
+  // Border continua hairline cream alpha 0.10 · gap 10 interno preservado.
   agendaPanel: {
     borderRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: 18,
     paddingHorizontal: 20,
     gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.10,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  agendaHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+  // Inner top highlight overlay · canon embossed manuscript Don Corleone.
+  // Sutil cream alpha 0.04 (vs 0.06 do composer · agenda panel é mais
+  // discreto pra não competir com o sheet do task editor).
+  agendaPanelHighlight: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 1,
+    backgroundColor: 'rgba(233, 238, 242, 0.04)',
   },
-  agendaList: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    gap: 10,
+  // Inner bottom shade · fecha o emboss · 1px black alpha 0.10.
+  // Carving pattern: highlight top + shade bottom = peso 3D sutil.
+  agendaPanelShade: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    height: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.10)',
   },
+  // EditorialEmptyLine usa nested <Frau> inline · sem flex row, sem styles
+  // de margem/padding. Layout single-line nativo do Text de RN.
   // F mockup task block · sem border (editorial puro), spacing maior entre meta+title+actions.
   agendaTaskShell: {
     paddingBottom: 14,
@@ -1998,6 +1895,12 @@ const styles = StyleSheet.create({
     // Drop cap baseline-aligned · pequeno offset top pra puxar a letra
     // pra dentro do bloco visual (compensa ascender do glyph).
     marginTop: 4,
+    // Subtle ink-on-paper carving · sombra 1px alpha 0.22 dá peso de tinta
+    // sobre o papel slate. Não é shadow Photoshop · é traço de bico-de-pena
+    // que afundou meio milímetro no papel. Sem isso o dropcap fica "flutuando".
+    textShadowColor: 'rgba(0, 0, 0, 0.22)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 0,
   },
   taskTitleBody: {
     flex: 1,
@@ -2019,99 +1922,22 @@ const styles = StyleSheet.create({
   uppercase: {
     textTransform: 'uppercase',
   },
-  nextActionTitle: {
-    marginTop: 1,
-  },
   agendaToggle: {
     alignSelf: 'flex-start',
     paddingTop: 2,
-  },
-  agendaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
   },
   agendaActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  miniAction: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 7,
-    paddingHorizontal: 11,
-  },
-  blockSummary: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    gap: 2,
-  },
-  taskEditor: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 10,
-  },
-  taskChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 11,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  formRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  input: {
-    minHeight: 42,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    fontSize: 14,
-  },
-  inputCompact: {
-    width: 92,
-  },
-  eventList: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 8,
-    gap: 3,
-  },
-  saveTask: {
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  blockEditor: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    gap: 10,
-  },
-  blockHeader: {
-    minHeight: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  blockSave: {
-    minHeight: 42,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tileRow: { flexDirection: 'row', gap: 12 },
-  checkinPanel: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
+  // miniAction (radius 16 prussian), taskChip (radius 16 prussian bg), input
+  // (radius 10 hairline border), inputCompact, eventList, saveTask, blockEditor,
+  // blockHeader, blockSave, taskEditor, formRow · removidos.
+  // Substituídos por TaskEditorSheet · BlockEditorInline · MiniActionPill ·
+  // ChoicePill em components/edition (embossed manuscript canon).
+  //
+  // checkinPanel, blockSummary, tileRow · removidos (não usados em lugar nenhum).
   // Estado inline · no card box, no surface, no border.
   // Codex whisper · label + chips no mesmo nível do papel.
   // marginLeft:32 = trilho interno editorial esquerdo (x=64).
@@ -2128,22 +1954,18 @@ const styles = StyleSheet.create({
     marginLeft: 32,
     marginRight: 32,
   },
+  // Hairline seal prussian sob o texto · ecoa "registrar." gesture.
+  // alignSelf flex-start pra não estender por toda a largura (selo).
+  checkinDoneSeal: {
+    alignSelf: 'flex-start',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: 4,
+    paddingHorizontal: 2,
+  },
   choiceRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 6, marginTop: 6 },
-  choicePill: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   levelRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 },
-  levelPill: {
-    width: 36,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // choicePill / levelPill removidos · CheckinPill/LevelPill agora são inline
+  // (italic Frau · numeral mono) sem container pill. Estado inline canon.
   // Registrar · stamp signature de tratado.
   // Italic Frau "registrar." bronzeDeep + período (vocabulário "ato
   // encerrado" canon · ver empty states da home) + hairline prussian @ 32%

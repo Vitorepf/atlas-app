@@ -151,7 +151,7 @@ function Divider() {
     <View
       style={[
         styles.divider,
-        { backgroundColor: 'rgba(26,22,18,0.12)' },
+        { backgroundColor: 'rgba(233,238,242,0.06)' },
       ]}
     />
   )

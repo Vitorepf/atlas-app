@@ -1,17 +1,30 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { useRouter, useLocalSearchParams } from 'expo-router'
+import { useMemo } from 'react'
 import { Screen } from '../components/Screen'
-import { PrimaryButton } from '../components/PrimaryButton'
-import { Sparkle } from '../components/Sparkle'
 import { TranscribingBlock } from '../components/TranscribingBlock'
 import { TranscribeError } from '../components/TranscribeError'
-import { Frau, Label, Mono, Sans } from '../design/Type'
+import {
+  Masthead,
+  EditorialDateline,
+  SectionHead,
+  FolioFooter,
+} from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import { MiniActionPill } from '../components/edition/Pills'
+import { dailyFolio, editorialDateLine } from '../lib/folio'
+import { Frau, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { domainColor, domainLabel } from '../lib/domains'
 import { captureToInboxItem, useAtlasStore, visibleCaptures } from '../lib/atlasStore'
 
 type Phase = 'transcribing' | 'done' | 'error'
 
+// Tela DETAIL · canon editorial divino.
+// Substituiu greeting servil "Captura · DOMAIN" Sans caps + ActionPill SaaS +
+// PrimaryButton por Masthead+Dateline+SectionHeads numeradas+MiniActionPills
+// canon+SignatureGesture+FolioFooter. Funcionalidades preservadas.
 export default function DetailScreen() {
   const c = usePalette()
   const router = useRouter()
@@ -19,6 +32,7 @@ export default function DetailScreen() {
   const captures = useAtlasStore((s) => s.captures)
   const queuedCaptures = useAtlasStore((s) => s.queuedCaptures)
   const domains = useAtlasStore((s) => s.domains)
+  const folio = useMemo(() => dailyFolio(), [])
   const item = visibleCaptures({ captures, queuedCaptures })
     .map((capture) => captureToInboxItem(capture, domains))
     .find((x) => x.id === id || x.clientId === id)
@@ -31,103 +45,104 @@ export default function DetailScreen() {
 
   if (!item) {
     return (
-      <Screen>
-        <View style={styles.head}>
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.backBtn,
-              { backgroundColor: c.surface, borderColor: c.border, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <BackArrow color={c.ink2} />
-          </Pressable>
+      <Screen bare>
+        <PressableTextScale onPress={() => router.back()} hitSlop={8} accessibilityLabel="voltar">
+          <Masthead title="CAPTURA" folio={null} />
+        </PressableTextScale>
+        <EditorialDateline date={editorialDateLine()} edition="não encontrada" />
+        <View style={styles.contentRail}>
+          <Frau italic size={17} lineHeight={26} color={c.ink}>
+            <Frau
+              weight="med"
+              size={24}
+              color={c.bronze}
+              style={{
+                textShadowColor: c.inkCarving,
+                textShadowOffset: { width: 0, height: 1 },
+                textShadowRadius: 0,
+              }}
+            >
+              C
+            </Frau>
+            aptura não encontrada.
+          </Frau>
         </View>
-        <Sans size={17} lineHeight={26} color={c.ink2}>
-          Captura não encontrada.
-        </Sans>
+        <View style={styles.gestureFooter}>
+          <SignatureGesture
+            label="voltar à inbox."
+            onPress={() => router.back()}
+            seal="commit"
+            haptic="soft"
+            accessibilityLabel="voltar à inbox"
+          />
+        </View>
+        <FolioFooter number={folio.number} suffix="captura" />
       </Screen>
     )
   }
 
+  const domainLabelText = item.domainLabel ?? domainLabel(item.domain)
+  const metaLine = `${item.time}${item.date ? ` · ${item.date}` : ''}${item.durationMs ? ` · ${formatDuration(item.durationMs)}` : ''}`
+
   return (
-    <Screen>
-      <View style={styles.head}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.backBtn,
-            {
-              backgroundColor: c.surface,
-              borderColor: c.border,
-              opacity: pressed ? 0.85 : 1,
-            },
-          ]}
-        >
-          <BackArrow color={c.ink2} />
-        </Pressable>
-        <Sans
-          weight="med"
-          size={13}
-          letterSpacing={1.04}
-          color={c.ink2}
-          style={{ textTransform: 'uppercase' }}
-        >
-          Captura · {item.domainLabel ?? domainLabel(item.domain)}
-        </Sans>
-      </View>
+    <Screen bare>
+      <PressableTextScale onPress={() => router.back()} hitSlop={8} accessibilityLabel="voltar à inbox">
+        <Masthead title="CAPTURA" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline date={metaLine} edition={`domínio · ${domainLabelText}`} />
 
-      <Mono size={12} color={c.ink2} letterSpacing={0.24} style={{ marginBottom: 10 }}>
-        {item.time}{item.date ? ` · ${item.date}` : ''}{item.durationMs ? ` · ${formatDuration(item.durationMs)}` : ''}
-      </Mono>
-
-      <Sans size={17} lineHeight={26} color={c.ink} style={{ marginBottom: 24 }}>
-        {item.text}
-      </Sans>
-
-      {phase === 'transcribing' && <TranscribingBlock />}
-
-      {phase === 'done' && (
-        <View>
-          <Label>Transcrição automática</Label>
-          <Frau italic size={14} lineHeight={22} color={c.ink2} style={{ marginTop: 8 }}>
-            {item.kind === 'audio' ? item.text : 'Captura registrada no servidor Atlas.'}
-          </Frau>
-        </View>
-      )}
-
-      {phase === 'error' && (
-        <TranscribeError onRetry={() => router.replace('/inbox')} />
-      )}
-
-      <View
-        style={[
-          styles.coords,
-          { borderTopColor: c.border, borderBottomColor: c.border },
-        ]}
-      >
-        <Sparkle size={18} style={{ marginBottom: 8 }} />
-        <Mono size={11} color={c.ink2} letterSpacing={0.66} align="center">
-          {formatCoordinates(item.capturedLat, item.capturedLng)}
-        </Mono>
-        <Frau italic size={15} color={c.ink2} align="center" style={{ marginTop: 6 }}>
-          Capturado às {item.time}
-        </Frau>
-      </View>
-
-      <View style={styles.actions}>
-        <ActionPill label="Editar" />
-        <ActionPill label="Mover de domínio" />
-        <ActionPill label="Excluir" danger />
-      </View>
-
-      <View style={{ height: 18 }} />
-      <PrimaryButton label="Voltar à inbox" onPress={() => router.back()} />
-
+      {/* Accent bar bronze · marcador domain color */}
       <View
         pointerEvents="none"
         style={[styles.accent, { backgroundColor: domainColor(item.domain, c, domains) }]}
       />
+
+      {/* i. CONTEÚDO */}
+      <SectionHead numeral="i" title="Conteúdo" />
+      <View style={styles.contentRail}>
+        <Sans size={17} lineHeight={26} color={c.ink}>
+          {item.text}
+        </Sans>
+      </View>
+
+      {/* ii. TRANSCRIÇÃO */}
+      <SectionHead numeral="ii" title="Transcrição" />
+      <View style={styles.contentRail}>
+        {phase === 'transcribing' && <TranscribingBlock />}
+        {phase === 'done' && (
+          <Frau italic size={15} lineHeight={24} color={c.ink2}>
+            {item.kind === 'audio' ? item.text : 'Captura registrada no servidor Atlas.'}
+          </Frau>
+        )}
+        {phase === 'error' && <TranscribeError onRetry={() => router.replace('/inbox')} />}
+      </View>
+
+      {/* iii. COORDENADAS */}
+      <SectionHead numeral="iii" title="Coordenadas" deck={`capturado às ${item.time}`} />
+      <View style={styles.contentRail}>
+        <Mono size={11} lineHeight={16} letterSpacing={1.6} color={c.bronze} style={{ textTransform: 'uppercase' }} weight="med">
+          {formatCoordinates(item.capturedLat, item.capturedLng)}
+        </Mono>
+      </View>
+
+      {/* iv. AÇÕES */}
+      <SectionHead numeral="iv" title="Ações" />
+      <View style={[styles.contentRail, styles.actionsRow]}>
+        <MiniActionPill label="editar" onPress={() => { /* TODO: editar */ }} />
+        <MiniActionPill label="mover de domínio" onPress={() => { /* TODO: mover */ }} />
+      </View>
+
+      <View style={styles.gestureFooter}>
+        <SignatureGesture
+          label="voltar à inbox."
+          onPress={() => router.back()}
+          seal="commit"
+          haptic="soft"
+          accessibilityLabel="voltar à inbox"
+        />
+      </View>
+
+      <FolioFooter number={folio.number} suffix="captura" />
     </Screen>
   )
 }
@@ -141,98 +156,20 @@ function formatDuration(durationMs: number): string {
 
 function formatCoordinates(lat?: number | null, lng?: number | null): string {
   if (lat === null || lat === undefined || lng === null || lng === undefined) {
-    return 'Sem coordenadas registradas'
+    return 'sem coordenadas registradas'
   }
-
   return `${lat.toFixed(5)} · ${lng.toFixed(5)}`
 }
 
-function ActionPill({ label, danger }: { label: string; danger?: boolean }) {
-  const c = usePalette()
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.actionPill,
-        {
-          backgroundColor: pressed ? c.surface : 'transparent',
-          borderColor: danger ? c.recRed : c.border,
-        },
-      ]}
-    >
-      <Sans
-        weight="med"
-        size={13}
-        color={danger ? c.recRed : c.ink}
-        align="center"
-      >
-        {label}
-      </Sans>
-    </Pressable>
-  )
-}
-
-function BackArrow({ color }: { color: string }) {
-  return (
-    <View style={{ width: 14, height: 14 }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: 4,
-          top: 6,
-          width: 6,
-          height: 1.8,
-          backgroundColor: color,
-          transform: [{ rotate: '-45deg' }],
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 4,
-          top: 6,
-          width: 6,
-          height: 1.8,
-          backgroundColor: color,
-          transform: [{ rotate: '45deg' }],
-        }}
-      />
-    </View>
-  )
-}
-
 const styles = StyleSheet.create({
-  head: {
+  contentRail: {
+    marginHorizontal: 32,
+  },
+  actionsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 18,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  coords: {
-    marginTop: 28,
-    paddingVertical: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-  },
-  actions: {
-    marginTop: 18,
-    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-  },
-  actionPill: {
-    flex: 1,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
   },
   accent: {
     position: 'absolute',
@@ -241,5 +178,10 @@ const styles = StyleSheet.create({
     right: 0,
     height: 2,
     opacity: 0.3,
+  },
+  gestureFooter: {
+    marginTop: 36,
+    marginHorizontal: 32,
+    alignItems: 'flex-start',
   },
 })

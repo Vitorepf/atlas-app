@@ -23,11 +23,14 @@ export const styles = StyleSheet.create({
   // "saí da capa, entrei no conteúdo" — gramática editorial Aperture/Apartamento.
   // canon mockup .va .masthead-section · text-align center, mt 12,
   // padding-bottom 24, border-bottom 1px @18% ink. Title médio + dateline.
+  // Round divino · borderBottomColor hardcoded warm cream removido (virava
+  // linha preta em dark mode). Agora cream alpha 0.05 = borderSoft canon
+  // (cream-on-slate em dark · ink-on-paper em light). hairlineWidth canon.
   titleBlock: {
     marginTop: 12,
     paddingBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(26,22,18,0.18)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(233,238,242,0.05)',
     alignItems: 'center',
   },
   // canon .va .dateline · mt 14, mb 36 (block respira até as view-tabs).
@@ -51,10 +54,11 @@ export const styles = StyleSheet.create({
   },
   metaSegment: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   uppercase: { textTransform: 'uppercase' },
-  // Técnica #4 v5 · letterpress sutil · highlight marfim 1px abaixo simula deboss em papel.
-  // RN não suporta múltiplas textShadows como CSS — usamos apenas a highlight clara.
+  // Letterpress canon · textShadow ink-on-paper alpha 0.22 (token inkCarving)
+  // em vez de cream highlight 0.45 (que em dark vira "neon branco" sobre slate).
+  // Mesma assinatura do ATLAS masthead do hub edição · letterpress real.
   letterpressTitle: {
-    textShadowColor: 'rgba(255, 250, 240, 0.45)',
+    textShadowColor: 'rgba(0, 0, 0, 0.22)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 0,
   },

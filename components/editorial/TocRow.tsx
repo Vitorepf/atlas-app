@@ -32,6 +32,12 @@ interface Props {
    */
   withDivider?: boolean
   style?: StyleProp<ViewStyle>
+  /**
+   * Round 3 polish · quando `live=true`, o valor é dado real (não placeholder
+   * default tipo "abrir" / "montar dia"). Recebe color bronze sutil em vez
+   * de ink2 default · signal canon "este valor está vivo".
+   */
+  live?: boolean
 }
 
 // TocRow · entry de TOC editorial estilo livro encadernado / Monocle TOC.
@@ -56,6 +62,7 @@ export function TocRow({
   variant = 'codex',
   withDivider = true,
   style,
+  live = false,
 }: Props) {
   const c = usePalette()
 
@@ -91,22 +98,27 @@ export function TocRow({
     </View>
   ) : null
 
+  // Round 3 polish · live=true → value em bronze (vs ink2 default).
+  // Signal sutil "este valor está vivo, não placeholder". Aplicado em
+  // Memory (count > 0), bitácula (count > 0), saúde (sleep/hrv presentes).
+  const valueColor = live ? c.bronze : c.ink2
   const valueEl = typeof value === 'string' ? (
-    <Frau italic size={15} lineHeight={26} color={c.ink2}>
+    <Frau italic size={15} lineHeight={26} color={valueColor}>
       {value}
     </Frau>
   ) : (
     value
   )
 
-  // Slice 6ab · row separator agora usa c.border canon (era rgba hardcoded
-  // warm ink @ 6% que sumia em dark mode slate). Token resolve cream alpha
-  // em dark, ink alpha em light · canon ambos modos.
+  // Round 5 polish · divider agora usa c.borderSoft (alpha 0.05) em vez
+  // de c.border (alpha 0.10) · hairline mais sussurrada entre rows,
+  // peso editorial sem virar tabela SaaS. + StyleSheet.hairlineWidth
+  // (era 1px inteiro).
   const content = (
     <View
       style={[
         styles.row,
-        withDivider && { borderBottomColor: c.border, borderBottomWidth: 1 },
+        withDivider && { borderBottomColor: c.borderSoft, borderBottomWidth: StyleSheet.hairlineWidth },
         style,
       ]}
     >
@@ -160,14 +172,13 @@ const styles = StyleSheet.create({
   //   direita:  329 (último char) → 32 (margin) → 32 (padding) → 393 (canto)
   // Espaço livre em volta da TOC é idêntico nos dois lados (64px do canto).
   //
-  // paddingVertical:11 (era 7) — aumento simétrico topo/base mantém proporção
-  // interna intacta. Cada row sobe de ~36px pra ~44px, dando mais respiro
-  // entre as linhas de divisão. Aumento sutil mas perceptível, sem distorcer
-  // a relação tipografia/espaço.
+  // Round 5 calibração · paddingVertical 11→9 · row respira mas gap entre
+  // SectionHead marginBottom (28) + primeira row fica ~37px em vez de 39.
+  // Mantém ritmo editorial uniforme · diferença sutil mas perceptível.
   row: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    paddingVertical: 11,
+    paddingVertical: 9,
     gap: 8,
     marginLeft: 32,
     marginRight: 32,

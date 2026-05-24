@@ -5,6 +5,9 @@ import { Screen } from '../components/Screen'
 import { CodexReveal } from '../components/CodexReveal'
 import { SectionHeader } from '../components/SectionHeader'
 import { PrimaryButton } from '../components/PrimaryButton'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { fonts } from '../design/tokens'
@@ -762,15 +765,11 @@ export default function MemoryScreen() {
       </CodexReveal>
 
       <CodexReveal index={1}>
-        <View style={{ marginBottom: 24 }}>
-          <Label>Memória semântica</Label>
-          <Frau size={42} lineHeight={44} color={c.ink} style={{ marginTop: 6 }}>
-            Segundo cérebro ativo
-          </Frau>
-          <Mono size={12} lineHeight={18} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 10 }}>
-            Obsidian local + PostgreSQL + ativações contextuais.
-          </Mono>
-        </View>
+        {/* Masthead canon · MEMÓRIA. */}
+        <PressableTextScale onPress={() => router.replace('/edicao')} hitSlop={8} accessibilityLabel="voltar para edição">
+          <Masthead title="MEMÓRIA" folio={null} />
+        </PressableTextScale>
+        <EditorialDateline date={editorialDateLine()} edition="obsidian local · postgresql · ativações contextuais" />
       </CodexReveal>
 
       {error ? (

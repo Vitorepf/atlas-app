@@ -1,15 +1,29 @@
 import { useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
+import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { Screen } from '../components/Screen'
 import { CodexReveal } from '../components/CodexReveal'
-import { PrimaryButton } from '../components/PrimaryButton'
-import { Sparkle } from '../components/Sparkle'
 import { EmptyWeekly } from '../components/EmptyWeekly'
-import { Frau, Label, Mono, Sans } from '../design/Type'
+import { Frau, Mono } from '../design/Type'
 import { usePalette } from '../design/theme'
+import {
+  Masthead,
+  EditorialDateline,
+  SectionHead,
+  FolioFooter,
+} from '../components/editorial'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import { dailyFolio } from '../lib/folio'
 import { useAtlasStore, visibleCaptures } from '../lib/atlasStore'
 import { domainLabel, type DomainKey } from '../lib/domains'
 
+// Tela REVIEW · weekly canônico editorial.
+// Substitui greeting "Semana atual" + PrimaryButton + Sparkle por canon:
+// Masthead "REVIEW" + EditorialDateline com período · SectionHeads numeradas ·
+// tabela dot-leader Panorama · SignatureGesture "atualizar dados." ·
+// FolioFooter "FOLIO N · REVIEW".
+//
+// Funcionalidades preservadas: visibleCaptures, sync, range semanal.
 export default function ReviewScreen() {
   const c = usePalette()
   const captures = useAtlasStore((s) => s.captures)
@@ -17,6 +31,7 @@ export default function ReviewScreen() {
   const sync = useAtlasStore((s) => s.sync)
   const syncing = useAtlasStore((s) => s.syncing)
   const range = useMemo(() => currentWeekRange(), [])
+  const folio = useMemo(() => dailyFolio(), [])
 
   const weeklyCaptures = useMemo(() => (
     visibleCaptures({ captures, queuedCaptures })
@@ -29,77 +44,111 @@ export default function ReviewScreen() {
   const rows = useMemo(() => weeklyRows(weeklyCaptures), [weeklyCaptures])
 
   return (
-    <Screen>
+    <Screen bare>
+      <Masthead title="REVIEW" folio={null} />
+      <EditorialDateline date={formatRange(range.start, range.end)} edition="semana corrente" />
+
+      {/* i. RESUMO REAL */}
+      <Animated.View entering={FadeInDown.duration(460).delay(60).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead
+          numeral="i"
+          title="Resumo"
+          deck={weeklyCaptures.length === 1 ? 'uma captura nesta semana' : `${weeklyCaptures.length} capturas nesta semana`}
+        />
+      </Animated.View>
       <CodexReveal index={0}>
-        <View style={{ marginBottom: 28 }}>
-          <Label>Weekly review</Label>
-          <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
-            Semana atual
-          </Frau>
-          <Mono size={12} color={c.ink2} letterSpacing={0.24} style={{ marginTop: 4 }}>
-            {formatRange(range.start, range.end)}
-          </Mono>
-        </View>
-      </CodexReveal>
-
-      <CodexReveal index={1}>
         {weeklyCaptures.length === 0 ? (
-          <EmptyWeekly />
+          <View style={styles.contentRail}>
+            <EmptyWeekly />
+          </View>
         ) : (
-          <>
-            <View style={styles.dividerRow}>
-              <View style={[styles.line, { backgroundColor: c.border }]} />
-              <Sparkle size={14} />
-              <View style={[styles.line, { backgroundColor: c.border }]} />
-            </View>
-
-            <Frau italic size={19} lineHeight={28} color={c.ink}>
-              {weeklyCaptures.length === 1
-                ? '1 captura registrada nesta semana.'
-                : `${weeklyCaptures.length} capturas registradas nesta semana.`}
-            </Frau>
-
-            <Label style={{ marginTop: 30, marginBottom: 0 }}>Resumo real</Label>
-            <View style={[styles.list, { borderTopColor: c.border }]}>
-              {rows.map((row, i) => (
-                <View
-                  key={row.label}
-                  style={[
-                    styles.row,
-                    i === rows.length - 1 ? null : { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
-                  ]}
+          <View style={styles.tableWrap}>
+            {rows.map((row, idx) => (
+              <Animated.View
+                key={row.label}
+                entering={FadeInDown.duration(360).delay(40 * idx).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}
+                style={[
+                  styles.row,
+                  idx === 0 && { borderTopColor: c.borderSoft, borderTopWidth: StyleSheet.hairlineWidth },
+                  { borderBottomColor: c.borderSoft },
+                ]}
+              >
+                <Mono
+                  size={11}
+                  lineHeight={16}
+                  letterSpacing={1.4}
+                  color={c.ink2}
+                  style={{ textTransform: 'uppercase' }}
                 >
-                  <Sans size={16} color={c.ink}>{row.label}</Sans>
-                  <Mono size={13.5} letterSpacing={0.27} color={c.ink2}>
-                    {row.value}
-                  </Mono>
-                </View>
-              ))}
-            </View>
-
-            <View style={[styles.coordsBlock, { borderTopColor: c.border, borderBottomColor: c.border }]}>
-              <Sparkle size={18} style={{ marginBottom: 8 }} />
-              <Mono size={11} color={c.ink2} letterSpacing={0.66} align="center">
-                Dados sincronizados do Atlas Server
-              </Mono>
-              <Frau italic size={15} color={c.ink2} align="center" style={{ marginTop: 6 }}>
-                Última captura: {formatDateTime(weeklyCaptures[0]?.captured_at)}
-              </Frau>
-            </View>
-          </>
+                  {row.label}
+                </Mono>
+                <DotLeader />
+                <Frau
+                  italic={!row.accent}
+                  weight={row.accent ? 'med' : undefined}
+                  size={14}
+                  lineHeight={20}
+                  color={row.accent ? c.bronze : c.ink}
+                  style={{ fontVariant: ['tabular-nums'] }}
+                >
+                  {row.value}
+                </Frau>
+              </Animated.View>
+            ))}
+          </View>
         )}
       </CodexReveal>
 
+      {/* ii. ÚLTIMA CAPTURA */}
+      {weeklyCaptures.length > 0 ? (
+        <>
+          <Animated.View entering={FadeInDown.duration(460).delay(180).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead numeral="ii" title="Última captura" deck="marca temporal" />
+          </Animated.View>
+          <CodexReveal index={1}>
+            <View style={styles.contentRail}>
+              <Frau italic size={15} lineHeight={22} color={c.ink2}>
+                Sincronizada do Atlas Server · {formatDateTime(weeklyCaptures[0]?.captured_at)}.
+              </Frau>
+            </View>
+          </CodexReveal>
+        </>
+      ) : null}
+
+      {/* Gesture footer · "atualizar dados." canon */}
       <CodexReveal index={2}>
-        <View style={{ height: 28 }} />
-        <PrimaryButton
-          label={syncing ? 'Sincronizando…' : 'Atualizar dados'}
-          onPress={() => {
-            void sync()
-          }}
-        />
+        <View style={styles.gestureFooter}>
+          <SignatureGesture
+            label={syncing ? 'sincronizando…' : 'atualizar dados.'}
+            onPress={() => { void sync() }}
+            disabled={syncing}
+            seal="external"
+            haptic="light"
+            accessibilityLabel="atualizar dados · sincronizar com Atlas Server"
+          />
+        </View>
       </CodexReveal>
+
+      <FolioFooter number={folio.number} suffix="review" />
     </Screen>
+  )
+}
+
+function DotLeader() {
+  const c = usePalette()
+  return (
+    <View style={styles.leader}>
+      <Mono
+        size={11}
+        lineHeight={16}
+        letterSpacing={2}
+        color={c.ink3}
+        numberOfLines={1}
+        style={{ opacity: 0.45 }}
+      >
+        {'·'.repeat(60)}
+      </Mono>
+    </View>
   )
 }
 
@@ -112,12 +161,11 @@ function weeklyRows(captures: ReturnType<typeof visibleCaptures>) {
     return acc
   }, {})
   const topDomain = Object.entries(domains).sort((a, b) => b[1] - a[1])[0]
-
   return [
-    { label: 'Áudios', value: String(audio) },
-    { label: 'Textos', value: String(text) },
-    { label: 'Imagens', value: String(photo) },
-    { label: 'Domínio principal', value: topDomain ? `${domainLabel(topDomain[0] as DomainKey)} · ${topDomain[1]}` : 'Sem dado' },
+    { label: 'Áudios', value: String(audio), accent: audio > 0 },
+    { label: 'Textos', value: String(text), accent: text > 0 },
+    { label: 'Imagens', value: String(photo), accent: photo > 0 },
+    { label: 'Domínio principal', value: topDomain ? `${domainLabel(topDomain[0] as DomainKey)} · ${topDomain[1]}` : 'sem dado', accent: !!topDomain },
   ]
 }
 
@@ -128,27 +176,22 @@ function currentWeekRange(): { start: Date; end: Date } {
   const start = new Date(now)
   start.setDate(now.getDate() + mondayOffset)
   start.setHours(0, 0, 0, 0)
-
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
   end.setHours(23, 59, 59, 999)
-
   return { start, end }
 }
 
 function formatRange(start: Date, end: Date): string {
   const formatter = new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+    month: 'long',
   })
-
   return `${formatter.format(start)} — ${formatter.format(end)}`
 }
 
 function formatDateTime(iso?: string): string {
-  if (!iso) return 'Sem dado'
-
+  if (!iso) return 'sem dado'
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: '2-digit',
@@ -158,20 +201,26 @@ function formatDateTime(iso?: string): string {
 }
 
 const styles = StyleSheet.create({
-  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 26 },
-  line: { flex: 1, height: 1 },
-  list: { marginTop: 22, borderTopWidth: StyleSheet.hairlineWidth },
+  contentRail: {
+    marginHorizontal: 32,
+  },
+  tableWrap: {
+    marginHorizontal: 32,
+  },
   row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  coordsBlock: {
-    marginTop: 36,
-    paddingVertical: 18,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    alignItems: 'baseline',
+    paddingVertical: 8,
+    gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
+  },
+  leader: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  gestureFooter: {
+    marginTop: 36,
+    marginHorizontal: 32,
+    alignItems: 'flex-start',
   },
 })

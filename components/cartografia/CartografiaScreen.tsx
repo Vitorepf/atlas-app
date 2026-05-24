@@ -64,6 +64,14 @@ type GearInfoState = {
   index: number
 }
 
+const AWIS_ARTIFACT_GRAPH_IDS = new Set([
+  'atlas-workspace-intelligence-system',
+  'atlas-workspace-artifact-fabric',
+  'atlas-workspace-artifact-intelligence-runtime',
+  'system.awis',
+  'flow.workspace-artifact-lake-replay',
+])
+
 const ATLAS_FLOW_FOCUS = {
   x: 180,
   y: PIPELINE_Y - 140,
@@ -278,8 +286,14 @@ export default function CartografiaScreen() {
       aiUsageNotes: semanticNode?.ai_usage_notes,
       visualTags: semanticNode?.visual_tags,
       requiresEvidence: semanticNode?.requires_evidence,
+      artifactLakePacks: AWIS_ARTIFACT_GRAPH_IDS.has(source.graphId)
+        ? liveData.artifactLakeReplay?.latest_artifacts
+        : undefined,
+      artifactLakeInspectEndpoint: AWIS_ARTIFACT_GRAPH_IDS.has(source.graphId)
+        ? liveData.artifactLakeReplay?.inspect_endpoint
+        : undefined,
     }
-  }, [buildSemanticFlow, liveData.semanticGraph])
+  }, [buildSemanticFlow, liveData.artifactLakeReplay, liveData.semanticGraph])
 
   const infoFromSemanticId = useCallback((graphId: string): GearInfo | null => {
     const semanticNode = findSemanticNode(liveData.semanticGraph, graphId)
@@ -344,8 +358,14 @@ export default function CartografiaScreen() {
       aiUsageNotes: semanticNode.ai_usage_notes,
       visualTags: semanticNode.visual_tags,
       requiresEvidence: semanticNode.requires_evidence,
+      artifactLakePacks: AWIS_ARTIFACT_GRAPH_IDS.has(graphId)
+        ? liveData.artifactLakeReplay?.latest_artifacts
+        : undefined,
+      artifactLakeInspectEndpoint: AWIS_ARTIFACT_GRAPH_IDS.has(graphId)
+        ? liveData.artifactLakeReplay?.inspect_endpoint
+        : undefined,
     }
-  }, [buildSemanticFlow, liveData.semanticGraph])
+  }, [buildSemanticFlow, liveData.artifactLakeReplay, liveData.semanticGraph])
 
   const infoFromLane = useCallback((lane: LaneDef): GearInfo => {
     const adaptedLane = lane as AdaptedLane
@@ -889,6 +909,19 @@ export default function CartografiaScreen() {
     : nav.view === 'subflow'
       ? 'segure uma peça para ver a fonte'
       : 'toque uma peça para aprofundar'
+  const staleReplay = liveData.runtimeProjectionReplay
+  const staleReplayFamilies = staleReplay?.stale_families ?? []
+  const hasRuntimeStaleReplay = (staleReplay?.stale_count ?? 0) > 0
+  const hasArtifactGraphStaleReplay = liveData.artifactGraphReplay?.stale === true
+  const persistedFusionPacks = liveData.artifactLakeReplay?.conversation_fusion_pack_count ?? 0
+  const hasStaleReplay = hasRuntimeStaleReplay || hasArtifactGraphStaleReplay
+  const hasArtifactLakeReplay = persistedFusionPacks > 0
+  const staleReplayLabel = hasArtifactGraphStaleReplay && !hasRuntimeStaleReplay
+    ? 'artifact graph'
+    : staleReplayFamilies.length
+      ? staleReplayFamilies.join(' · ')
+      : 'runtime projection'
+  const artifactLakeReplayLabel = `${persistedFusionPacks} fusion pack${persistedFusionPacks > 1 ? 's' : ''}`
 
   return (
     <View
@@ -904,6 +937,27 @@ export default function CartografiaScreen() {
           style={[StyleSheet.absoluteFill, styles.headerBlur, { height: insets.top + 58 }]}
           pointerEvents="none"
         />
+      ) : null}
+
+      {hasArtifactLakeReplay && !hasStaleReplay ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.awisReplayBadge,
+            {
+              top: insets.top + 64,
+              borderColor: c.bronze,
+              backgroundColor: themeName === 'dark' ? 'rgba(35, 39, 31, 0.88)' : 'rgba(255, 252, 240, 0.92)',
+            },
+          ]}
+        >
+          <Mono size={9} letterSpacing={1.5} color={c.bronze}>
+            AWIS PACK
+          </Mono>
+          <Mono size={9} letterSpacing={0.8} color={c.ink3} style={styles.awisReplayBadgeText}>
+            {artifactLakeReplayLabel}
+          </Mono>
+        </View>
       ) : null}
       <View
         style={[
@@ -1004,6 +1058,27 @@ export default function CartografiaScreen() {
           </Svg>
         </View>
       </View>
+
+      {hasStaleReplay ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.awisReplayBadge,
+            {
+              top: insets.top + 64,
+              borderColor: c.recRed,
+              backgroundColor: themeName === 'dark' ? 'rgba(56, 23, 23, 0.88)' : 'rgba(255, 246, 240, 0.92)',
+            },
+          ]}
+        >
+          <Mono size={9} letterSpacing={1.5} color={c.recRed}>
+            AWIS STALE
+          </Mono>
+          <Mono size={9} letterSpacing={0.8} color={c.ink3} style={styles.awisReplayBadgeText}>
+            {staleReplayLabel}
+          </Mono>
+        </View>
+      ) : null}
 
       {/* Canvas vivo · pinch + pan · LOD por escala.
           Key=view+continent força remount limpa · cada cena revela
@@ -1181,6 +1256,22 @@ const styles = StyleSheet.create({
   headerLiveDot: {
     marginLeft: -6,
     marginTop: -2,
+  },
+  awisReplayBadge: {
+    position: 'absolute',
+    right: 18,
+    zIndex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderRadius: 4,
+  },
+  awisReplayBadgeText: {
+    opacity: 0.78,
+    maxWidth: 190,
   },
   vignetteAnchor: {
     position: 'absolute',

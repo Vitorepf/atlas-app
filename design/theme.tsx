@@ -35,15 +35,15 @@ interface AtlasThemeProviderProps {
 }
 
 export function AtlasThemeProvider({ children }: AtlasThemeProviderProps) {
-  const [mode, setModeState] = useState<ThemeMode>('light')
-  const [name, setName] = useState<ThemeName>(resolveName('light'))
+  const [mode, setModeState] = useState<ThemeMode>('dark')
+  const [name, setName] = useState<ThemeName>(resolveName('dark'))
 
   // Hydrate from disk on first render.
   useEffect(() => {
     let cancelled = false
     atlasStorage.getItem(STORAGE_KEY).then((stored) => {
       if (cancelled) return
-      const m = (stored ?? 'light') as ThemeMode
+      const m = (stored ?? 'dark') as ThemeMode
       setModeState(m)
       setName(resolveName(m))
     })

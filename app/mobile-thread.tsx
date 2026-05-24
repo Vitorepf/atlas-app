@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
-import { Sans } from '../design/Type'
+import { Frau } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
 import { discussMobileInboxItem } from '../lib/api/client'
@@ -94,12 +94,13 @@ export default function MobileThreadBridgeScreen() {
   }, [action, inboxId, openAtlasAi, router, showToast, threadId])
 
   return (
-    <Screen topExtra={24}>
-      <View style={[styles.panel, { borderColor: c.border, backgroundColor: c.surface }]}>
-        <ActivityIndicator color={c.prussian} />
-        <Sans size={14} lineHeight={20} color={c.ink2} align="center">
-          {inboxId ? 'Preparando Atlas operacional...' : 'Abrindo no Atlas AI...'}
-        </Sans>
+    <Screen topExtra={24} bare>
+      {/* Bridge loading · drop cap canon "A"brindo / "P"reparando · italic Frau ink. */}
+      <View style={[styles.panel, { borderColor: c.borderSoft }]}>
+        <ActivityIndicator color={c.bronze} />
+        <Frau italic size={17} lineHeight={26} color={c.ink} align="center">
+          {inboxId ? 'Preparando Atlas operacional…' : 'Abrindo no Atlas AI…'}
+        </Frau>
       </View>
     </Screen>
   )
@@ -108,12 +109,12 @@ export default function MobileThreadBridgeScreen() {
 const styles = StyleSheet.create({
   panel: {
     marginTop: 96,
-    marginHorizontal: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 18,
+    marginHorizontal: 32,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 22,
-    paddingVertical: 24,
-    gap: 12,
+    paddingVertical: 36,
+    gap: 18,
     alignItems: 'center',
   },
 })

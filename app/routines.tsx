@@ -4,6 +4,10 @@ import { useRouter } from 'expo-router'
 import { CreateDomainPanel } from '../components/domains/CreateDomainPanel'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { Screen } from '../components/Screen'
+import { Masthead, EditorialDateline, FolioFooter } from '../components/editorial'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { dailyFolio, editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -221,30 +225,25 @@ export default function RoutinesScreen() {
     }
   }
 
+  const folio = useMemo(() => dailyFolio(), [])
+
   return (
     <Screen
+      bare
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRoutines(selectedRoutineId) }} />}
     >
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Execução</Label>
-          <Frau size={42} lineHeight={46} color={c.ink} style={{ marginTop: 6 }}>
-            Rotinas
-          </Frau>
-          <Mono size={11} lineHeight={14} letterSpacing={0.44} color={c.ink2} style={{ marginTop: 5 }}>
-            {health.active} ativas · {health.dueToday} para hoje · {health.paused} pausadas
-          </Mono>
-        </View>
-        <Pressable
-          onPress={() => router.replace('/edicao')}
-          style={({ pressed }) => [
-            styles.roundAction,
-            { borderColor: c.border, backgroundColor: pressed ? c.surface : 'transparent' },
-          ]}
-        >
-          <Sans weight="sb" size={12} color={c.prussian}>Edição</Sans>
-        </Pressable>
-      </View>
+      {/* Masthead canon · tap volta pra edição (substitui "Edição" round button SaaS) */}
+      <PressableTextScale
+        onPress={() => router.replace('/edicao')}
+        accessibilityLabel="voltar para edição"
+        hitSlop={8}
+      >
+        <Masthead title="ROTINAS" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline
+        date={editorialDateLine()}
+        edition={`${health.active} ativas · ${health.dueToday} para hoje · ${health.paused} pausadas`}
+      />
 
       <View style={styles.filterRow}>
         {FILTERS.map((item) => (
@@ -263,11 +262,17 @@ export default function RoutinesScreen() {
         <Metric label="geradas" value={String(health.generatedToday)} />
       </View>
 
-      <PrimaryButton
-        label={busyAction === 'generate:all' ? 'Gerando...' : 'Gerar rotinas de hoje'}
-        onPress={() => { void generateToday() }}
-        variant="secondary"
-      />
+      {/* Gesture canon · "gerar rotinas de hoje." em vez de PrimaryButton pill */}
+      <View style={styles.gestureRow}>
+        <SignatureGesture
+          label={busyAction === 'generate:all' ? 'gerando…' : 'gerar rotinas de hoje.'}
+          onPress={() => { void generateToday() }}
+          disabled={busyAction === 'generate:all'}
+          seal="commit"
+          haptic="light"
+          accessibilityLabel="gerar tarefas das rotinas de hoje"
+        />
+      </View>
 
       <Pressable
         onPress={() => setCreateOpen((open) => !open)}
@@ -788,16 +793,8 @@ function parseClampedInt(value: string, min: number, max: number, fallback: numb
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  roundAction: {
-    minWidth: 54,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
+  // headerRow + roundAction removidos · Masthead canon substituiu greeting servil
+  gestureRow: { marginTop: 20, marginBottom: 6, alignItems: 'flex-start' },
   filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

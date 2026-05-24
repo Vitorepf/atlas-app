@@ -15,6 +15,10 @@ interface Props {
 // e onde" do exemplar do dia. Vocabulário de cabeçalho de jornal impresso
 // (NYT, Le Monde, FT) — italic Frau pra data + cidade, mono caps pra rótulo
 // da edição. Centralizado, abaixo do masthead.
+//
+// Round 2 polish · edition row ganhou hairlines flanqueando: "── EDIÇÃO
+// VESPERTINA ──". Vocabulário de stamp/seal editorial · fecha o cabeçalho
+// como rodapé de página de livro encadernado, sem decoração Unicode.
 export function EditorialDateline({ date, location, edition = 'edição matinal' }: Props) {
   const c = usePalette()
   const dateLine = location ? `${date} · ${location}` : date
@@ -30,16 +34,19 @@ export function EditorialDateline({ date, location, edition = 'edição matinal'
       >
         {dateLine}
       </Frau>
-      <Mono
-        size={9.5}
-        lineHeight={14}
-        letterSpacing={1.6}
-        color={c.ink3}
-        align="center"
-        style={styles.edition}
-      >
-        {edition.toUpperCase()}
-      </Mono>
+      <View style={styles.editionRow}>
+        <View style={[styles.editionRule, { backgroundColor: c.border }]} />
+        <Mono
+          size={9.5}
+          lineHeight={14}
+          letterSpacing={1.6}
+          color={c.ink3}
+          align="center"
+        >
+          {edition.toUpperCase()}
+        </Mono>
+        <View style={[styles.editionRule, { backgroundColor: c.border }]} />
+      </View>
     </View>
   )
 }
@@ -49,7 +56,15 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 36,
   },
-  edition: {
+  editionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
     marginTop: 4,
+  },
+  editionRule: {
+    width: 18,
+    height: StyleSheet.hairlineWidth,
   },
 })

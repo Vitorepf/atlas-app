@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     marginLeft: 32,
     marginRight: 32,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(26,22,18,0.06)',
+    borderBottomColor: 'rgba(233,238,242,0.04)',
   },
   domainGlyph: {
     width: 24,

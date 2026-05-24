@@ -41,6 +41,7 @@ import Animated, {
 import { Frau } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
 import { fonts } from '../../../design/tokens'
+import { PressableIconScale as CanonicalPressableIconScale } from '../../atlas-ui/PressableScale'
 import {
   deriveCardState,
   placeholderTextFor,
@@ -484,11 +485,13 @@ export function AtlasComposerCard({
 
 /* ─── Icons · stroke canon ──────────────────────────── */
 
-/**
- * Slice 6t · universal icon button wrapper · Reanimated press scale 0.95
- * spring canon iOS. Premium tactile feedback unified across todos os
- * icon buttons (paperclip · mic · send · etc).
- */
+// PressableIconScale migrado (round 2) · agora vem de components/atlas-ui.
+// Wrapper local preserva o prop `label` legacy e delega ao canônico que
+// usa `accessibilityLabel`. Zero mudança de comportamento.
+// PressablePillScale abaixo continua local porque tem rendering interno
+// específico (gold dot + Frau italic). Pra pills genéricas, ver MiniActionPill
+// e ChoicePill em components/edition/Pills.tsx · mesmo canon visual.
+
 function PressableIconScale({
   onPress,
   onLongPress,
@@ -504,34 +507,17 @@ function PressableIconScale({
   label: string
   children: React.ReactNode
 }) {
-  const pressScale = useSharedValue(1)
-  const pressAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pressScale.value }],
-  }))
   return (
-    <Animated.View style={pressAnimStyle}>
-      <Pressable
-        onPress={onPress}
-        onLongPress={onLongPress}
-        delayLongPress={delayLongPress}
-        disabled={disabled}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        onPressIn={() => {
-          pressScale.value = withTiming(0.95, { duration: 120, easing: Easing.out(Easing.quad) })
-        }}
-        onPressOut={() => {
-          pressScale.value = withSpring(1, { damping: 14, stiffness: 240, mass: 0.7 })
-        }}
-        style={({ pressed }) => [
-          styles.iconBtn,
-          { opacity: disabled ? 0.35 : pressed ? 0.7 : 1 },
-        ]}
-      >
-        {children}
-      </Pressable>
-    </Animated.View>
+    <CanonicalPressableIconScale
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={delayLongPress}
+      disabled={disabled}
+      accessibilityLabel={label}
+      haptic="none"
+    >
+      {children}
+    </CanonicalPressableIconScale>
   )
 }
 

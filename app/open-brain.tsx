@@ -1,7 +1,11 @@
 import { RefreshControl, Pressable, StyleSheet, TextInput, View } from 'react-native'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'expo-router'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -45,6 +49,7 @@ type BusyAction = 'recall' | 'context-pack' | 'audits' | 'maintain' | 'apply-pro
 
 export default function OpenBrainScreen() {
   const c = usePalette()
+  const router = useRouter()
   const { showToast } = useShell()
   const [workspace, setWorkspace] = useState(DEFAULT_WORKSPACE)
   const [objective, setObjective] = useState(DEFAULT_OBJECTIVE)
@@ -282,16 +287,12 @@ export default function OpenBrainScreen() {
       topExtra={22}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void refresh() }} />}
     >
-      <View style={styles.header}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Atlas Open Brain</Label>
-          <Sans weight="sb" size={24} lineHeight={30} color={c.ink}>
-            Recall e context pack
-          </Sans>
-          <Mono size={10.5} lineHeight={15} letterSpacing={0.15} color={c.ink2}>
-            provider-safe · MCP local · manutenção
-          </Mono>
-        </View>
+      {/* Masthead canon · OPEN BRAIN + dateline. StatusPill mantido. */}
+      <PressableTextScale onPress={() => router.replace('/edicao')} hitSlop={8} accessibilityLabel="voltar para edição">
+        <Masthead title="OPEN BRAIN" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline date={editorialDateLine()} edition="provider-safe · MCP local · manutenção" />
+      <View style={{ alignItems: 'flex-end', marginTop: -16, marginBottom: 16, marginHorizontal: 32 }}>
         <StatusPill value={maintenance?.status ?? 'loading'} tone={maintenance?.ok === false ? 'bad' : 'good'} />
       </View>
 

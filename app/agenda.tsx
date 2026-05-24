@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
+import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { usePalette } from '../design/theme'
 import { Screen } from '../components/Screen'
 import {
@@ -293,8 +294,13 @@ export default function AgendaScreen() {
         <View>
           <AgendaWeekStrip days={weekStripDays} />
 
-          {/* i. AGORA — próximo compromisso ou empty state rico com "Planejar dia". */}
-          <SectionHead numeral="i" title="Agora" />
+          {/* i. AGORA — próximo compromisso ou empty state rico com "Planejar dia".
+              Round agenda polish · SectionHeads ganham stagger fade-in down
+              60ms × idx springify, mesmo canon da edicao.tsx. Cada section
+              entra como capítulo de livro folheado. */}
+          <Animated.View entering={FadeInDown.duration(460).delay(60).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead numeral="i" title="Agora" />
+          </Animated.View>
           {nextTask ? (
             <AgendaNow task={nextTask} now={now} />
           ) : todayLoaded ? (
@@ -320,15 +326,17 @@ export default function AgendaScreen() {
           ) : null}
 
           {/* ii. RESTO DO DIA — timeline ou silêncio editorial. */}
-          <SectionHead
-            numeral="ii"
-            title="Resto do dia"
-            deck={
-              hasTodayTasks
-                ? `${todayTasks!.length === 1 ? 'uma janela' : `${todayTasks!.length} janelas`} · hoje`
-                : undefined
-            }
-          />
+          <Animated.View entering={FadeInDown.duration(460).delay(120).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead
+              numeral="ii"
+              title="Resto do dia"
+              deck={
+                hasTodayTasks
+                  ? `${todayTasks!.length === 1 ? 'uma janela' : `${todayTasks!.length} janelas`} · hoje`
+                  : undefined
+              }
+            />
+          </Animated.View>
           {hasTodayTasks ? (
             <AgendaTimeline tasks={todayTasks!} now={now} />
           ) : todayLoaded ? (
@@ -340,7 +348,9 @@ export default function AgendaScreen() {
           ) : null}
 
           {/* iii. AMANHÃ */}
-          <SectionHead numeral="iii" title="Amanhã" deck={tomorrowDeck} />
+          <Animated.View entering={FadeInDown.duration(460).delay(180).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead numeral="iii" title="Amanhã" deck={tomorrowDeck} />
+          </Animated.View>
           {(tomorrowTasks?.length ?? 0) > 0 ? (
             <AgendaTomorrow tasks={tomorrowTasks!} />
           ) : tomorrowLoaded ? (
@@ -352,23 +362,29 @@ export default function AgendaScreen() {
           ) : null}
 
           {/* iv. HORIZONTE — 7 dias, condensado se tudo livre */}
-          <SectionHead numeral="iv" title="Horizonte" deck="próximos sete dias" />
+          <Animated.View entering={FadeInDown.duration(460).delay(240).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead numeral="iv" title="Horizonte" deck="próximos sete dias" />
+          </Animated.View>
           <AgendaHorizon days={horizonDays} />
 
           {/* v. EFEMÉRIDES — sempre que houver marco nos próximos 90 dias */}
           {ephemerides.length > 0 ? (
             <>
-              <SectionHead
-                numeral="v"
-                title="Efemérides"
-                deck="marcos do horizonte · noventa dias"
-              />
+              <Animated.View entering={FadeInDown.duration(460).delay(300).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+                <SectionHead
+                  numeral="v"
+                  title="Efemérides"
+                  deck="marcos do horizonte · noventa dias"
+                />
+              </Animated.View>
               <Ephemerides entries={ephemerides} />
             </>
           ) : null}
 
           {/* vi. PANORAMA — métricas operacionais do mês corrente */}
-          <SectionHead numeral="vi" title="Panorama" deck={`${monthLongLabel(now).toLowerCase()} · indicadores do mês`} />
+          <Animated.View entering={FadeInDown.duration(460).delay(360).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+            <SectionHead numeral="vi" title="Panorama" deck={`${monthLongLabel(now).toLowerCase()} · indicadores do mês`} />
+          </Animated.View>
           <AgendaPanorama insights={monthInsights} />
         </View>
       ) : null}

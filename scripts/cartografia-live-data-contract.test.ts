@@ -47,6 +47,42 @@ for (const frontmatterField of [
   )
 }
 
+for (const awisReplayContract of [
+  /runtime_projection_replay/,
+  /artifact_graph_replay/,
+  /artifact_lake_replay/,
+  /RuntimeProjectionReplay/,
+  /ArtifactGraphReplay/,
+  /ArtifactLakeReplay/,
+  /setRuntimeProjectionReplay/,
+  /setArtifactGraphReplay/,
+  /setArtifactLakeReplay/,
+]) {
+  assert.match(
+    liveDataSource,
+    awisReplayContract,
+    `Mobile Cartografia live data must preserve AWIS runtime projection replay [${awisReplayContract.source}]`,
+  )
+}
+
+for (const awisReplayVisual of [
+  /AWIS STALE/,
+  /awisReplayBadge/,
+  /staleReplayFamilies/,
+  /hasArtifactGraphStaleReplay/,
+  /AWIS PACK/,
+  /AWIS_ARTIFACT_GRAPH_IDS/,
+  /atlas-workspace-intelligence-system/,
+  /atlas-workspace-artifact-intelligence-runtime/,
+  /artifactLakeReplayLabel/,
+]) {
+  assert.match(
+    screenSource,
+    awisReplayVisual,
+    `CartografiaScreen must expose stale AWIS projection as a compact visual signal [${awisReplayVisual.source}]`,
+  )
+}
+
 for (const adaptedField of [
   'patamarCurrent',
   'patamarNextOf',

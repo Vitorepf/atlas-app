@@ -5,6 +5,9 @@ import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/SectionHeader'
 import { Tile } from '../components/Tile'
 import { PrimaryButton } from '../components/PrimaryButton'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette, useTheme } from '../design/theme'
 import {
@@ -302,15 +305,14 @@ export default function HealthScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Label>Saúde Apple</Label>
-        <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 8 }}>
-          Estado físico
-        </Frau>
-        <Mono size={12} letterSpacing={0.24} color={c.ink2} style={{ marginTop: 8 }}>
-          {healthKitStatusText(healthKit.available, healthKit.enabled)} · {healthSignals.length} sinais · {visibleSnapshots.length} snapshots · {healthKit.historyBackfilled ? 'base inicial ok' : 'base inicial pendente'}
-        </Mono>
-      </View>
+      {/* Masthead canon · SAÚDE + dateline healthkit signature. */}
+      <PressableTextScale onPress={() => router.replace('/edicao')} hitSlop={8} accessibilityLabel="voltar para edição">
+        <Masthead title="SAÚDE" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline
+        date={editorialDateLine()}
+        edition={`${healthKitStatusText(healthKit.available, healthKit.enabled)} · ${healthSignals.length} sinais · ${visibleSnapshots.length} snapshots`}
+      />
 
       <View style={styles.tileGrid}>
         <View style={styles.tileRow}>
@@ -5091,7 +5093,7 @@ const styles = StyleSheet.create({
   },
   manualScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(26,22,18,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.32)',
   },
   manualSheet: {
     borderTopLeftRadius: 24,

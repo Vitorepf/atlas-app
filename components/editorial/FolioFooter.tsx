@@ -32,23 +32,31 @@ export function FolioFooter({ number, suffix, label }: Props) {
   const c = usePalette()
   let text: string
   if (label) {
-    text = `— ${label.toUpperCase()} —`
+    text = label.toUpperCase()
   } else if (suffix) {
-    text = `— FOLIO ${number} · ${suffix.toUpperCase()} —`
+    text = `FOLIO ${number} · ${suffix.toUpperCase()}`
   } else {
-    text = `— FOLIO ${number} —`
+    text = `FOLIO ${number}`
   }
   return (
-    <View style={[styles.wrap, { borderTopColor: 'rgba(26,22,18,0.18)' }]}>
-      <Mono
-        size={9.5}
-        lineHeight={14}
-        letterSpacing={2}
-        color={c.ink3}
-        align="center"
-      >
-        {text}
-      </Mono>
+    <View style={[styles.wrap, { borderTopColor: c.borderSoft }]}>
+      {/* Round 3 polish · "─── FOLIO N ───" com hairlines bronze-soft
+          flanqueando · consistente com masthead folio row e dateline edition.
+          Em-dashes Unicode removidos · agora são hairlines reais (peso de
+          régua impressa, não pontuação decorativa). */}
+      <View style={styles.row}>
+        <View style={[styles.rule, { backgroundColor: c.border }]} />
+        <Mono
+          size={9.5}
+          lineHeight={14}
+          letterSpacing={2}
+          color={c.ink3}
+          align="center"
+        >
+          {text}
+        </Mono>
+        <View style={[styles.rule, { backgroundColor: c.border }]} />
+      </View>
     </View>
   )
 }
@@ -56,10 +64,23 @@ export function FolioFooter({ number, suffix, label }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     // F mockup: marginTop 42 · paddingTop 26 · marginBottom 110 (respiro pro dock).
+    // Hairline canon · StyleSheet.hairlineWidth + c.borderSoft (cream alpha 0.05
+    // dark / ink alpha 0.05 light). Antes era 1px inteiro com warm cream
+    // hardcoded que virava linha cinza-preta em dark mode.
     marginTop: 42,
     paddingTop: 26,
     marginBottom: 110,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  rule: {
+    width: 24,
+    height: StyleSheet.hairlineWidth,
   },
 })

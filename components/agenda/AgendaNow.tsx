@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { AtlasAgendaTask } from '../../lib/api/client'
 import { formatDuration, formatRelativeFuture, formatTimeRange } from '../../lib/agenda'
+import { PressableSurfaceScale, PressableTextScale } from '../atlas-ui/PressableScale'
 
 interface Props {
   /** Próximo evento futuro · null se não houver. */
@@ -20,14 +21,17 @@ interface Props {
 // AgendaNow · próximo compromisso destacado · seção i. AGORA.
 //   eyebrow "próximo · em N minutos"  → mono caps bronze 10
 //   time   "15.00 — 16.00 · 60min"    → mono prussian 13 medium
-//   title  Frau italic 22 ink         → border-left bronze 2px
-//   context Frau italic 14 ink2       → "sala de cobre" (TODO: schema)
-//   actions "preparar · começar · adiar" Frau italic 14 ink2,
-//           verbo principal "começar" em bronze medium
+//   title  Frau italic 22 ink         → border-left bronze 2px + drop cap inkCarving
+//   actions "preparar · começar · adiar" italic Frau 14 ink2,
+//           verbo principal "começar" em bronze medium + haptic Light
 //
 // Estado vazio: quando task é null, retorna null (silente · canon).
-// `app/agenda.tsx` decide se mostra empty state custom (Frau italic
-// "Sem próximo compromisso." ou silêncio estrutural).
+// `app/agenda.tsx` decide se mostra empty state custom.
+//
+// Round agenda polish · ganhou:
+//   – PressableSurfaceScale (scale 0.985 + opacity 0.55 + spring + haptic Soft)
+//   – Drop cap canon na primeira letra do título (Frau med 32 bronze inkCarving)
+//   – PressableTextScale + haptic em cada action (Light pra "começar" commit)
 export function AgendaNow({ task, now = new Date(), onPress, onPrepare, onStart, onSnooze }: Props) {
   const c = usePalette()
   if (!task) return null
@@ -39,26 +43,11 @@ export function AgendaNow({ task, now = new Date(), onPress, onPrepare, onStart,
   const relative = formatRelativeFuture(startISO, now)
 
   const timeFull = timeRange && duration ? `${timeRange} · ${duration}` : timeRange ?? ''
+  const firstChar = task.title.charAt(0)
+  const restTitle = task.title.slice(1)
 
-  // TODO(schema): `agenda-now-context` ("sala de cobre · trazer notebook ·
-  // pauta no Codex") precisa de campos `location`/`notes` em AtlasAgendaTask.
-  // Hoje renderizamos vazio. Description não cabe — costuma ser longa.
-
-  const Wrapper = onPress ? Pressable : View
-  const wrapperProps = onPress
-    ? {
-        onPress,
-        accessibilityRole: 'button' as const,
-        accessibilityLabel: `Próximo compromisso: ${task.title}`,
-        style: ({ pressed }: { pressed: boolean }) => [
-          styles.wrap,
-          { opacity: pressed ? 0.55 : 1 },
-        ],
-      }
-    : { style: styles.wrap }
-
-  return (
-    <Wrapper {...wrapperProps}>
+  const body = (
+    <>
       {relative ? (
         <Mono
           size={10}
@@ -84,56 +73,82 @@ export function AgendaNow({ task, now = new Date(), onPress, onPrepare, onStart,
         </Mono>
       ) : null}
       <View style={[styles.titleWrap, { borderLeftColor: c.bronze }]}>
-        <Frau italic size={22} lineHeight={28} letterSpacing={-0.18} color={c.ink}>
-          {task.title}
+        {/* Drop cap canon · nested <Frau> inline (não flex row).
+            Em RN, nested Text alinha baseline automaticamente sem hack
+            de marginTop/paddingTop. Outer Frau italic 22 dita lineHeight 30;
+            inner Frau med 30 upright apenas muda fontSize + color · linha
+            única visual, sem layout quebrado no device. */}
+        <Frau italic size={22} lineHeight={30} letterSpacing={-0.18} color={c.ink}>
+          <Frau
+            weight="med"
+            size={30}
+            color={c.bronze}
+            style={{
+              textShadowColor: c.inkCarving,
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 0,
+            }}
+          >
+            {firstChar}
+          </Frau>
+          {restTitle}
         </Frau>
       </View>
-      {/* Context · TODO(schema): location/notes do task quando existir.
-          Por enquanto silente — sem fake. */}
       {onPrepare || onStart || onSnooze ? (
         <View style={styles.actionsRow}>
           {onPrepare ? (
-            <Pressable
+            <PressableTextScale
               onPress={onPrepare}
-              accessibilityRole="button"
-              accessibilityLabel="Preparar para o compromisso"
-              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+              haptic="soft"
+              accessibilityLabel="preparar para o compromisso"
             >
               <Frau italic size={14} lineHeight={20} color={c.ink2}>
                 preparar
               </Frau>
-            </Pressable>
+            </PressableTextScale>
           ) : null}
           {onPrepare && onStart ? <Dot /> : null}
           {onStart ? (
-            <Pressable
+            <PressableTextScale
               onPress={onStart}
-              accessibilityRole="button"
-              accessibilityLabel="Começar agora"
-              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+              haptic="light"
+              accessibilityLabel="começar agora"
             >
               <Frau italic weight="med" size={14} lineHeight={20} color={c.bronze}>
                 começar
               </Frau>
-            </Pressable>
+            </PressableTextScale>
           ) : null}
           {onStart && onSnooze ? <Dot /> : null}
           {onSnooze ? (
-            <Pressable
+            <PressableTextScale
               onPress={onSnooze}
-              accessibilityRole="button"
-              accessibilityLabel="Adiar"
-              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
+              haptic="soft"
+              accessibilityLabel="adiar"
             >
               <Frau italic size={14} lineHeight={20} color={c.ink2}>
                 adiar
               </Frau>
-            </Pressable>
+            </PressableTextScale>
           ) : null}
         </View>
       ) : null}
-    </Wrapper>
+    </>
   )
+
+  if (onPress) {
+    return (
+      <PressableSurfaceScale
+        onPress={onPress}
+        haptic="soft"
+        accessibilityLabel={`próximo compromisso: ${task.title}`}
+        style={styles.wrap}
+      >
+        {body}
+      </PressableSurfaceScale>
+    )
+  }
+  return <View style={styles.wrap}>{body}</View>
 }
 
 function Dot() {
@@ -161,6 +176,8 @@ const styles = StyleSheet.create({
     marginLeft: -14,
     marginBottom: 16,
   },
+  // titleRow / dropCap / titleBody removidos · drop cap agora vive inline
+  // dentro do <Frau> outer via nested Text (sem flex row, sem margens).
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'baseline',

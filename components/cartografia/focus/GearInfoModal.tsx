@@ -67,6 +67,20 @@ export interface GearInfo {
   aiUsageNotes?: string[]
   visualTags?: string[]
   requiresEvidence?: boolean | string | null
+  artifactLakePacks?: GearArtifactPack[]
+  artifactLakeInspectEndpoint?: string | null
+}
+
+export interface GearArtifactPack {
+  artifactId?: string | null
+  artifactHash?: string | null
+  runtimeHash?: string | null
+  artifactType?: string | null
+  status?: string | null
+  consumer?: string | null
+  sourceHashCount?: number | null
+  qualityScore?: number | null
+  capturedAt?: string | null
 }
 
 interface Props {
@@ -340,6 +354,7 @@ function buildDetailedMarkdownDocument(
     risk ? `**Risco:** ${risk}` : null,
     ...(info.forbiddenChanges ?? []).slice(0, 2).map((item) => `Não fazer: ${formatHumanText(item) ?? item}`),
   ])
+  const artifactPackRows = artifactPackTableRows(info)
   const sourceBullets = uniqueList([
     source ? `**Fonte canônica:** ${docLink(source, info.graphId)}` : null,
     ...prepared.relatedPaths.slice(0, 3).map((item) => `**Leia junto:** ${docLink(item)}`),
@@ -386,6 +401,7 @@ function buildDetailedMarkdownDocument(
     proof ? '> Existe prova declarada antes de alterar.' : '> Teste ou evidência ainda não declarado.',
     '',
     bulletList(proofBullets),
+    artifactPackRows.length ? '\n### Packs AWIS persistidos\n\n' + markdownTable(['Pack', 'Leitura'], artifactPackRows) : '',
     '',
     '---',
     '',
@@ -395,6 +411,17 @@ function buildDetailedMarkdownDocument(
     '',
     bulletList(sourceBullets),
   ].join('\n')
+}
+
+function artifactPackTableRows(info: GearInfo): Array<[string, string]> {
+  return (info.artifactLakePacks ?? []).slice(0, 5).map((pack) => [
+    formatHumanText(pack.artifactType) ?? 'artifact',
+    compactSentence([
+      `status: ${formatHumanText(pack.status) ?? 'unknown'}`,
+      typeof pack.qualityScore === 'number' ? `score: ${pack.qualityScore.toFixed(1)}` : null,
+      `hash: ${shortHash(pack.artifactHash ?? pack.artifactId ?? '')}`,
+    ]) ?? 'sem leitura',
+  ])
 }
 
 function buildSourceMarkdownDocument(
@@ -658,6 +685,12 @@ function mdText(value: string): string {
     .replace(/\|/g, '\\|')
     .replace(/\n+/g, ' ')
     .trim()
+}
+
+function shortHash(value: string): string {
+  const clean = value.trim()
+  if (!clean) return 'n/a'
+  return clean.length > 16 ? `${clean.slice(0, 12)}...` : clean
 }
 
 function markdownTable(headers: [string, string], rows: ReadonlyArray<readonly [string, string | null | undefined]>): string {

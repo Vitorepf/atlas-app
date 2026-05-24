@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Atlas Mobile · agenda · polish vision</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #1d2b34;
+      --bg-recessed: #15212a;
+      --bg-raised: #2d4351;
+      --surface: #243743;
+      --ink: #d6dde2;
+      --ink2: #95a3ac;
+      --ink3: #677482;
+      --border: rgba(233,238,242,0.10);
+      --border-soft: rgba(233,238,242,0.05);
+      --bronze: #d4a85a;
+      --bronze-deep: #a8853f;
+      --bronze-light: #e6b966;
+      --bronze-veil: rgba(212,168,90,0.10);
+      --bronze-border: rgba(212,168,90,0.34);
+      --bronze-glow: rgba(212,168,90,0.15);
+      --bronze-wash: rgba(212,168,90,0.04);
+      --bronze-accent: rgba(212,168,90,0.18);
+      --ink-carving: rgba(0,0,0,0.22);
+      --prussian: #7fa7c4;
+      --prussian-seal: rgba(127,167,196,0.32);
+      --moss: #82b577;
+      --font-sans: 'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-frau: 'Fraunces',Georgia,serif;
+      --font-mono: 'JetBrains Mono',ui-monospace,Menlo,monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      background:
+        radial-gradient(ellipse at 50% -10%, rgba(45,67,81,0.28) 0%, transparent 55%),
+        radial-gradient(ellipse at 80% 110%, rgba(212,168,90,0.06) 0%, transparent 45%),
+        linear-gradient(180deg, #0c1218 0%, #0a0f14 100%);
+      color: #b8c0c6;
+      min-height: 100vh;
+      padding: 64px 48px 80px;
+    }
+    .page-head { max-width: 1640px; margin: 0 auto 56px; padding: 0 8px; }
+    .page-eyebrow {
+      font-size: 10px; font-weight: 540;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--bronze); margin-bottom: 14px; opacity: 0.82;
+    }
+    .page-title {
+      font-family: var(--font-frau); font-style: italic; font-weight: 400;
+      font-size: 48px; line-height: 1.04; letter-spacing: -0.02em;
+      color: #f0f4f7; margin: 0 0 18px;
+    }
+    .page-subtitle { font-size: 14.5px; color: #95a3ac; max-width: 760px; line-height: 1.6; margin: 0; }
+    .page-subtitle em { font-style: italic; font-family: var(--font-frau); color: #d6dde2; }
+    .phones-grid {
+      display: flex; justify-content: center; gap: 56px; flex-wrap: wrap;
+      max-width: 1640px; margin: 0 auto;
+    }
+    .phone-card { display: flex; flex-direction: column; align-items: center; gap: 28px; flex: 0 0 auto; }
+    .phone-card .label-block { text-align: center; max-width: 420px; }
+    .phone-card .label-eyebrow {
+      font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--ink3); margin-bottom: 10px; font-weight: 540;
+    }
+    .phone-card .label-eyebrow .sep {
+      color: var(--bronze); font-family: var(--font-frau); font-style: italic;
+      font-weight: 500; text-transform: none; letter-spacing: 0;
+      margin: 0 6px; font-size: 11px; opacity: 0.78;
+    }
+    .phone-card .label-title {
+      font-family: var(--font-frau); font-style: italic; font-weight: 400;
+      font-size: 22px; color: #f0f4f7; margin-bottom: 10px; letter-spacing: -0.014em;
+    }
+    .phone-card .label-desc { font-size: 13px; color: var(--ink2); line-height: 1.6; max-width: 380px; margin: 0 auto; }
+
+    .iphone {
+      display: inline-block; padding: 12px; background: #000;
+      border-radius: 60px;
+      box-shadow: 0 0 0 2px #1f2937, 0 30px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4);
+      position: relative;
+    }
+    .iphone__screen {
+      position: relative; width: 393px; height: 2100px;
+      border-radius: 48px; overflow: hidden; background: #000;
+    }
+    .iphone__status-bar {
+      position: absolute; top: 0; left: 0; right: 0; height: 54px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px; font-size: 16px; font-weight: 600;
+      font-family: -apple-system,'SF Pro Text',sans-serif;
+      color: #fff; z-index: 20; pointer-events: none;
+    }
+    .iphone__status-icons { display: flex; align-items: center; gap: 6px; }
+    .iphone__signal { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .iphone__signal i { width: 3px; background: currentColor; border-radius: 1px; display: block; }
+    .iphone__battery {
+      width: 26px; height: 12px; border: 1.5px solid currentColor;
+      border-radius: 3px; padding: 1px; position: relative; opacity: 0.88;
+    }
+    .iphone__battery::after {
+      content: ''; position: absolute; top: 3px; right: -3px;
+      width: 2px; height: 6px; background: currentColor; border-radius: 0 1px 1px 0;
+    }
+    .iphone__battery i { display: block; width: 92%; height: 100%; background: currentColor; border-radius: 1px; opacity: 0.92; }
+    .iphone__island {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      width: 124px; height: 36px; background: #000; border-radius: 999px; z-index: 30;
+    }
+    .iphone__content { position: absolute; top: 54px; left: 0; right: 0; bottom: 34px; overflow: hidden; }
+    .iphone__home { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); width: 140px; height: 5px; background: rgba(255,255,255,0.5); border-radius: 999px; z-index: 10; }
+
+    .atlas-canvas {
+      position: relative; width: 100%; height: 100%;
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(45,67,81,0.18) 0%, transparent 55%),
+        linear-gradient(180deg, var(--bg) 0%, #1a2832 100%);
+      overflow: hidden;
+    }
+    .atlas-canvas .page { padding: 24px 32px 110px; position: relative; }
+
+    /* Masthead */
+    .masthead { padding-top: 12px; padding-bottom: 24px; border-bottom: 1px solid var(--border); text-align: center; }
+    .masthead__title {
+      font-family: var(--font-frau); font-weight: 500; font-size: 30px;
+      line-height: 36px; letter-spacing: 5.5px; color: var(--ink);
+      text-shadow: 0 1px 0 var(--ink-carving);
+    }
+
+    /* Dateline */
+    .dateline { padding-top: 14px; padding-bottom: 28px; text-align: center; }
+    .dateline__line { font-family: var(--font-frau); font-style: italic; font-size: 14px; line-height: 20px; letter-spacing: 0.4px; color: var(--ink); }
+    .dateline__edition-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 4px; }
+    .dateline__edition-rule { width: 18px; height: 0.5px; background: var(--border); }
+    .dateline__edition { font-family: var(--font-mono); font-size: 9.5px; line-height: 14px; letter-spacing: 1.6px; color: var(--ink3); text-transform: uppercase; }
+
+    /* View Tabs */
+    .view-tabs { display: flex; justify-content: center; align-items: baseline; margin: 28px 0; }
+    .view-tab {
+      font-family: var(--font-frau); font-size: 17px; line-height: 22px;
+      color: var(--ink3); position: relative;
+    }
+    .view-tab.active {
+      font-weight: 500; color: var(--ink);
+      text-shadow: 0 1px 0 var(--ink-carving);
+    }
+    .view-tab.active::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: -6px;
+      height: 1.5px; background: var(--bronze); border-radius: 1px;
+    }
+    .view-tab-sep { font-family: var(--font-frau); font-size: 17px; line-height: 22px; color: var(--ink3); margin: 0 16px; }
+
+    /* Week Strip */
+    .week-strip {
+      display: flex; margin: 0 32px 28px; padding: 12px 0;
+      border-top: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
+    }
+    .week-slot { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 4px 0; position: relative; }
+    .week-dow { font-family: var(--font-mono); font-size: 9px; line-height: 12px; letter-spacing: 1.4px; color: var(--ink3); text-transform: uppercase; }
+    .week-dow.today { color: var(--bronze); font-weight: 500; }
+    .week-num { font-family: var(--font-frau); font-style: italic; font-size: 17px; line-height: 17px; color: var(--ink2); }
+    .week-num.today { font-style: normal; font-weight: 500; color: var(--ink); text-shadow: 0 1px 0 var(--ink-carving); }
+    .week-marks { display: flex; gap: 2px; margin-top: 6px; height: 3px; }
+    .week-mark { width: 3px; height: 3px; border-radius: 1.5px; background: var(--ink3); }
+    .week-mark.today { background: var(--bronze); }
+    .week-mark.accent { width: 4px; height: 4px; border-radius: 2px; background: var(--bronze); margin-left: 1px; }
+    .week-today-underline {
+      position: absolute; bottom: -2px; left: 28%; right: 28%; height: 1.5px;
+      background: var(--bronze); border-radius: 1px;
+      box-shadow: 0 0 3px var(--bronze-glow);
+    }
+
+    /* SectionHead */
+    .section-head { margin: 28px 0; }
+    .section-head__row { display: flex; align-items: baseline; gap: 10px; }
+    .section-head__numeral { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 0.6px; color: var(--bronze); min-width: 22px; }
+    .section-head__title { font-family: var(--font-frau); font-weight: 500; font-size: 17px; line-height: 22px; letter-spacing: 3px; color: var(--ink); flex: 1; }
+    .section-head__deck { font-family: var(--font-frau); font-style: italic; font-size: 13px; line-height: 19px; color: var(--ink2); margin-top: 4px; }
+    .section-head__hr { height: 1px; background: var(--ink); opacity: 0.12; margin-top: 14px; }
+
+    /* AgendaNow */
+    .agenda-now { margin: 0 32px; }
+    .agenda-now__eyebrow {
+      font-family: var(--font-mono); font-size: 10px; line-height: 13px;
+      letter-spacing: 1.6px; color: var(--bronze); font-weight: 500;
+      text-transform: uppercase; margin-bottom: 12px;
+    }
+    .agenda-now__time {
+      font-family: var(--font-mono); font-size: 13px; line-height: 16px;
+      letter-spacing: 0.6px; color: var(--prussian); font-weight: 500;
+      margin-bottom: 6px;
+    }
+    .agenda-now__title-wrap {
+      border-left: 2px solid var(--bronze);
+      padding-left: 14px; margin-left: -14px; margin-bottom: 16px;
+    }
+    .agenda-now__title-row { display: flex; align-items: baseline; gap: 4px; }
+    .agenda-now__dropcap {
+      font-family: var(--font-frau); font-weight: 500; font-size: 32px; line-height: 32px;
+      color: var(--bronze); margin-top: 2px;
+      text-shadow: 0 1px 0 var(--ink-carving);
+    }
+    .agenda-now__title {
+      font-family: var(--font-frau); font-style: italic; font-size: 22px;
+      line-height: 28px; letter-spacing: -0.18px; color: var(--ink);
+      flex: 1; padding-top: 2px;
+    }
+    .agenda-now__actions { display: flex; align-items: baseline; flex-wrap: wrap; }
+    .agenda-now__action {
+      font-family: var(--font-frau); font-style: italic; font-size: 14px;
+      line-height: 20px; color: var(--ink2);
+    }
+    .agenda-now__action.bronze { color: var(--bronze); font-weight: 500; }
+    .agenda-now__action-sep { font-family: var(--font-frau); font-size: 14px; color: var(--ink3); padding: 0 4px; }
+
+    /* Now marker */
+    .now-marker { display: flex; align-items: center; padding: 12px 0; gap: 14px; }
+    .now-marker__line { flex: 1; height: 1px; background: var(--bronze); opacity: 0.55; box-shadow: 0 0 2px var(--bronze); }
+    .now-marker__label {
+      font-family: var(--font-mono); font-size: 9.5px; line-height: 12px;
+      letter-spacing: 1.8px; color: var(--bronze); font-weight: 500;
+      text-transform: uppercase; text-shadow: 0 1px 0 var(--ink-carving);
+    }
+
+    /* Timeline event */
+    .timeline { margin: 0 32px; }
+    .timeline-row { padding: 14px 0; border-top: 0.5px solid var(--border-soft); }
+    .timeline-row:last-of-type { border-bottom: 0.5px solid var(--border-soft); }
+    .timeline-row.next {
+      padding-left: 14px; margin-left: -14px;
+      border-left: 2px solid var(--bronze);
+      box-shadow: -1px 0 3px var(--bronze-glow);
+    }
+    .timeline-time { font-family: var(--font-mono); font-size: 11px; line-height: 14px; letter-spacing: 0.6px; color: var(--prussian); font-weight: 500; margin-bottom: 4px; }
+    .timeline-time.past { color: var(--ink3); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--ink3); }
+    .timeline-title { font-family: var(--font-sans); font-weight: 500; font-size: 15.5px; line-height: 22px; letter-spacing: -0.05px; color: var(--ink); margin-bottom: 4px; }
+    .timeline-title.past { font-weight: 400; color: var(--ink3); }
+    .timeline-context { font-family: var(--font-frau); font-style: italic; font-size: 13px; line-height: 19px; color: var(--ink2); }
+
+    /* Tomorrow */
+    .tomorrow { margin: 0 32px; }
+    .tomorrow-row { padding: 12px 0; border-top: 0.5px solid var(--border-soft); }
+    .tomorrow-row:last-of-type { border-bottom: 0.5px solid var(--border-soft); }
+    .tomorrow-meta { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+    .tomorrow-time { font-family: var(--font-mono); font-size: 10px; line-height: 13px; letter-spacing: 1.4px; color: var(--prussian); font-weight: 500; text-transform: uppercase; }
+    .tomorrow-duration { font-family: var(--font-mono); font-size: 10px; line-height: 13px; letter-spacing: 1.4px; color: var(--ink2); text-transform: uppercase; }
+    .tomorrow-title { font-family: var(--font-frau); font-size: 15px; line-height: 21px; color: var(--ink2); }
+
+    /* Horizon */
+    .horizon { margin: 0 32px; }
+    .horizon-row {
+      display: flex; align-items: baseline; padding: 8px 0; gap: 8px;
+      border-bottom: 0.5px solid var(--border-soft);
+    }
+    .horizon-row:first-of-type { border-top: 0.5px solid var(--border-soft); }
+    .horizon-day { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 0.8px; color: var(--ink2); width: 64px; text-transform: lowercase; flex-shrink: 0; }
+    .horizon-leader { flex: 1; overflow: hidden; }
+    .horizon-leader-text { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 2px; color: var(--ink3); opacity: 0.45; white-space: nowrap; }
+    .horizon-meta { font-family: var(--font-frau); font-style: italic; font-size: 14px; line-height: 20px; color: var(--ink2); }
+    .horizon-meta.major { color: var(--bronze); font-weight: 500; }
+    .horizon-meta.empty { color: var(--ink3); }
+
+    /* Panorama */
+    .panorama { margin: 0 32px; }
+    .panorama-row {
+      display: flex; align-items: baseline; padding: 8px 0; gap: 8px;
+      border-bottom: 0.5px solid var(--border-soft);
+    }
+    .panorama-row:first-of-type { border-top: 0.5px solid var(--border-soft); }
+    .panorama-label { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 1.4px; color: var(--ink2); text-transform: uppercase; flex-shrink: 0; }
+    .panorama-leader { flex: 1; overflow: hidden; }
+    .panorama-leader-text { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 2px; color: var(--ink3); opacity: 0.45; white-space: nowrap; }
+    .panorama-value { font-family: var(--font-frau); font-style: italic; font-size: 14px; line-height: 20px; color: var(--ink); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .panorama-value.accent { font-style: normal; font-weight: 500; color: var(--bronze); }
+
+    /* Ephemerides */
+    .ephem { margin: 0 32px; }
+    .ephem-row { display: flex; align-items: baseline; padding: 6px 0; gap: 14px; }
+    .ephem-when { font-family: var(--font-mono); font-size: 10px; line-height: 14px; letter-spacing: 1.4px; color: var(--bronze); font-weight: 500; text-transform: uppercase; width: 56px; flex-shrink: 0; }
+    .ephem-what { font-family: var(--font-frau); font-style: italic; font-size: 13px; line-height: 20px; color: var(--ink2); flex: 1; }
+
+    /* Month day row */
+    .month-view { margin: 0 32px; }
+    .month-week { margin-bottom: 18px; }
+    .month-row {
+      display: flex; align-items: baseline; padding: 6px 0; gap: 10px;
+      border-bottom: 0.5px solid var(--border-soft);
+    }
+    .month-row.today {
+      background: var(--bronze-wash);
+      border-bottom-color: var(--bronze-accent);
+      margin-left: -8px; margin-right: -8px; padding-left: 8px; padding-right: 8px;
+    }
+    .month-num { font-family: var(--font-mono); font-weight: 500; font-size: 12px; line-height: 16px; letter-spacing: 0.4px; color: var(--ink); width: 22px; flex-shrink: 0; }
+    .month-num.today { color: var(--bronze); text-shadow: 0 1px 0 var(--ink-carving); }
+    .month-num.weekend { color: var(--ink2); }
+    .month-num.past { color: var(--ink3); }
+    .month-dow { font-family: var(--font-mono); font-size: 9.5px; line-height: 13px; letter-spacing: 1.4px; color: var(--ink3); text-transform: uppercase; width: 26px; flex-shrink: 0; }
+    .month-dow.today { color: var(--bronze); }
+    .month-dow.weekend { font-style: italic; color: var(--ink2); }
+    .month-leader { flex: 1; overflow: hidden; }
+    .month-leader-text { font-family: var(--font-mono); font-size: 11px; line-height: 16px; letter-spacing: 2px; color: var(--ink3); opacity: 0.4; white-space: nowrap; }
+    .month-meta-block { flex-shrink: 1; display: flex; flex-direction: column; align-items: flex-end; }
+    .month-meta { font-family: var(--font-frau); font-style: italic; font-size: 13px; line-height: 19px; color: var(--ink2); }
+    .month-meta.today { color: var(--bronze); font-weight: 500; }
+    .month-meta.major { color: var(--bronze); font-weight: 500; }
+    .month-meta.empty { color: var(--ink3); }
+    .month-marker { font-family: var(--font-mono); font-size: 9px; line-height: 12px; letter-spacing: 1.6px; color: var(--bronze); font-weight: 500; text-transform: uppercase; margin-left: 6px; flex-shrink: 0; }
+
+    /* Folio footer */
+    .folio-footer { margin-top: 42px; padding-top: 26px; margin-bottom: 24px; border-top: 1px solid var(--border); text-align: center; }
+    .folio-footer-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
+    .folio-footer-rule { width: 24px; height: 0.5px; background: var(--border); }
+    .folio-footer__text { font-family: var(--font-mono); font-size: 9.5px; line-height: 14px; letter-spacing: 2px; color: var(--ink3); text-transform: uppercase; }
+
+    /* Spec panel */
+    .spec { max-width: 1640px; margin: 100px auto 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 56px; padding: 56px 32px 0; border-top: 1px solid rgba(233,238,242,0.08); }
+    .spec h2 { font-family: var(--font-frau); font-style: italic; font-weight: 400; font-size: 24px; color: #f0f4f7; margin: 0 0 22px; letter-spacing: -0.014em; }
+    .spec h3 { font-family: var(--font-sans); font-size: 10px; font-weight: 540; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink3); margin: 24px 0 12px; }
+    .spec ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+    .spec li { font-size: 13.5px; line-height: 1.6; color: var(--ink2); padding-left: 18px; position: relative; }
+    .spec li::before { content: '·'; position: absolute; left: 6px; color: var(--bronze); font-weight: 700; }
+    .spec li strong { color: var(--ink); font-weight: 500; }
+    .spec li em { font-family: var(--font-frau); font-style: italic; color: var(--bronze-light); }
+  </style>
+</head>
+<body>
+
+  <header class="page-head">
+    <div class="page-eyebrow">Atlas Mobile · agenda · polish vision · 2026-05-23</div>
+    <h1 class="page-title">A agenda que se grava sob a luz bronze.</h1>
+    <p class="page-subtitle">
+      Mesmos rounds de canon aplicados ao hub edição agora calibram cada componente da <em>agenda</em>: <em>view tabs</em> letterpress, <em>week strip</em> com today underline glow, <em>AgendaNow</em> com drop cap canon, <em>now marker</em> com bronze glow halo, <em>timeline event</em> next com shadow bronze, <em>panorama</em> + <em>ephemerides</em> com stagger entries, <em>MonthDayRow</em> today com inkCarving + bronzeWash bg.
+    </p>
+  </header>
+
+  <main class="phones-grid">
+
+    <!-- PHONE A · vista HOJE -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="iphone__status-bar">
+            <span>9:41</span>
+            <div class="iphone__status-icons">
+              <div class="iphone__signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.7"/></svg>
+              <div class="iphone__battery"><i></i></div>
+            </div>
+          </div>
+          <div class="iphone__island"></div>
+          <div class="iphone__content">
+            <div class="atlas-canvas">
+              <div class="page">
+                <div class="masthead">
+                  <div class="masthead__title">AGENDA</div>
+                </div>
+                <div class="dateline">
+                  <div class="dateline__line">Sábado, 23 de Maio de 2026 · Goiânia</div>
+                  <div class="dateline__edition-row">
+                    <span class="dateline__edition-rule"></span>
+                    <span class="dateline__edition">EDIÇÃO MATINAL · 3 ATOS HOJE</span>
+                    <span class="dateline__edition-rule"></span>
+                  </div>
+                </div>
+
+                <!-- View tabs com active inkCarving -->
+                <div class="view-tabs">
+                  <span class="view-tab active">Hoje</span>
+                  <span class="view-tab-sep">·</span>
+                  <span class="view-tab">Semana</span>
+                  <span class="view-tab-sep">·</span>
+                  <span class="view-tab">Mês</span>
+                </div>
+
+                <!-- Week strip com today underline + glow -->
+                <div class="week-strip">
+                  <div class="week-slot"><span class="week-dow">dom</span><span class="week-num" style="font-style:italic;color:var(--ink3);">17</span><div class="week-marks"></div></div>
+                  <div class="week-slot"><span class="week-dow">seg</span><span class="week-num" style="font-style:italic;color:var(--ink3);">18</span><div class="week-marks"><span class="week-mark" style="opacity:0.5"></span></div></div>
+                  <div class="week-slot"><span class="week-dow">ter</span><span class="week-num" style="font-style:italic;color:var(--ink3);">19</span><div class="week-marks"><span class="week-mark" style="opacity:0.5"></span><span class="week-mark" style="opacity:0.5"></span></div></div>
+                  <div class="week-slot"><span class="week-dow">qua</span><span class="week-num" style="font-style:italic;color:var(--ink3);">20</span><div class="week-marks"><span class="week-mark" style="opacity:0.5"></span></div></div>
+                  <div class="week-slot"><span class="week-dow">qui</span><span class="week-num" style="font-style:italic;color:var(--ink3);">21</span><div class="week-marks"></div></div>
+                  <div class="week-slot"><span class="week-dow">sex</span><span class="week-num" style="font-style:italic;color:var(--ink2);">22</span><div class="week-marks"><span class="week-mark" style="background:var(--ink3);"></span><span class="week-mark accent"></span></div></div>
+                  <div class="week-slot">
+                    <span class="week-dow today">SÁB</span>
+                    <span class="week-num today">23</span>
+                    <div class="week-marks"><span class="week-mark today"></span><span class="week-mark today"></span><span class="week-mark today"></span></div>
+                    <div class="week-today-underline"></div>
+                  </div>
+                </div>
+
+                <!-- i. AGORA -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">i.</span>
+                    <span class="section-head__title">AGORA</span>
+                  </div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <!-- AgendaNow com drop cap canon -->
+                <div class="agenda-now">
+                  <div class="agenda-now__eyebrow">PRÓXIMO · EM 32 MIN</div>
+                  <div class="agenda-now__time">15.00 — 16.00 · 60min</div>
+                  <div class="agenda-now__title-wrap">
+                    <div class="agenda-now__title-row">
+                      <span class="agenda-now__dropcap">D</span>
+                      <span class="agenda-now__title">uelo dos moinhos · revisão final capítulo 7.</span>
+                    </div>
+                  </div>
+                  <div class="agenda-now__actions">
+                    <span class="agenda-now__action">preparar</span>
+                    <span class="agenda-now__action-sep">·</span>
+                    <span class="agenda-now__action bronze">começar</span>
+                    <span class="agenda-now__action-sep">·</span>
+                    <span class="agenda-now__action">adiar</span>
+                  </div>
+                </div>
+
+                <!-- ii. RESTO DO DIA -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">ii.</span>
+                    <span class="section-head__title">RESTO DO DIA</span>
+                  </div>
+                  <div class="section-head__deck">3 janelas · hoje</div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="timeline">
+                  <div class="timeline-row">
+                    <div class="timeline-time past">09.30 — 10.15 · CONCLUÍDO</div>
+                    <div class="timeline-title past">Café com revisor do paper</div>
+                  </div>
+                  <div class="now-marker">
+                    <div class="now-marker__line"></div>
+                    <div class="now-marker__label">AGORA · 14.32</div>
+                    <div class="now-marker__line"></div>
+                  </div>
+                  <div class="timeline-row next">
+                    <div class="timeline-time">15.00 — 16.00 · PRÓXIMO</div>
+                    <div class="timeline-title">Duelo dos moinhos</div>
+                  </div>
+                  <div class="timeline-row">
+                    <div class="timeline-time">16.30 — 17.00 · 30MIN</div>
+                    <div class="timeline-title">Ligar ao oftalmologista</div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+          <div class="iphone__home"></div>
+        </div>
+      </div>
+      <div class="label-block">
+        <div class="label-eyebrow">A<span class="sep">·</span>HOJE</div>
+        <div class="label-title">vista atual · canon embossed</div>
+        <div class="label-desc">View tabs <em>letterpress</em> (ATLAS pattern) com underline bronze 1.5px. WeekStrip · today underline ganhou shadow bronze glow. AgendaNow · drop cap "D" Frau 32 bronze inkCarving + título italic 22 + border-left bronze. Régua AGORA · shadow halo bronze nas linhas + textShadow no label. Timeline next · border-left bronze 2px com shadow bronze glow.</div>
+      </div>
+    </article>
+
+    <!-- PHONE B · vista HOJE continuação (Horizon + Panorama + Ephemerides) -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="iphone__status-bar">
+            <span>9:41</span>
+            <div class="iphone__status-icons">
+              <div class="iphone__signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.7"/></svg>
+              <div class="iphone__battery"><i></i></div>
+            </div>
+          </div>
+          <div class="iphone__island"></div>
+          <div class="iphone__content">
+            <div class="atlas-canvas">
+              <div class="page">
+                <div class="masthead"><div class="masthead__title">AGENDA</div></div>
+
+                <!-- iii. AMANHÃ -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">iii.</span>
+                    <span class="section-head__title">AMANHÃ</span>
+                  </div>
+                  <div class="section-head__deck">domingo, 24 de maio · 2 atos</div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <div class="tomorrow">
+                  <div class="tomorrow-row">
+                    <div class="tomorrow-meta"><span class="tomorrow-time">10.00</span><span style="color:var(--ink3);font-family:var(--font-frau);font-size:10px;">·</span><span class="tomorrow-duration">45MIN</span></div>
+                    <div class="tomorrow-title">Reunião com equipe sobre roadmap Q3</div>
+                  </div>
+                  <div class="tomorrow-row">
+                    <div class="tomorrow-meta"><span class="tomorrow-time">15.30</span><span style="color:var(--ink3);font-family:var(--font-frau);font-size:10px;">·</span><span class="tomorrow-duration">90MIN</span></div>
+                    <div class="tomorrow-title">Sessão profunda · capítulo 8</div>
+                  </div>
+                </div>
+
+                <!-- iv. HORIZONTE -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">iv.</span>
+                    <span class="section-head__title">HORIZONTE</span>
+                  </div>
+                  <div class="section-head__deck">próximos sete dias</div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <div class="horizon">
+                  <div class="horizon-row"><span class="horizon-day">seg 25</span><span class="horizon-leader"><span class="horizon-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="horizon-meta">3 janelas</span></div>
+                  <div class="horizon-row"><span class="horizon-day">ter 26</span><span class="horizon-leader"><span class="horizon-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="horizon-meta major">aniversário · marco</span></div>
+                  <div class="horizon-row"><span class="horizon-day">qua 27</span><span class="horizon-leader"><span class="horizon-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="horizon-meta">1 ato</span></div>
+                  <div class="horizon-row"><span class="horizon-day">qui 28</span><span class="horizon-leader"><span class="horizon-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="horizon-meta empty">livre</span></div>
+                  <div class="horizon-row"><span class="horizon-day">sex 29</span><span class="horizon-leader"><span class="horizon-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="horizon-meta">2 janelas</span></div>
+                </div>
+
+                <!-- v. EFEMÉRIDES -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">v.</span>
+                    <span class="section-head__title">EFEMÉRIDES</span>
+                  </div>
+                  <div class="section-head__deck">marcos do horizonte · noventa dias</div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <div class="ephem">
+                  <div class="ephem-row"><span class="ephem-when">TER 26 MAI</span><span class="ephem-what">aniversário · 2 anos da fundação Atlas</span></div>
+                  <div class="ephem-row"><span class="ephem-when">QUA 04 JUN</span><span class="ephem-what">100 dias da release v2.0</span></div>
+                  <div class="ephem-row"><span class="ephem-when">SEX 13 JUN</span><span class="ephem-what">festa de Santo Antônio</span></div>
+                  <div class="ephem-row"><span class="ephem-when">SEG 23 JUN</span><span class="ephem-what">marco · 30 dias do polish editorial</span></div>
+                </div>
+
+                <!-- vi. PANORAMA -->
+                <div class="section-head">
+                  <div class="section-head__row">
+                    <span class="section-head__numeral">vi.</span>
+                    <span class="section-head__title">PANORAMA</span>
+                  </div>
+                  <div class="section-head__deck">maio · indicadores do mês</div>
+                  <div class="section-head__hr"></div>
+                </div>
+
+                <div class="panorama">
+                  <div class="panorama-row"><span class="panorama-label">ATOS PLANEJADOS</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value">12</span></div>
+                  <div class="panorama-row"><span class="panorama-label">COMPLETADOS</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value accent">4</span></div>
+                  <div class="panorama-row"><span class="panorama-label">ABERTOS</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value">8</span></div>
+                  <div class="panorama-row"><span class="panorama-label">MARCOS NO HORIZONTE</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value accent">2</span></div>
+                  <div class="panorama-row"><span class="panorama-label">FERIADOS RESTANTES</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value">1</span></div>
+                  <div class="panorama-row"><span class="panorama-label">DIAS RESTANTES</span><span class="panorama-leader"><span class="panorama-leader-text">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</span></span><span class="panorama-value">8</span></div>
+                </div>
+
+                <div class="folio-footer">
+                  <div class="folio-footer-row">
+                    <span class="folio-footer-rule"></span>
+                    <span class="folio-footer__text">FOLIO 16 · AGENDA</span>
+                    <span class="folio-footer-rule"></span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+          <div class="iphone__home"></div>
+        </div>
+      </div>
+      <div class="label-block">
+        <div class="label-eyebrow">B<span class="sep">·</span>HORIZONTE</div>
+        <div class="label-title">peso decrescente · ritmo editorial</div>
+        <div class="label-desc">Amanhã peso menor (Frau ink2). Horizonte com dot leader bronze accent quando "major" (aniversário · marco). Efemérides marginalia bronze cap small. Panorama enterprise editorial tabela mono caps + accent bronze nos values vivos. Folio footer com hairlines flanqueando.</div>
+      </div>
+    </article>
+
+    <!-- PHONE C · vista MÊS -->
+    <article class="phone-card">
+      <div class="iphone">
+        <div class="iphone__screen">
+          <div class="iphone__status-bar">
+            <span>9:41</span>
+            <div class="iphone__status-icons">
+              <div class="iphone__signal"><i style="height:4px"></i><i style="height:6px"></i><i style="height:9px"></i><i style="height:11px"></i></div>
+              <svg width="16" height="12" viewBox="0 0 16 12" fill="none" style="color:#fff"><path d="M8 11.5a1 1 0 100-2 1 1 0 000 2z" fill="currentColor"/><path d="M3 7.5a7 7 0 0110 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M1 4.5a11 11 0 0114 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity="0.7"/></svg>
+              <div class="iphone__battery"><i></i></div>
+            </div>
+          </div>
+          <div class="iphone__island"></div>
+          <div class="iphone__content">
+            <div class="atlas-canvas">
+              <div class="page">
+                <div class="masthead"><div class="masthead__title">AGENDA</div></div>
+                <div class="dateline">
+                  <div class="dateline__line">Maio · MMXXVI</div>
+                  <div class="dateline__edition-row">
+                    <span class="dateline__edition-rule"></span>
+                    <span class="dateline__edition">31 DIAS · 12 ATOS</span>
+                    <span class="dateline__edition-rule"></span>
+                  </div>
+                </div>
+
+                <div class="view-tabs">
+                  <span class="view-tab">Hoje</span>
+                  <span class="view-tab-sep">·</span>
+                  <span class="view-tab">Semana</span>
+                  <span class="view-tab-sep">·</span>
+                  <span class="view-tab active">Mês</span>
+                </div>
+
+                <!-- Month view com today inkCarving + bronzeWash bg -->
+                <div class="month-view">
+                  <div class="month-week">
+                    <div class="month-row"><span class="month-num past">18</span><span class="month-dow past">SEG</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta empty">livre</span></div></div>
+                    <div class="month-row"><span class="month-num past">19</span><span class="month-dow past">TER</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">2 atos</span></div></div>
+                    <div class="month-row"><span class="month-num past">20</span><span class="month-dow past">QUA</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">1 ato</span></div></div>
+                    <div class="month-row"><span class="month-num past">21</span><span class="month-dow past">QUI</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta empty">livre</span></div></div>
+                    <div class="month-row"><span class="month-num past">22</span><span class="month-dow past">SEX</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">1 ato</span></div></div>
+                    <div class="month-row today">
+                      <span class="month-num today">23</span>
+                      <span class="month-dow today">SÁB</span>
+                      <span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span>
+                      <div class="month-meta-block"><span class="month-meta today">3 atos</span></div>
+                      <span class="month-marker">HOJE</span>
+                    </div>
+                    <div class="month-row"><span class="month-num weekend">24</span><span class="month-dow weekend">DOM</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">2 atos</span></div></div>
+                  </div>
+                  <div class="month-week">
+                    <div class="month-row"><span class="month-num">25</span><span class="month-dow">SEG</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">3 janelas</span></div></div>
+                    <div class="month-row"><span class="month-num">26</span><span class="month-dow">TER</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta major">aniversário</span><span class="month-meta" style="font-size:11px;color:var(--ink3);margin-top:1px;">— 2 anos Atlas</span></div><span class="month-marker">ANIVERSÁRIO</span></div>
+                    <div class="month-row"><span class="month-num">27</span><span class="month-dow">QUA</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">1 ato</span></div></div>
+                    <div class="month-row"><span class="month-num">28</span><span class="month-dow">QUI</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta empty">livre</span></div></div>
+                    <div class="month-row"><span class="month-num">29</span><span class="month-dow">SEX</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta">2 janelas</span></div></div>
+                    <div class="month-row"><span class="month-num weekend">30</span><span class="month-dow weekend">SÁB</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta empty">livre</span></div></div>
+                    <div class="month-row"><span class="month-num weekend">31</span><span class="month-dow weekend">DOM</span><span class="month-leader"><span class="month-leader-text">· · · · · · · · · · · · · · · · · · · · · · · ·</span></span><div class="month-meta-block"><span class="month-meta empty">livre</span></div></div>
+                  </div>
+                </div>
+
+                <div class="folio-footer">
+                  <div class="folio-footer-row">
+                    <span class="folio-footer-rule"></span>
+                    <span class="folio-footer__text">MAIO · MMXXVI</span>
+                    <span class="folio-footer-rule"></span>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+          <div class="iphone__home"></div>
+        </div>
+      </div>
+      <div class="label-block">
+        <div class="label-eyebrow">C<span class="sep">·</span>MÊS</div>
+        <div class="label-title">calendário linear · TOC editorial</div>
+        <div class="label-desc">Vista mensal NÃO usa grid 7×6 SaaS · é TOC vertical, cada dia uma row. Today row · bg <em>bronzeWash</em> alpha 0.04 + border bottom <em>bronzeAccent</em> alpha 0.18 + num bronze com inkCarving textShadow (letterpress canon) + marker "HOJE" mono caps. Milestones ganham marker "ANIVERSÁRIO" / "FUNDAÇÃO" bronze. Feriados como marginalia segunda linha.</div>
+      </div>
+    </article>
+
+  </main>
+
+  <section class="spec">
+    <div>
+      <h2>Polimentos visíveis no estado parado</h2>
+      <h3>Hub agenda · 11 mudanças visuais</h3>
+      <ul>
+        <li><strong>AgendaViewTabs active</strong> · ganha textShadow inkCarving (letterpress) + underline bronze 1.5px mantido</li>
+        <li><strong>AgendaWeekStrip today num</strong> · textShadow inkCarving (peso de chapa tipográfica)</li>
+        <li><strong>AgendaWeekStrip today underline</strong> · ganha shadow bronze glow (radius 3)</li>
+        <li><strong>AgendaNow title</strong> · drop cap canon Frau 32 bronze + inkCarving + body italic 22 + border-left bronze 2px</li>
+        <li><strong>AgendaNowMarker label</strong> · textShadow inkCarving</li>
+        <li><strong>AgendaNowMarker lines</strong> · shadow bronze radius 2 (régua tem profundidade, não chapado)</li>
+        <li><strong>AgendaEvent next</strong> · border-left bronze 2px ganha shadow halo bronzeGlow</li>
+        <li><strong>MonthDayRow today num</strong> · textShadow inkCarving + bg bronzeWash + border bronzeAccent</li>
+        <li><strong>MonthDayRow marker</strong> · "HOJE" / "ANIVERSÁRIO" / "FUNDAÇÃO" mono caps bronze peso 500</li>
+        <li><strong>FolioFooter</strong> · "FOLIO N · AGENDA" entre hairlines flanqueando (não em-dashes Unicode)</li>
+        <li><strong>Dateline edition</strong> · "EDIÇÃO MATINAL · 3 ATOS HOJE" flanqueado por hairlines</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Polimentos de interação iOS-grade canon</h2>
+      <h3>Press feedback unificado · 9 componentes</h3>
+      <ul>
+        <li><strong>AgendaViewTabs</strong> · PressableTextScale + haptic Soft</li>
+        <li><strong>AgendaWeekStrip slot</strong> · PressableTextScale + haptic Soft</li>
+        <li><strong>AgendaNow wrapper</strong> · PressableSurfaceScale (scale 0.985 + opacity 0.55 + spring) + haptic Soft</li>
+        <li><strong>AgendaNow actions</strong> · PressableTextScale + haptic <em>Light</em> em "começar" (commit) · Soft em preparar/adiar</li>
+        <li><strong>AgendaEvent</strong> · PressableTextScale + haptic Soft</li>
+        <li><strong>AgendaTomorrow row</strong> · PressableTextScale + haptic Soft</li>
+        <li><strong>AgendaHorizon row</strong> · PressableTextScale + haptic Soft + stagger fade-in down 40ms × idx</li>
+        <li><strong>AgendaEmptyState action</strong> · PressableTextScale + haptic Light (commit) + scale spring</li>
+        <li><strong>MonthDayRow</strong> · PressableSurfaceScale + haptic Soft</li>
+      </ul>
+
+      <h3>Stagger entries (papel pousando · não cascata SaaS)</h3>
+      <ul>
+        <li><strong>app/agenda.tsx</strong> · 6 SectionHeads com FadeInDown delay 60-360ms springify damping 22 stiffness 180</li>
+        <li><strong>AgendaHorizon</strong> · 7 day-rows com FadeInDown delay 40ms × idx</li>
+        <li><strong>AgendaPanorama</strong> · 6 metric-rows com FadeInDown delay 40ms × idx</li>
+        <li><strong>Ephemerides</strong> · marcos com FadeInDown delay 30ms × idx</li>
+      </ul>
+
+      <h3>Tokens nominais agenda · 2 novos cementados</h3>
+      <ul>
+        <li><strong>bronzeWash</strong> · alpha 0.04 (today bg MonthDayRow)</li>
+        <li><strong>bronzeAccent</strong> · alpha 0.18 (today border, marker editorial)</li>
+        <li>rgba hardcoded eliminado em <em>AgendaWeekStrip · AgendaTomorrow · AgendaHorizon · AgendaEvent · AgendaPanorama · MonthDayRow</em></li>
+      </ul>
+    </div>
+  </section>
+
+</body>
+</html>

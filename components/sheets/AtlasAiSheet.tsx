@@ -94,6 +94,7 @@ import {
   cancelAiJob,
   compactAiThread,
   createAiInteraction,
+  createAtlasWorkspaceProfile,
   deleteAiThread,
   feedbackAiInteraction,
   getAiObservability,
@@ -107,6 +108,7 @@ import {
   getApiBase,
   getAtlasAuthHeaders,
   interruptMobileVoiceTurn,
+  listAtlasWorkspaceProfiles,
   listAiInteractions,
   listCaptures,
   listAiQualityActions,
@@ -149,6 +151,7 @@ import {
   SessionMapSheet,
 } from './atlas-ai/AtlasAiSessionSheets'
 import { ContextSheet } from './atlas-ai/AtlasAiContextSheet'
+import { AtlasAiWorkspaceSheet } from './atlas-ai/AtlasAiWorkspaceSheet'
 import {
   OperationsSheet,
   SkillsSheet,
@@ -157,6 +160,11 @@ import { ExecutionSheet } from './atlas-ai/AtlasAiExecutionSheet'
 import {
   providerWord,
 } from './atlas-ai/threadHistoryModel'
+import {
+  ATLAS_AI_MOBILE_WORKSPACE_STORAGE_KEY,
+  mobileWorkspacePayload,
+  resolveMobileWorkspaceLock,
+} from './atlas-ai/AtlasAiMobileWorkspaceModel'
 import {
   AttachmentSheet,
   HistoricalAttachmentSummary,
@@ -1695,6 +1703,10 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null)
   const [lastRefreshError, setLastRefreshError] = useState<string | null>(null)
   const [refreshFailures, setRefreshFailures] = useState(0)
+  const [activeWorkspaceSlug, setActiveWorkspaceSlug] = useState<string | null>(null)
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false)
+  const [workspaceSheetOpen, setWorkspaceSheetOpen] = useState(false)
+  const [workspaceCreating, setWorkspaceCreating] = useState(false)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
 
   const flashCopyToast = useCallback((label: string) => {
@@ -1801,6 +1813,30 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   const isPendingSending = pending?.status === 'sending'
   const interactionLocked = submitting || hasActiveTrace || isPendingSending
   const composerLocked = submitting || isPendingSending
+  const workspaceProfilesQueryKey = useMemo(() => ['atlas-ai-mobile', 'workspace-profiles'] as const, [])
+  const workspaceProfilesQuery = useQuery({
+    queryKey: workspaceProfilesQueryKey,
+    queryFn: listAtlasWorkspaceProfiles,
+    enabled: visible,
+    retry: 2,
+    staleTime: 60_000,
+  })
+  const workspaceProfiles = workspaceProfilesQuery.data?.data ?? []
+  const defaultWorkspaceSlug = workspaceProfilesQuery.data?.meta?.default_slug ?? null
+  const conversationStartedForWorkspace = currentThreadId !== null || pending !== null || submitting
+  const mobileWorkspaceLock = useMemo(() => resolveMobileWorkspaceLock({
+    thread: currentThread,
+    profiles: workspaceProfiles,
+    defaultSlug: defaultWorkspaceSlug,
+    selectedSlug: activeWorkspaceSlug,
+    conversationStarted: conversationStartedForWorkspace,
+  }), [
+    activeWorkspaceSlug,
+    conversationStartedForWorkspace,
+    currentThread,
+    defaultWorkspaceSlug,
+    workspaceProfiles,
+  ])
   const canClassifyDraftAsCapture = shouldClassifyAtlasAiDraft({
     currentThreadId,
     pending: pending != null,
@@ -1903,6 +1939,82 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (!computeEffortHydrated) return
     void atlasStorage.setItem(COMPUTE_EFFORT_KEY, computeEffort)
   }, [computeEffort, computeEffortHydrated])
+
+  useEffect(() => {
+    let cancelled = false
+    atlasStorage.getItem(ATLAS_AI_MOBILE_WORKSPACE_STORAGE_KEY)
+      .then((stored) => {
+        if (cancelled) return
+        setActiveWorkspaceSlug(typeof stored === 'string' && stored.trim() !== '' ? stored.trim() : null)
+      })
+      .finally(() => {
+        if (!cancelled) setWorkspaceHydrated(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!workspaceHydrated || activeWorkspaceSlug || !defaultWorkspaceSlug) return
+    setActiveWorkspaceSlug(defaultWorkspaceSlug)
+    void atlasStorage.setItem(ATLAS_AI_MOBILE_WORKSPACE_STORAGE_KEY, defaultWorkspaceSlug)
+  }, [activeWorkspaceSlug, defaultWorkspaceSlug, workspaceHydrated])
+
+  const selectMobileWorkspace = useCallback((slug: string) => {
+    if (mobileWorkspaceLock.locked) {
+      showToast('Workspace fixo nesta conversa')
+      return
+    }
+    setActiveWorkspaceSlug(slug)
+    void atlasStorage.setItem(ATLAS_AI_MOBILE_WORKSPACE_STORAGE_KEY, slug)
+    setWorkspaceSheetOpen(false)
+  }, [mobileWorkspaceLock.locked, showToast])
+
+  const createMobileWorkspace = useCallback(async (input: {
+    slug: string
+    name: string
+    workspacePath: string
+  }) => {
+    if (mobileWorkspaceLock.locked || workspaceCreating) {
+      showToast('Workspace fixo nesta conversa')
+      return
+    }
+
+    setWorkspaceCreating(true)
+    try {
+      const response = await createAtlasWorkspaceProfile({
+        slug: input.slug,
+        name: input.name,
+        workspace_path: input.workspacePath,
+        repo_root: input.workspacePath,
+        kind: 'repo',
+        source: 'atlas_mobile_ai',
+        status: 'active',
+      })
+      await queryClient.invalidateQueries({ queryKey: workspaceProfilesQueryKey })
+      const slug = response.workspace.slug
+      setActiveWorkspaceSlug(slug)
+      void atlasStorage.setItem(ATLAS_AI_MOBILE_WORKSPACE_STORAGE_KEY, slug)
+      setWorkspaceSheetOpen(false)
+      showToast('Workspace adicionado')
+    } catch (error) {
+      showToast(humanAiError(error, 'falha ao adicionar workspace.'))
+    } finally {
+      setWorkspaceCreating(false)
+    }
+  }, [
+    mobileWorkspaceLock.locked,
+    queryClient,
+    showToast,
+    workspaceCreating,
+    workspaceProfilesQueryKey,
+  ])
+
+  const openMobileWorkspaceSelector = useCallback(() => {
+    setWorkspaceSheetOpen(true)
+  }, [])
 
   useEffect(() => {
     if (!visible && voiceModeOpen) {
@@ -3968,6 +4080,9 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
         task: routingSnapshot.task,
         style: routingSnapshot.style,
         domain: routingSnapshot.domain,
+        workspace_slug: mobileWorkspaceLock.workspaceSlug,
+        workspace_locked: mobileWorkspaceLock.locked,
+        workspace_lock_reason: mobileWorkspaceLock.lockReason,
         recovered: options.recovered === true,
         input_chars: input.length,
         original_input_chars: originalInputChars,
@@ -4062,7 +4177,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           task: routingSnapshot.task,
           provider: routingSnapshot.executor,
           computeEffort,
-          workspaceSlug: currentThread?.workspace ?? null,
+          workspaceSlug: mobileWorkspaceLock.workspaceSlug ?? null,
           routingDomain: routingSnapshot.domain === 'auto' ? undefined : routingSnapshot.domain,
           conversationContext,
         })
@@ -4084,6 +4199,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           ...hyperflowBuild.payload,
           ...threadRuntimePolicy,
           ...(threadOriginPayload ?? {}),
+          ...mobileWorkspacePayload(mobileWorkspaceLock),
         }
         const requestedComputeEffort = atlasComputeEffortForPayload(computeEffort)
         const runtimePolicyHints =
@@ -4303,6 +4419,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       startTraceStream,
       providerStatus,
       domainCatalog,
+      mobileWorkspaceLock,
     ],
   )
 
@@ -5231,6 +5348,10 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           mode={routing.mode}
           computeEffort={computeEffort}
           onComputeEffortChange={setComputeEffort}
+          workspaceLabel={mobileWorkspaceLock.workspaceName ?? mobileWorkspaceLock.workspaceSlug}
+          workspaceLocked={mobileWorkspaceLock.locked}
+          workspaceLoading={workspaceProfilesQuery.isLoading}
+          onOpenWorkspace={openMobileWorkspaceSelector}
         />
       </Animated.View>
 
@@ -5245,6 +5366,17 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           onFiles={pickDocumentFiles}
         />
       ) : null}
+
+      <AtlasAiWorkspaceSheet
+        visible={workspaceSheetOpen}
+        profiles={workspaceProfiles}
+        active={mobileWorkspaceLock}
+        loading={workspaceProfilesQuery.isLoading}
+        creating={workspaceCreating}
+        onClose={() => setWorkspaceSheetOpen(false)}
+        onSelect={selectMobileWorkspace}
+        onCreate={createMobileWorkspace}
+      />
 
       {previewAttachment ? (
         <AttachmentImageViewer

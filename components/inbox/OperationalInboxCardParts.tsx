@@ -76,7 +76,7 @@ export function OperationalCardActions({
           style={({ pressed }) => [
             styles.actionPrimary,
             {
-              borderTopColor: 'rgba(26,22,18,0.10)',
+              borderTopColor: 'rgba(233,238,242,0.05)',
               borderTopWidth: 1,
               opacity: busy ? 0.35 : pressed ? 0.55 : 1,
             },
@@ -98,7 +98,7 @@ export function OperationalCardActions({
         <View
           style={[
             styles.actionSecondary,
-            { borderTopColor: 'rgba(26,22,18,0.06)' },
+            { borderTopColor: 'rgba(233,238,242,0.04)' },
           ]}
         >
           {spec.secondary.map((action, idx) => (

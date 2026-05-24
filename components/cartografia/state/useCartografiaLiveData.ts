@@ -201,6 +201,13 @@ export interface CartographyGraphResponse {
   connections: Array<{ from: string; to: string; kind: string }>
   semantic_graph: LiveSemanticGraph | null
   checksum: string | null
+  workspace_scope?: {
+    workspace_id?: string | null
+    workspace_hash?: string | null
+    runtime_projection_replay?: RuntimeProjectionReplay | null
+    artifact_graph_replay?: ArtifactGraphReplay | null
+    artifact_lake_replay?: ArtifactLakeReplay | null
+  } | null
   human_clarity_contract?: {
     human_clarity?: {
       schema_version?: string
@@ -212,6 +219,61 @@ export interface CartographyGraphResponse {
     }
     writes?: boolean
   } | null
+}
+
+export interface RuntimeProjectionReplay {
+  schema_version?: string
+  status?: string
+  stale_count?: number
+  missing_count?: number
+  stale_families?: string[]
+  missing_families?: string[]
+  items?: Array<{
+    family?: string
+    status?: string
+    stale_reason?: string | null
+    saved_workspace_hash?: string | null
+    current_workspace_hash?: string | null
+    generated_at?: string | null
+  }>
+}
+
+export interface ArtifactGraphReplay {
+  schema_version?: string
+  status?: string
+  stale?: boolean
+  reason?: string | null
+  snapshot_id?: string | null
+  runtime_hash?: string | null
+  artifact_intelligence_hash?: string | null
+  graph_hash?: string | null
+  captured_at?: string | null
+}
+
+export interface ArtifactLakeReplay {
+  schema_version?: string
+  status?: string
+  reason?: string | null
+  artifact_count?: number
+  conversation_fusion_pack_count?: number
+  inspect_endpoint?: string | null
+  latest_artifacts?: Array<{
+    artifact_id?: string
+    artifact_hash?: string
+    runtime_hash?: string
+    artifact_type?: string
+    status?: string
+    consumer?: string | null
+    source_hash_count?: number
+    quality_score?: number
+    captured_at?: string | null
+  }>
+  source_policy?: {
+    raw_conversation_returned?: boolean
+    full_message_content_returned?: boolean
+    workspace_scope_required?: boolean
+    hashes_are_authoritative?: boolean
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -489,6 +551,12 @@ export interface CartografiaLiveData {
   audit: LiveGraphAudit | null
   /** Score de clareza visual humana vindo do contrato AURC */
   humanClarityScore: number | null
+  /** Replay AWIS/AWTR/AWCO/AWEF; bloqueado quando projection persistida ficou stale */
+  runtimeProjectionReplay: RuntimeProjectionReplay | null
+  /** Replay AWAIR artifact graph; bloqueado quando artifact graph persistido ficou stale */
+  artifactGraphReplay: ArtifactGraphReplay | null
+  /** Replay provider-safe do Artifact Lake; nunca carrega body/conversa bruta */
+  artifactLakeReplay: ArtifactLakeReplay | null
   /** Contagem de lanes */
   laneCount: number
   /** Indica se os dados são live (API) ou fallback (estáticos) */
@@ -552,6 +620,15 @@ export function useCartografiaLiveData(): CartografiaLiveData {
   const [humanClarityScore, setHumanClarityScore] = useState<number | null>(
     () => cachedResponse?.human_clarity_contract?.human_clarity?.score ?? null,
   )
+  const [runtimeProjectionReplay, setRuntimeProjectionReplay] = useState<RuntimeProjectionReplay | null>(
+    () => cachedResponse?.workspace_scope?.runtime_projection_replay ?? null,
+  )
+  const [artifactGraphReplay, setArtifactGraphReplay] = useState<ArtifactGraphReplay | null>(
+    () => cachedResponse?.workspace_scope?.artifact_graph_replay ?? null,
+  )
+  const [artifactLakeReplay, setArtifactLakeReplay] = useState<ArtifactLakeReplay | null>(
+    () => cachedResponse?.workspace_scope?.artifact_lake_replay ?? null,
+  )
   const [laneCount, setLaneCount] = useState(
     () => cachedAdaptedLanes?.length ?? LANE_DEFINITIONS.length,
   )
@@ -578,6 +655,7 @@ export function useCartografiaLiveData(): CartografiaLiveData {
             semantic_graph: response.semantic_graph ?? null,
             audit: normalizeAudit(response.audit),
             checksum: response.checksum ?? null,
+            workspace_scope: response.workspace_scope ?? null,
             human_clarity_contract: response.human_clarity_contract ?? null,
           }
         : response
@@ -604,6 +682,9 @@ export function useCartografiaLiveData(): CartografiaLiveData {
       setSemanticGraph(graph.semantic_graph)
       setAudit(normalizeAudit(graph.audit))
       setHumanClarityScore(graph.human_clarity_contract?.human_clarity?.score ?? null)
+      setRuntimeProjectionReplay(graph.workspace_scope?.runtime_projection_replay ?? null)
+      setArtifactGraphReplay(graph.workspace_scope?.artifact_graph_replay ?? null)
+      setArtifactLakeReplay(graph.workspace_scope?.artifact_lake_replay ?? null)
       setLaneCount(adaptedLanes.length)
       setIsLive(true)
       setError(null)
@@ -632,7 +713,21 @@ export function useCartografiaLiveData(): CartografiaLiveData {
     }
   }, [refresh])
 
-  return { steps, semanticGraph, lanes, connections, audit, humanClarityScore, laneCount, isLive, loading, error }
+  return {
+    steps,
+    semanticGraph,
+    lanes,
+    connections,
+    audit,
+    humanClarityScore,
+    runtimeProjectionReplay,
+    artifactGraphReplay,
+    artifactLakeReplay,
+    laneCount,
+    isLive,
+    loading,
+    error,
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────

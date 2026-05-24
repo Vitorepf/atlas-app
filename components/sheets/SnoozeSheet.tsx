@@ -64,8 +64,8 @@ function Body({ options, onSelect }: { options: SnoozeOption[]; onSelect: (opt: 
           style={({ pressed }) => [
             styles.row,
             {
-              borderTopColor: 'rgba(26,22,18,0.10)',
-              borderBottomColor: 'rgba(26,22,18,0.10)',
+              borderTopColor: 'rgba(233,238,242,0.05)',
+              borderBottomColor: 'rgba(233,238,242,0.05)',
               borderTopWidth: idx === 0 ? 1 : 0,
               borderBottomWidth: 1,
               opacity: pressed ? 0.55 : 1,

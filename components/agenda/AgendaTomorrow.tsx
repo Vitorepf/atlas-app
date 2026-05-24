@@ -1,9 +1,10 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { AtlasAgendaTask } from '../../lib/api/client'
 import { formatDuration, formatHourMinute } from '../../lib/agenda'
 import { eventStartTime } from '../../lib/agenda'
+import { PressableTextScale } from '../atlas-ui/PressableScale'
 
 interface Props {
   tasks: AtlasAgendaTask[]
@@ -14,7 +15,10 @@ interface Props {
 // Cada item: meta line mono caps (time prussian + duração + context ink3)
 // + title Frau ink2 (peso menor que hoje · canon "peso decrescente").
 //
-// Hairlines top/bottom em cada row (6% ink). Trilho margin 32.
+// Hairlines top/bottom em cada row (borderSoft 5%). Trilho margin 32.
+//
+// Round agenda polish · PressableTextScale + haptic Soft. rgba hardcoded
+// virou c.borderSoft.
 //
 // TODO(schema): `tom-context` ("matriz", "varanda") precisa de
 // location/notes. Hoje só duração formatada.
@@ -37,8 +41,10 @@ export function AgendaTomorrow({ tasks, onEventPress }: Props) {
           <View
             style={[
               styles.row,
-              { borderTopColor: 'rgba(26,22,18,0.06)' },
-              isLast ? { borderBottomColor: 'rgba(26,22,18,0.06)', borderBottomWidth: 1 } : null,
+              { borderTopColor: c.borderSoft, borderTopWidth: StyleSheet.hairlineWidth },
+              isLast
+                ? { borderBottomColor: c.borderSoft, borderBottomWidth: StyleSheet.hairlineWidth }
+                : null,
             ]}
           >
             <View style={styles.metaRow}>
@@ -69,15 +75,14 @@ export function AgendaTomorrow({ tasks, onEventPress }: Props) {
         )
         if (onEventPress) {
           return (
-            <Pressable
+            <PressableTextScale
               key={task.id}
               onPress={() => onEventPress(task)}
-              accessibilityRole="button"
+              haptic="soft"
               accessibilityLabel={task.title}
-              style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
             >
               {row}
-            </Pressable>
+            </PressableTextScale>
           )
         }
         return <View key={task.id}>{row}</View>
@@ -92,7 +97,6 @@ const styles = StyleSheet.create({
   },
   row: {
     paddingVertical: 12,
-    borderTopWidth: 1,
   },
   metaRow: {
     flexDirection: 'row',

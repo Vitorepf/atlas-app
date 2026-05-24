@@ -22,6 +22,7 @@ import {
 } from './AtlasAiDataPrimitives'
 import { providerWord } from './threadHistoryModel'
 import { presentationMetadataForTrace } from './AtlasAiTurnModel'
+import { workspaceContextFromThreadAndTrace } from './AtlasAiWorkspaceModel'
 
 export function ContextSheet({
   visible,
@@ -50,6 +51,7 @@ export function ContextSheet({
   const presentationSections = presentationMetadata
     ? Object.entries(presentationMetadata.sections).filter(([, lines]) => lines.length > 0)
     : []
+  const workspaceContext = workspaceContextFromThreadAndTrace(thread, latestTrace)
   return (
     <BottomSheet visible={visible} onClose={onClose} height="85%">
       <ScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
@@ -88,6 +90,33 @@ export function ContextSheet({
           <DataRow label="tópico" value={state?.current_topic || 'não definido'} />
           <DataRow label="posição" value={state?.user_position || 'não definida'} />
         </DataSection>
+
+        {workspaceContext ? (
+          <DataSection title="workspace AWIS">
+            <DataRow label="workspace" value={workspaceContext.workspace ?? 'sem escopo'} />
+            <DataRow label="lock" value={workspaceContext.lockStatus === 'locked' ? 'fixo nesta conversa' : 'sem workspace'} />
+            {workspaceContext.handoffStatus ? (
+              <DataRow label="handoff" value={workspaceContext.handoffStatus} />
+            ) : null}
+            {workspaceContext.handoffHash ? (
+              <DataRow label="handoff_hash" value={shortId(workspaceContext.handoffHash)} />
+            ) : null}
+            {workspaceContext.fusionStatus ? (
+              <DataRow label="fusion" value={workspaceContext.fusionStatus} />
+            ) : null}
+            {workspaceContext.fusionHash ? (
+              <DataRow label="fusion_hash" value={shortId(workspaceContext.fusionHash)} />
+            ) : null}
+            {workspaceContext.rawConversationReturned !== null ? (
+              <DataRow
+                label="raw"
+                value={workspaceContext.rawConversationReturned ? 'revisar' : 'bloqueado'}
+              />
+            ) : null}
+            <DataList label="artefatos necessários" items={workspaceContext.requiredArtifacts} />
+            <DataList label="artefatos faltando" items={workspaceContext.missingArtifacts} />
+          </DataSection>
+        ) : null}
 
         <DataSection title="estado preservado">
           <DataList label="decisões" items={state?.decisions} />

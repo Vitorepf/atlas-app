@@ -32,7 +32,7 @@ export function OperationalInboxCard({ item, busy, onOpen, onAction }: Props) {
       style={[
         styles.card,
         {
-          borderBottomColor: 'rgba(26,22,18,0.12)',
+          borderBottomColor: 'rgba(233,238,242,0.06)',
           borderBottomWidth: 1,
         },
         spec.cardClass === 'critical' && {

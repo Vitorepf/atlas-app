@@ -142,7 +142,7 @@ export function InboxCapturesPane({
               {
                 borderBottomColor: searchFocused
                   ? 'rgba(155,122,63,0.45)'
-                  : 'rgba(26,22,18,0.18)',
+                  : 'rgba(233,238,242,0.05)',
               },
             ]}
           >

@@ -1,13 +1,27 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
+import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { Screen } from '../components/Screen'
 import { CodexReveal } from '../components/CodexReveal'
-import { Sparkle } from '../components/Sparkle'
-import { PrimaryButton } from '../components/PrimaryButton'
 import { EmptyMission } from '../components/EmptyMission'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
+import {
+  Masthead,
+  EditorialDateline,
+  EditorialPullQuote,
+  SectionHead,
+  TocRow,
+  FolioFooter,
+} from '../components/editorial'
+import { PressableSurfaceScale } from '../components/atlas-ui/PressableScale'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
+import {
+  currentEdition,
+  dailyFolio,
+  editorialDateLine,
+} from '../lib/folio'
 import {
   deviceTimezone,
   formatPassiveSignal,
@@ -23,6 +37,17 @@ import { selectBitaculaBriefingItems } from '../lib/bitaculaBriefing'
 import { buildReadinessV1 } from '../lib/readiness'
 import { isCheckinLevelFresh } from '../lib/checkinFreshness'
 
+// Tela RITUAL · briefing matinal canon editorial.
+//
+// Substitui greeting servil "Bom dia, Vitor" pelo Masthead canon "RITUAL".
+// Cada bloco vira section editorial numerada (i. MISSÃO · ii. PERGUNTA ·
+// iii. BITÁCULA · iv. MEMÓRIA · v. ESTADO). Mission card vira EditorialPullQuote.
+// Question reusa PullQuote canon. Memory vira TocRow doorway. Physical vira
+// tabela dot-leader (canon Panorama). PrimaryButton vira SignatureGesture
+// "começar o dia." italic Frau bronzeDeep + hairline prussian (commit ritual).
+//
+// Funcionalidades preservadas integralmente: dados (mission, readiness,
+// sleep/hrv, behaviors, logs), navegação (memory, bitácula, capture).
 export default function RitualScreen() {
   const c = usePalette()
   const router = useRouter()
@@ -58,63 +83,63 @@ export default function RitualScreen() {
   const sleep = latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'sleep_duration_hours')
   const hrv = latestPassiveSignal({ passiveSignals, queuedPassiveSignals }, 'hrv_ms')
   const question = missionQuestion(mission?.metadata)
+  const folio = useMemo(() => dailyFolio(), [])
 
   return (
-    <Screen>
+    <Screen bare>
+      <Masthead title="RITUAL" folio={null} />
+      <EditorialDateline date={editorialDateLine()} edition={`briefing matinal · ${deviceTimezone()}`} />
+
+      {/* i. MISSÃO */}
+      <Animated.View entering={FadeInDown.duration(460).delay(60).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead numeral="i" title="Missão" deck="o que sela este dia" />
+      </Animated.View>
       <CodexReveal index={0}>
-        <View style={{ marginBottom: 28 }}>
-          <Label>Briefing matinal</Label>
-          <Frau size={42} lineHeight={44} letterSpacing={-1.05} color={c.ink} style={{ marginTop: 6 }}>
-            Bom dia,{'\n'}Vitor
-          </Frau>
-          <Mono size={12} color={c.ink2} letterSpacing={0.48} style={{ marginTop: 10, textTransform: 'uppercase' }}>
-            {todayLine()} · {deviceTimezone()}
-          </Mono>
-        </View>
+        {!mission ? (
+          <View style={styles.contentRail}>
+            <EmptyMission onDefine={() => router.push('/capture')} />
+          </View>
+        ) : (
+          <EditorialPullQuote
+            quote={mission.title}
+            attribution={mission.detail ?? 'missão de hoje'}
+          />
+        )}
       </CodexReveal>
 
+      {/* ii. PERGUNTA DO DIA */}
+      <Animated.View entering={FadeInDown.duration(460).delay(120).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead numeral="ii" title="Pergunta do dia" />
+      </Animated.View>
       <CodexReveal index={1}>
-        {!mission ? (
-          <EmptyMission onDefine={() => router.push('/capture')} />
+        {question ? (
+          <EditorialPullQuote quote={question} attribution="pergunta de hoje" />
         ) : (
-          <View
-            style={[
-              styles.missionCard,
-              { backgroundColor: c.premium, borderColor: c.border, borderLeftColor: c.bronze },
-            ]}
-          >
-            <View style={styles.starRow}>
-              <Sparkle size={13} />
-              <Sans
+          <View style={styles.contentRail}>
+            <Frau italic size={17} lineHeight={26} color={c.ink}>
+              <Frau
                 weight="med"
-                size={10.5}
-                letterSpacing={1.05}
+                size={24}
                 color={c.bronze}
-                style={{ textTransform: 'uppercase' }}
+                style={{
+                  textShadowColor: c.inkCarving,
+                  textShadowOffset: { width: 0, height: 1 },
+                  textShadowRadius: 0,
+                }}
               >
-                Missão de hoje
-              </Sans>
-            </View>
-            <Sans weight="sb" size={17} lineHeight={22} color={c.ink} style={{ marginBottom: 4 }}>
-              {mission.title}
-            </Sans>
-            <Mono size={11.5} color={c.ink2} letterSpacing={0.23}>
-              {mission.detail ?? mission.status.toUpperCase()}
-            </Mono>
+                S
+              </Frau>
+              em pergunta registrada para hoje.
+            </Frau>
           </View>
         )}
       </CodexReveal>
 
+      {/* iii. BITÁCULA · ontem */}
+      <Animated.View entering={FadeInDown.duration(460).delay(180).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead numeral="iii" title="Bitácula" deck="ontem · marcar fatores" />
+      </Animated.View>
       <CodexReveal index={2}>
-        <Label style={{ marginBottom: 10 }}>A pergunta do dia</Label>
-        <View style={[styles.questionBlock, { borderLeftColor: c.bronze }]}>
-          <Frau italic size={17} lineHeight={26} color={c.ink}>
-            {question ? `“${question}”` : 'Nenhuma pergunta registrada para hoje.'}
-          </Frau>
-        </View>
-      </CodexReveal>
-
-      <CodexReveal index={3}>
         <BitaculaBriefing
           behaviors={visibleBehaviors({ behaviors, queuedBehaviors })}
           logs={visibleBehaviorLogs({ behaviorLogs, queuedBehaviorLogs })}
@@ -131,44 +156,50 @@ export default function RitualScreen() {
         />
       </CodexReveal>
 
-      <CodexReveal index={4}>
-        <Pressable
+      {/* iv. MEMÓRIA */}
+      <Animated.View entering={FadeInDown.duration(460).delay(240).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead numeral="iv" title="Memória" />
+      </Animated.View>
+      <CodexReveal index={3}>
+        <TocRow
+          label="Memória semântica"
+          value="revisar · curar · buscar"
           onPress={() => router.push('/memory')}
-          style={({ pressed }) => [
-            styles.memoryEntry,
-            { backgroundColor: pressed ? c.premium : c.surface, borderColor: c.border },
-          ]}
-        >
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Label>Memória semântica</Label>
-            <Sans size={14} lineHeight={20} color={c.ink2} style={{ marginTop: 6 }}>
-              Revisar ativações, curar capturas e buscar no vault.
-            </Sans>
-          </View>
-          <Mono size={11} letterSpacing={0.22} color={c.prussian}>
-            ABRIR
-          </Mono>
-        </Pressable>
+          accessibilityLabel="abrir memória semântica · revisar, curar e buscar no vault"
+          variant="codex"
+        />
       </CodexReveal>
 
-      <CodexReveal index={5}>
-        <Label style={{ marginTop: 26, marginBottom: 10 }}>Estado físico</Label>
-        <View style={[styles.physical, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <PhysicalRow label="Prontidão" value={readiness.base.display} />
+      {/* v. ESTADO FÍSICO · tabela dot-leader canon Panorama */}
+      <Animated.View entering={FadeInDown.duration(460).delay(300).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}>
+        <SectionHead numeral="v" title="Estado físico" deck="instrumentos do dia" />
+      </Animated.View>
+      <CodexReveal index={4}>
+        <View style={styles.physicalWrap}>
+          <PhysicalRow label="Prontidão" value={readiness.base.display} first />
           <PhysicalRow label="Agora" value={readiness.current.display} />
           <PhysicalRow label="Sono" value={formatPassiveSignal(sleep)} />
           <PhysicalRow label="HRV" value={formatPassiveSignal(hrv)} />
-          <PhysicalRow label="Energia" value={currentLevelState ? `${currentLevelState.energy_level} / 5` : 'Sem check-in'} last />
+          <PhysicalRow label="Energia" value={currentLevelState ? `${currentLevelState.energy_level} / 5` : 'sem check-in'} last />
         </View>
       </CodexReveal>
 
-      <CodexReveal index={6}>
-        <View style={{ height: 28 }} />
-        <PrimaryButton
-          label="Começar o dia"
-          onPress={() => router.push('/capture')}
-        />
+      {/* Gesture footer · "começar o dia." italic Frau bronzeDeep + hairline prussian.
+          Era PrimaryButton solid ink chapado · agora gesto cerimonial canon
+          (mesmo DNA do "registrar." do hub edição). */}
+      <CodexReveal index={5}>
+        <View style={styles.gestureFooter}>
+          <SignatureGesture
+            label="começar o dia."
+            onPress={() => router.push('/capture')}
+            seal="commit"
+            haptic="light"
+            accessibilityLabel="começar o dia · ir para captura"
+          />
+        </View>
       </CodexReveal>
+
+      <FolioFooter number={folio.number} suffix="ritual" />
     </Screen>
   )
 }
@@ -192,60 +223,65 @@ function BitaculaBriefing({
   )
 
   return (
-    <>
-      <View style={styles.bitaculaHead}>
-        <Label>Bitácula · ontem</Label>
-        <Pressable onPress={onOpen} hitSlop={8}>
-          <Mono size={11} letterSpacing={0.22} color={c.prussian}>
-            GERIR
-          </Mono>
-        </Pressable>
-      </View>
-      <View style={[styles.bitaculaPanel, { backgroundColor: c.surface, borderColor: c.border }]}>
-        {briefingItems.length === 0 ? (
-          <Pressable
-            onPress={onOpen}
-            style={({ pressed }) => [
-              styles.emptyBitacula,
-              { backgroundColor: pressed ? c.premium : 'transparent' },
-            ]}
-          >
-            <Sans size={14} lineHeight={20} color={c.ink2}>
-              Adicione fatores pequenos para cruzar com sono, saúde, foco e capturas.
-            </Sans>
-          </Pressable>
-        ) : briefingItems.map(({ behavior, log }, index) => {
+    <View style={styles.contentRail}>
+      {briefingItems.length === 0 ? (
+        <PressableSurfaceScale
+          onPress={onOpen}
+          haptic="soft"
+          accessibilityLabel="abrir bitácula para adicionar fatores"
+        >
+          <Frau italic size={15} lineHeight={22} color={c.ink2}>
+            Adicione fatores pequenos para cruzar com sono, saúde, foco e capturas.
+          </Frau>
+        </PressableSurfaceScale>
+      ) : (
+        briefingItems.map(({ behavior, log }, index) => {
           const current = log
           const isYes = current?.value === 'yes'
           const nextValue = isYes ? 'no' : 'yes'
-
           return (
-            <Pressable
+            <PressableSurfaceScale
               key={behavior.client_id}
               onPress={() => onToggle(behavior.client_id, nextValue, date)}
-              style={({ pressed }) => [
-                styles.bitaculaRow,
-                !isYes && { backgroundColor: pressed ? c.premium : 'transparent' },
-                isYes && { backgroundColor: c.prussian },
-                index < briefingItems.length - 1 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth },
-              ]}
+              haptic="light"
+              accessibilityLabel={`${behavior.name} · ${isYes ? 'sim' : 'não'} · alternar`}
             >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Sans weight="med" size={15} color={isYes ? c.bg : c.ink}>
-                  {behavior.name}
-                </Sans>
-                <Sans size={12} lineHeight={17} color={isYes ? c.bg : c.ink2} style={{ opacity: isYes ? 0.82 : 1 }}>
-                  {behavior.question_text}
-                </Sans>
+              <View
+                style={[
+                  styles.bitaculaRow,
+                  index < briefingItems.length - 1 && {
+                    borderBottomColor: c.borderSoft,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                  isYes && { backgroundColor: c.bronzeVeil, borderColor: c.bronzeBorder },
+                ]}
+              >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Sans weight="med" size={15} color={isYes ? c.bronzeLight : c.ink}>
+                    {behavior.name}
+                  </Sans>
+                  <Sans size={12} lineHeight={17} color={isYes ? c.bronzeLight : c.ink2} style={{ opacity: isYes ? 0.82 : 1 }}>
+                    {behavior.question_text}
+                  </Sans>
+                </View>
+                <Mono size={10.5} letterSpacing={1.4} color={isYes ? c.bronzeLight : c.ink2} style={{ textTransform: 'uppercase' }}>
+                  {isYes ? 'sim' : 'não'}
+                </Mono>
               </View>
-              <Mono size={11} letterSpacing={0.44} color={isYes ? c.bg : c.ink2}>
-                {isYes ? 'SIM' : 'NÃO'}
-              </Mono>
-            </Pressable>
+            </PressableSurfaceScale>
           )
-        })}
+        })
+      )}
+      <View style={styles.bitaculaManageRow}>
+        <SignatureGesture
+          label="abrir bitácula."
+          onPress={onOpen}
+          seal="commit"
+          haptic="soft"
+          accessibilityLabel="abrir bitácula para gerir fatores"
+        />
       </View>
-    </>
+    </View>
   )
 }
 
@@ -253,22 +289,6 @@ function yesterdayDateKey(): string {
   const date = new Date()
   date.setDate(date.getDate() - 1)
   return localDateKey(date)
-}
-
-function todayLine(): string {
-  const date = new Date()
-  const weekday = new Intl.DateTimeFormat('pt-BR', { weekday: 'short' })
-    .format(date)
-    .replace('.', '')
-    .toUpperCase()
-  const day = new Intl.DateTimeFormat('pt-BR', { day: '2-digit' }).format(date)
-  const month = new Intl.DateTimeFormat('pt-BR', { month: 'short' })
-    .format(date)
-    .replace('.', '')
-    .toUpperCase()
-  const year = new Intl.DateTimeFormat('pt-BR', { year: 'numeric' }).format(date)
-
-  return `${weekday} · ${day}.${month}.${year}`
 }
 
 function missionQuestion(metadata?: Record<string, unknown>): string | null {
@@ -279,85 +299,95 @@ function missionQuestion(metadata?: Record<string, unknown>): string | null {
 function PhysicalRow({
   label,
   value,
-  up,
-  down,
+  first,
   last,
 }: {
   label: string
   value: string
-  up?: boolean
-  down?: boolean
+  first?: boolean
   last?: boolean
 }) {
   const c = usePalette()
-  const valueColor = up ? c.moss : down ? c.recRed : c.ink
   return (
-    <View style={[styles.physicalRow, !last && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-      <Sans size={15} color={c.ink}>{label}</Sans>
-      <Mono size={14} color={valueColor}>{value}</Mono>
+    <View
+      style={[
+        styles.physicalRow,
+        first && { borderTopColor: c.borderSoft, borderTopWidth: StyleSheet.hairlineWidth },
+        !last && { borderBottomColor: c.borderSoft, borderBottomWidth: StyleSheet.hairlineWidth },
+      ]}
+    >
+      <Mono
+        size={11}
+        lineHeight={16}
+        letterSpacing={1.4}
+        color={c.ink2}
+        style={{ textTransform: 'uppercase' }}
+      >
+        {label}
+      </Mono>
+      <DotLeader />
+      <Frau italic size={14} lineHeight={20} color={c.ink} style={{ fontVariant: ['tabular-nums'] }}>
+        {value}
+      </Frau>
+    </View>
+  )
+}
+
+function DotLeader() {
+  const c = usePalette()
+  return (
+    <View style={styles.leader}>
+      <Mono
+        size={11}
+        lineHeight={16}
+        letterSpacing={2}
+        color={c.ink3}
+        numberOfLines={1}
+        style={styles.leaderDots}
+      >
+        {'·'.repeat(60)}
+      </Mono>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  missionCard: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    marginBottom: 26,
-  },
-  starRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
-  questionBlock: {
-    paddingLeft: 14,
-    borderLeftWidth: 2,
-  },
-  bitaculaHead: {
-    marginTop: 26,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bitaculaPanel: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
-  emptyBitacula: {
-    paddingHorizontal: 16,
-    paddingVertical: 15,
+  contentRail: {
+    marginHorizontal: 32,
   },
   bitaculaRow: {
-    minHeight: 68,
-    paddingHorizontal: 16,
+    minHeight: 56,
+    paddingHorizontal: 12,
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  physical: {
-    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-    marginTop: 8,
+    borderColor: 'transparent',
+    borderRadius: 4,
+  },
+  bitaculaManageRow: {
+    marginTop: 16,
+  },
+  physicalWrap: {
+    marginHorizontal: 32,
   },
   physicalRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    alignItems: 'baseline',
+    paddingVertical: 8,
+    gap: 8,
   },
-  memoryEntry: {
-    marginTop: 14,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+  leader: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  leaderDots: {
+    opacity: 0.45,
+  },
+  gestureFooter: {
+    marginTop: 36,
+    marginHorizontal: 32,
+    alignItems: 'flex-start',
   },
 })

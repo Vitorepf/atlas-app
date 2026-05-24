@@ -26,9 +26,11 @@ import { CapturePulse } from '../components/CapturePulse'
 import { CaptureCounter } from '../components/CaptureCounter'
 import { CaptureWave } from '../components/CaptureWave'
 import { CaptureStatus } from '../components/capture/CaptureStatus'
-import { Frau, Sans } from '../design/Type'
+import { Frau, Mono, Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { fonts } from '../design/tokens'
+import { PressableTextScale, PressableSurfaceScale } from '../components/atlas-ui/PressableScale'
+import { SignatureGesture } from '../components/edition/SignatureGesture'
 import { useShell } from '../components/AtlasShell'
 import { useOverlays, type CaptureMode, type CaptureSensitivity } from '../lib/overlays'
 import type { DomainKey } from '../lib/domains'
@@ -362,41 +364,87 @@ export default function CaptureScreen() {
                 showsVerticalScrollIndicator={false}
                 onScrollBeginDrag={onTextScrollBeginDrag}
               >
-                <TextInput
-                  ref={textInputRef}
-                  value={text}
-                  onChangeText={setText}
-                  placeholder="Escreva sem lapidar. A curadoria vem depois."
-                  placeholderTextColor={c.ink3}
-                  selectionColor={c.ink}
-                  multiline
-                  editable={textEditable}
-                  scrollEnabled={false}
-                  textAlignVertical="top"
-                  style={textInputStyle}
-                  onContentSizeChange={onTextContentSizeChange}
-                />
+                {/* Mono caps eyebrow canon · marca o ato de captura */}
+                <Mono size={10} lineHeight={14} letterSpacing={1.8} color={c.bronze} style={{ textTransform: 'uppercase', marginBottom: 18 }} weight="med">
+                  CAPTURAR · TEXTO
+                </Mono>
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    ref={textInputRef}
+                    value={text}
+                    onChangeText={setText}
+                    placeholder=""
+                    placeholderTextColor="transparent"
+                    selectionColor={c.bronze}
+                    cursorColor={c.bronze}
+                    multiline
+                    editable={textEditable}
+                    scrollEnabled={false}
+                    textAlignVertical="top"
+                    style={textInputStyle}
+                    onContentSizeChange={onTextContentSizeChange}
+                  />
+                  {/* Placeholder Frau italic canon overlay · fade quando text não-vazio.
+                      Cursor bronze + selection bronze (canon composer). */}
+                  {text.length === 0 ? (
+                    <View pointerEvents="none" style={styles.placeholderOverlay}>
+                      <Frau italic size={20} lineHeight={30} color={c.ink3}>
+                        Escreva sem lapidar. A curadoria vem depois.
+                      </Frau>
+                    </View>
+                  ) : null}
+                </View>
               </ScrollView>
             ) : (
               <View style={styles.photoStage}>
+                <Mono size={10} lineHeight={14} letterSpacing={1.8} color={c.bronze} style={{ textTransform: 'uppercase', alignSelf: 'flex-start', marginBottom: 12 }} weight="med">
+                  CAPTURAR · FOTO
+                </Mono>
                 {photo?.uri ? (
-                  <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
+                  <View
+                    style={[
+                      styles.photoFrame,
+                      { borderColor: c.border },
+                    ]}
+                  >
+                    <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
+                    {/* Inner top highlight · canon embossed manuscript */}
+                    <View style={styles.photoHighlight} pointerEvents="none" />
+                  </View>
                 ) : (
                   <View style={styles.photoEmpty}>
-                    <Frau italic size={16} lineHeight={24} color={c.ink2}>
-                      nenhuma foto ainda.
+                    <Frau italic size={17} lineHeight={26} color={c.ink}>
+                      <Frau
+                        weight="med"
+                        size={24}
+                        color={c.bronze}
+                        style={{
+                          textShadowColor: c.inkCarving,
+                          textShadowOffset: { width: 0, height: 1 },
+                          textShadowRadius: 0,
+                        }}
+                      >
+                        N
+                      </Frau>
+                      enhuma foto ainda.
                     </Frau>
                   </View>
                 )}
-                <Pressable
-                  onPress={pickPhoto}
-                  hitSlop={8}
-                  style={({ pressed }) => [styles.photoLink, { opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <Frau italic size={14} lineHeight={20} color={c.ink} style={{ opacity: 0.6 }}>
-                    {photo ? 'trocar foto' : 'abrir câmera'}
-                  </Frau>
-                </Pressable>
+                <View style={{ alignSelf: 'flex-start', marginTop: 6 }}>
+                  <PressableTextScale
+                    onPress={pickPhoto}
+                    hitSlop={8}
+                    haptic="soft"
+                    accessibilityLabel={photo ? 'trocar foto' : 'abrir câmera'}
+                  >
+                    <SignatureGesture
+                      label={photo ? 'trocar foto.' : 'abrir câmera.'}
+                      onPress={pickPhoto}
+                      seal="commit"
+                      haptic="soft"
+                    />
+                  </PressableTextScale>
+                </View>
               </View>
             )}
           </View>
@@ -412,44 +460,44 @@ export default function CaptureScreen() {
           <View
             style={[
               styles.footer,
-              mode === 'audio' ? styles.footerCenter : styles.footerEnd,
+              mode === 'audio' ? styles.footerCenter : styles.footerStart,
               { paddingBottom: Math.max(20, insets.bottom + 8) },
             ]}
           >
             {mode === 'audio' ? (
-              <Pressable
+              /* Audio stop · círculo embossed canon · ink raised + inner
+                 highlight cream + bronze accent ring. Não é botão SaaS chapado. */
+              <PressableSurfaceScale
                 onPress={handleSaveAudio}
                 disabled={saving || starting}
-                style={({ pressed }) => [
-                  styles.stopButton,
-                  {
-                    backgroundColor: c.ink,
-                    opacity: saving || starting ? 0.45 : 1,
-                    transform: [{ scale: pressed ? 0.94 : 1 }],
-                    shadowColor: name === 'dark' ? '#000' : '#1A1612',
-                  },
-                ]}
+                haptic="light"
+                accessibilityLabel="parar gravação e salvar"
               >
-                <View style={[styles.stopInner, { backgroundColor: c.bg }]} />
-              </Pressable>
+                <View
+                  style={[
+                    styles.stopButton,
+                    {
+                      backgroundColor: c.ink,
+                      borderColor: c.bronzeBorder,
+                      opacity: saving || starting ? 0.45 : 1,
+                      shadowColor: name === 'dark' ? '#000' : '#1A1612',
+                    },
+                  ]}
+                >
+                  <View style={[styles.stopInner, { backgroundColor: c.bronze }]} />
+                </View>
+              </PressableSurfaceScale>
             ) : (
-              <Pressable
+              /* Save gesture canon · "selar." italic Frau bronzeDeep + hairline
+                 prussian (commit interno). Substituiu botão pill SaaS solid ink. */
+              <SignatureGesture
+                label={saving ? 'selando…' : 'selar captura.'}
                 onPress={mode === 'text' ? handleSaveText : handleSavePhoto}
                 disabled={saving}
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  {
-                    backgroundColor: c.ink,
-                    opacity: saving ? 0.45 : 1,
-                    transform: [{ scale: pressed ? 0.97 : 1 }],
-                    shadowColor: name === 'dark' ? '#000' : '#1A1612',
-                  },
-                ]}
-              >
-                <Sans weight="med" size={14} color={c.onInk}>
-                  {saving ? 'salvando…' : 'salvar'}
-                </Sans>
-              </Pressable>
+                seal="commit"
+                haptic="light"
+                accessibilityLabel="selar captura"
+              />
             )}
           </View>
         </KeyboardAvoidingView>
@@ -593,17 +641,34 @@ const styles = StyleSheet.create({
   photoEmpty: {
     width: '100%',
     minHeight: 220,
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
+  },
+  photoFrame: {
+    width: '100%',
+    height: 260,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    position: 'relative',
   },
   photoPreview: {
     width: '100%',
-    height: 260,
-    borderRadius: 10,
-    backgroundColor: '#111',
+    height: '100%',
+    backgroundColor: '#0a0f14',
   },
-  photoLink: {
-    paddingVertical: 8,
+  photoHighlight: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    height: 1,
+    backgroundColor: 'rgba(233, 238, 242, 0.06)',
+  },
+  placeholderOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    pointerEvents: 'none',
   },
   errorRow: {
     paddingHorizontal: 28,
@@ -613,12 +678,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingTop: 14,
   },
-  footerEnd: { alignItems: 'flex-end' },
+  footerStart: { alignItems: 'flex-start' },
   footerCenter: { alignItems: 'center' },
+  // Stop button audio · círculo embossed canon · 72×72 ink raised com
+  // bronze border alpha 0.34 + inner stop (square bronze) · sinal de "ato
+  // de selar áudio" não SaaS-flat. Shadow physical depth.
   stopButton: {
     width: 72,
     height: 72,
     borderRadius: 36,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 4 },
@@ -630,16 +699,5 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 4,
-  },
-  saveButton: {
-    minHeight: 44,
-    paddingHorizontal: 26,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 4,
   },
 })

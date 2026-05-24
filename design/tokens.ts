@@ -22,9 +22,17 @@ export interface AtlasPalette {
   borderSoft: string
   // Accents
   prussian: string
+  prussianSeal: string  // hairline-bottom commit (saveCheckin, registrar.) · alpha ~0.32
   bronze: string
   bronzeDeep: string
   bronzeLight: string
+  bronzeBorder: string  // border alpha ~0.34 (pill active, focus halo)
+  bronzeVeil: string    // background alpha ~0.10 (pill active fill)
+  bronzeGlow: string    // shadow halo alpha ~0.15 (pill active halo)
+  bronzeSeal: string    // hairline-bottom external (selar no calendário) · alpha ~0.36
+  bronzeWash: string    // background super-sutil alpha ~0.04 (today bg, hover wash)
+  bronzeAccent: string  // border médio alpha ~0.18 (today divider, marker)
+  inkCarving: string    // textShadow alpha ~0.22 (drop cap signet ring carving)
   recRed: string
   recRedOxide: string  // tinta-sangue oxidado · só em recording
   recRedMuted: string  // arquivar · destrutivo discreto
@@ -56,9 +64,17 @@ export const lightPalette: AtlasPalette = {
   border:      '#D4CCBC',
   borderSoft:  '#DCD3C0',
   prussian:    '#1B3A57',
+  prussianSeal: 'rgba(27, 58, 87, 0.32)',
   bronze:      '#9B7A3F',
   bronzeDeep:  '#7A5E2F',
   bronzeLight: '#C9A663',
+  bronzeBorder: 'rgba(155, 122, 63, 0.34)',
+  bronzeVeil:   'rgba(155, 122, 63, 0.10)',
+  bronzeGlow:   'rgba(155, 122, 63, 0.15)',
+  bronzeSeal:   'rgba(122, 94, 47, 0.36)',
+  bronzeWash:   'rgba(155, 122, 63, 0.04)',
+  bronzeAccent: 'rgba(155, 122, 63, 0.18)',
+  inkCarving:   'rgba(26, 22, 18, 0.18)',
   recRed:      '#8B2635',
   recRedOxide: '#A8312A',
   recRedMuted: '#9C4651',
@@ -92,9 +108,17 @@ export const darkPalette: AtlasPalette = {
   borderSoft:  '#27353e',  // ≈ rgba(233,238,242,0.05) over slate
   // Accents · atlas gold burnished (parcimônia · 1-2 por view)
   prussian:    '#7fa7c4',  // info canon                 (was #6892B5)
+  prussianSeal: 'rgba(127, 167, 196, 0.32)', // hairline commit · saveCheckin/registrar.
   bronze:      '#d4a85a',  // atlas gold canon           (was #C9A663)
   bronzeDeep:  '#a8853f',  // gold hover/pressed         (was #9B7A3F)
   bronzeLight: '#e6b966',  // accent-strong              (was #D4B57A)
+  bronzeBorder: 'rgba(212, 168, 90, 0.34)',  // pill active border, focus halo
+  bronzeVeil:   'rgba(212, 168, 90, 0.10)',  // pill active fill
+  bronzeGlow:   'rgba(212, 168, 90, 0.15)',  // pill active shadow halo
+  bronzeSeal:   'rgba(168, 133, 63, 0.36)',  // hairline external · selar no calendário
+  bronzeWash:   'rgba(212, 168, 90, 0.04)',  // today bg super-sutil (MonthDayRow)
+  bronzeAccent: 'rgba(212, 168, 90, 0.18)',  // today border, milestone marker
+  inkCarving:   'rgba(0, 0, 0, 0.22)',       // drop cap text shadow · ink-on-slate
   recRed:      '#d05a52',  // danger rec-red muted       (was #C9505F)
   recRedOxide: '#d05a52',  // recording oxide            (was #C9505F)
   recRedMuted: '#a85261',  // archiving discreet (manter)

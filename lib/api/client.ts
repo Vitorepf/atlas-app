@@ -5076,6 +5076,49 @@ export interface AiThreadsResponse {
   threads: AtlasAiThread[]
 }
 
+export interface AtlasWorkspaceProfile {
+  slug: string
+  name: string
+  kind?: string | null
+  workspace_path?: string | null
+  workspace_path_exists?: boolean | null
+  repo_root?: string | null
+  stack_summary?: string | null
+  production_status?: string | null
+  docs_status?: string | null
+  status?: string | null
+  safety?: Record<string, unknown>
+}
+
+export interface AtlasWorkspaceProfileListResponse {
+  schema_version: 'atlas.code.workspace_profile.v1' | string
+  data: AtlasWorkspaceProfile[]
+  meta: {
+    total: number
+    default_slug: string | null
+  }
+}
+
+export interface AtlasWorkspaceProfileMutationResponse {
+  schema_version: 'atlas.code.workspace_profile.v1' | string
+  workspace: AtlasWorkspaceProfile
+  meta: {
+    persisted: boolean
+    execution_allowed: boolean
+    execution_blocked_reason?: string | null
+  }
+}
+
+export interface AtlasWorkspaceProfileCreateInput {
+  slug: string
+  name: string
+  workspace_path?: string | null
+  repo_root?: string | null
+  kind?: string
+  source?: string
+  status?: string
+}
+
 export interface AtlasAuditItem {
   id: string
   type: 'curation_proposal' | 'semantic_activation' | 'ai_audit' | string
@@ -8152,6 +8195,14 @@ export async function listAiThreads(params: {
   light?: boolean
 } = {}): Promise<AiThreadsResponse> {
   return apiGet<AiThreadsResponse>(`/ai/threads${queryString(params)}`)
+}
+
+export async function listAtlasWorkspaceProfiles(): Promise<AtlasWorkspaceProfileListResponse> {
+  return apiGet<AtlasWorkspaceProfileListResponse>('/atlas-code/projects/workspaces')
+}
+
+export async function createAtlasWorkspaceProfile(input: AtlasWorkspaceProfileCreateInput): Promise<AtlasWorkspaceProfileMutationResponse> {
+  return apiPost<AtlasWorkspaceProfileMutationResponse>('/atlas-code/projects/workspaces', input)
 }
 
 export async function getAiThread(id: string): Promise<{ thread: AtlasAiThread }> {

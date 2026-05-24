@@ -4,6 +4,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { CreateDomainPanel } from '../components/domains/CreateDomainPanel'
 import { PrimaryButton } from '../components/PrimaryButton'
 import { Screen } from '../components/Screen'
+import { Masthead, EditorialDateline } from '../components/editorial'
+import { PressableTextScale } from '../components/atlas-ui/PressableScale'
+import { editorialDateLine } from '../lib/folio'
 import { Frau, Label, Mono, Sans } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { useShell } from '../components/AtlasShell'
@@ -735,25 +738,12 @@ export default function ProjectsScreen() {
     <Screen
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProjects(selectedProjectId) }} />}
     >
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Label>Execução</Label>
-          <Frau size={42} lineHeight={46} color={c.ink} style={{ marginTop: 6 }}>
-            Projetos
-          </Frau>
-          <Mono size={11} lineHeight={14} letterSpacing={0.44} color={c.ink2} style={{ marginTop: 5 }}>
-            {health.active} ativos · {health.blocked} bloqueados · {health.waiting} aguardando
-          </Mono>
-        </View>
-        <Pressable
-          onPress={() => router.replace('/edicao')}
-          style={({ pressed }) => [
-            styles.roundAction,
-            { borderColor: c.border, backgroundColor: pressed ? c.surface : 'transparent' },
-          ]}
-        >
-          <Sans weight="sb" size={12} color={c.prussian}>Edição</Sans>
-        </Pressable>
+      {/* Masthead canon · PROJETOS + dateline counts. Tap volta pra edição. */}
+      <PressableTextScale onPress={() => router.replace('/edicao')} hitSlop={8} accessibilityLabel="voltar para edição">
+        <Masthead title="PROJETOS" folio={null} />
+      </PressableTextScale>
+      <EditorialDateline date={editorialDateLine()} edition={`${health.active} ativos · ${health.blocked} bloqueados · ${health.waiting} aguardando`} />
+      <View style={{ display: 'none' }}>
       </View>
 
       <View style={styles.filterRow}>

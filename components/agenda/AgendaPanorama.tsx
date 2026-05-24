@@ -1,4 +1,5 @@
 import { StyleSheet, View } from 'react-native'
+import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { MonthInsights } from '../../lib/agendaInsights'
@@ -19,9 +20,9 @@ interface Props {
 //   FERIADOS RESTANTES ............  1
 //   DIAS RESTANTES     ............ 22
 //
-// Substitui dashboards SaaS coloridos por tabela editorial mono caps.
-// Cada row é um "indicador" da mesa de instrumentos do salão (vocabulário
-// Continuity Panel canon).
+// Round agenda polish · rows entram com stagger 40ms × idx FadeInDown.
+// rgba hardcoded → c.borderSoft. Accent bronze (Frau med) em values > 0
+// é canon preservado.
 export function AgendaPanorama({ insights }: Props) {
   const c = usePalette()
   const rows: Array<{ label: string; value: number | string; accent?: boolean }> = [
@@ -36,14 +37,15 @@ export function AgendaPanorama({ insights }: Props) {
   return (
     <View style={styles.wrap}>
       {rows.map((row, idx) => (
-        <View
+        <Animated.View
           key={row.label}
+          entering={FadeInDown.duration(380).delay(40 * idx).easing(Easing.bezier(0.16, 1, 0.3, 1)).springify().damping(22).stiffness(180)}
           style={[
             styles.row,
             idx === 0
-              ? { borderTopWidth: 1, borderTopColor: 'rgba(26,22,18,0.06)' }
+              ? { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.borderSoft }
               : null,
-            { borderBottomColor: 'rgba(26,22,18,0.06)' },
+            { borderBottomColor: c.borderSoft },
           ]}
         >
           <Mono
@@ -66,7 +68,7 @@ export function AgendaPanorama({ insights }: Props) {
           >
             {String(row.value)}
           </Frau>
-        </View>
+        </Animated.View>
       ))}
     </View>
   )
@@ -99,7 +101,7 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     paddingVertical: 8,
     gap: 8,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   label: {
     flexShrink: 0,

@@ -1,4 +1,4 @@
-import { StyleSheet, View } from 'react-native'
+import { Pressable, StyleSheet, View } from 'react-native'
 import type { AtlasComputeEffortChoice } from '../../../lib/richInput'
 import Animated, {
   FadeIn,
@@ -55,6 +55,10 @@ export function AtlasAiComposerFooter({
   mode,
   computeEffort,
   onComputeEffortChange,
+  workspaceLabel,
+  workspaceLocked = false,
+  workspaceLoading = false,
+  onOpenWorkspace,
 }: {
   footerPaddingBottom: number
   copyToast: string | null
@@ -81,6 +85,10 @@ export function AtlasAiComposerFooter({
   mode: string
   computeEffort: AtlasComputeEffortChoice
   onComputeEffortChange: (next: AtlasComputeEffortChoice) => void
+  workspaceLabel?: string | null
+  workspaceLocked?: boolean
+  workspaceLoading?: boolean
+  onOpenWorkspace?: () => void
 }) {
   const { c } = useTheme()
   const attachmentCount = draftAttachments.length + draftFileAttachments.length
@@ -135,6 +143,34 @@ export function AtlasAiComposerFooter({
       )}
       {/* CANON PROMISE · status row + ✦ divider ACIMA do card quando offline */}
       <ComposerOfflineStatusRow />
+
+      {onOpenWorkspace ? (
+        <Pressable
+          onPress={onOpenWorkspace}
+          disabled={workspaceLoading}
+          style={({ pressed }) => [
+            localStyles.workspacePill,
+            {
+              borderColor: workspaceLocked ? c.bronzeDeep : c.border,
+              backgroundColor: c.bgRaised,
+              opacity: pressed ? 0.68 : workspaceLoading ? 0.55 : 1,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={workspaceLocked ? 'workspace fixo nesta conversa' : 'trocar workspace da conversa'}
+          accessibilityHint={workspaceLocked ? 'abra uma nova conversa para trocar de workspace' : 'abre a lista de projetos do Atlas'}
+        >
+          <Mono size={9.5} lineHeight={13} letterSpacing={1.7} color={c.bronze}>
+            WORKSPACE
+          </Mono>
+          <Frau italic size={13} lineHeight={16} color={c.ink2} style={localStyles.workspaceName}>
+            {workspaceLoading ? 'carregando' : workspaceLabel ?? 'selecionar projeto'}
+          </Frau>
+          <Mono size={9.5} lineHeight={13} letterSpacing={1.1} color={workspaceLocked ? c.bronze : c.ink3}>
+            {workspaceLocked ? 'FIXO' : 'TROCAR'}
+          </Mono>
+        </Pressable>
+      ) : null}
 
       {/* Decide line · destino classificado fica ACIMA do card como meta sutil */}
       {shouldShowDecideSection ? (
@@ -258,6 +294,24 @@ function compactCharCount(chars: number): string {
 }
 
 const localStyles = StyleSheet.create({
+  workspacePill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingLeft: 11,
+    paddingRight: 10,
+    paddingVertical: 7,
+    marginTop: 2,
+    marginBottom: 8,
+    maxWidth: '100%',
+  },
+  workspaceName: {
+    flexShrink: 1,
+    maxWidth: 170,
+  },
   longMessageHint: {
     alignSelf: 'flex-start',
     flexDirection: 'row',

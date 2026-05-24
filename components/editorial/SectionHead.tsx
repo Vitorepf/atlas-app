@@ -106,10 +106,13 @@ export function SectionHead({ numeral, title, deck, onPress }: Props) {
         </Frau>
       ) : null}
 
+      {/* Round 6 polish · hr opacity 0.12 → 0.08 · linha ainda mais sussurrada.
+          Era visível como linha cinza nítida em dark mode; agora respira como
+          marca de tinta seca quase apagada · fechamento canon manuscript. */}
       <View
         style={[
           styles.hr,
-          { backgroundColor: c.ink, opacity: 0.12, marginTop: deck ? 14 : 18 },
+          { backgroundColor: c.ink, opacity: 0.08, marginTop: deck ? 14 : 18 },
         ]}
       />
     </View>

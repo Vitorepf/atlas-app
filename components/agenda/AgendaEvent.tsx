@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Frau, Mono, Sans } from '../../design/Type'
 import { usePalette } from '../../design/theme'
 import type { AtlasAgendaTask } from '../../lib/api/client'
 import { formatDuration, formatTimeRange, type EventState } from '../../lib/agenda'
+import { PressableTextScale } from '../atlas-ui/PressableScale'
 
 interface Props {
   task: AtlasAgendaTask
@@ -17,12 +18,14 @@ interface Props {
 //
 // Estados visuais:
 //   - past: time line-through ink3, title ink3 weight 400, context ink3
-//   - next: padding-left 14 + border-left bronze 2px (selo "próximo")
+//   - next: padding-left 14 + border-left bronze 2px + bronzeGlow halo (selo "próximo")
 //   - normal: padding zero, peso pleno
 //
-// TODO(schema): `agenda-event-context` do mockup ("escritório · 90min",
-// "academia · braço") precisa de campo `location` ou `notes` no schema
-// AtlasAgendaTask. Hoje renderizamos só duração formatada.
+// Round agenda polish · ganhou:
+//   – PressableTextScale (scale 0.97 spring + haptic Soft)
+//   – borders via c.borderSoft (era rgba hardcoded)
+//   – past line-through via c.ink3 (era rgba hardcoded)
+//   – next border ganha shadow bronzeGlow (peso de selo, não traço chapado)
 export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
   const c = usePalette()
   const isPast = state === 'past'
@@ -34,7 +37,6 @@ export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
   )
   const duration = formatDuration(task.estimated_minutes)
 
-  // Suffix editorial após o time: "concluído" se passado, "próximo" se next.
   let timeSuffix: string | null = null
   if (isPast) timeSuffix = 'concluído'
   else if (isNext) timeSuffix = 'próximo'
@@ -46,8 +48,6 @@ export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
   const titleColor = isPast ? c.ink3 : c.ink
   const contextColor = isPast ? c.ink3 : c.ink2
 
-  // Context line: como location/notes não existem ainda, mostramos só a
-  // duração quando o time já não a contém. Silente se nada disso.
   let contextLine: string | null = null
   if (!isPast && !isNext && duration && !timeFull.includes(duration)) {
     contextLine = duration
@@ -57,9 +57,20 @@ export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
     <View
       style={[
         styles.row,
-        isFirst ? null : { borderTopColor: 'rgba(26,22,18,0.06)', borderTopWidth: 1 },
-        isLast ? { borderBottomColor: 'rgba(26,22,18,0.06)', borderBottomWidth: 1 } : null,
-        isNext ? [styles.nextRow, { borderLeftColor: c.bronze }] : null,
+        isFirst ? null : { borderTopColor: c.borderSoft, borderTopWidth: StyleSheet.hairlineWidth },
+        isLast ? { borderBottomColor: c.borderSoft, borderBottomWidth: StyleSheet.hairlineWidth } : null,
+        isNext
+          ? [
+              styles.nextRow,
+              {
+                borderLeftColor: c.bronze,
+                shadowColor: c.bronze,
+                shadowOffset: { width: -1, height: 0 },
+                shadowOpacity: 0.18,
+                shadowRadius: 3,
+              },
+            ]
+          : null,
       ]}
     >
       <Mono
@@ -70,7 +81,7 @@ export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
         weight={isPast ? undefined : 'med'}
         style={[
           styles.time,
-          isPast ? styles.pastTime : null,
+          isPast ? { textDecorationLine: 'line-through', textDecorationColor: c.ink3 } : null,
         ]}
       >
         {timeFull}
@@ -95,14 +106,9 @@ export function AgendaEvent({ task, state, onPress, isFirst, isLast }: Props) {
 
   if (onPress) {
     return (
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={task.title}
-        style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
-      >
+      <PressableTextScale onPress={onPress} haptic="soft" accessibilityLabel={task.title}>
         {body}
-      </Pressable>
+      </PressableTextScale>
     )
   }
   return body
@@ -119,10 +125,6 @@ const styles = StyleSheet.create({
   },
   time: {
     marginBottom: 4,
-  },
-  pastTime: {
-    textDecorationLine: 'line-through',
-    textDecorationColor: 'rgba(168,159,144,0.4)',
   },
   title: {
     marginBottom: 4,

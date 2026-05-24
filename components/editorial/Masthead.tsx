@@ -24,7 +24,7 @@ export function Masthead({ title = 'ATLAS', folio = 'vol. iii · no. 127' }: Pro
   const c = usePalette()
   const showFolio = folio !== null && folio !== undefined
   return (
-    <View style={[styles.wrap, { borderBottomColor: 'rgba(26,22,18,0.18)' }]}>
+    <View style={[styles.wrap, { borderBottomColor: c.borderSoft }]}>
       <Frau
         weight="med"
         size={30}
@@ -32,20 +32,36 @@ export function Masthead({ title = 'ATLAS', folio = 'vol. iii · no. 127' }: Pro
         letterSpacing={5.5}
         color={c.ink}
         align="center"
+        // Round 6 polish · letterpress depth via textShadow.
+        // Sombra ink 0/1/0 alpha 0.22 (token inkCarving) dá peso de tinta
+        // sobre slate · chapa tipográfica que pressionou o papel.
+        // Não é shadow Photoshop · é a marca da prensa. Letterpress canon.
+        style={{
+          textShadowColor: c.inkCarving,
+          textShadowOffset: { width: 0, height: 1 },
+          textShadowRadius: 0,
+        }}
       >
         {title.toUpperCase()}
       </Frau>
       {showFolio ? (
-        <Mono
-          size={10}
-          lineHeight={14}
-          letterSpacing={1.6}
-          color={c.ink2}
-          align="center"
-          style={styles.folio}
-        >
-          {folio.toUpperCase()}
-        </Mono>
+        <View style={styles.folioRow}>
+          {/* Hairlines flanqueando o folio · trazem peso editorial extra.
+              Cada lateral ~14px wide, hairline cream alpha 0.10 (border canon).
+              "─── VOL. III · NO. 127 ───" — fechamento ritual sub-masthead. */}
+          <View style={[styles.folioRule, { backgroundColor: c.border }]} />
+          <Mono
+            size={10}
+            lineHeight={14}
+            letterSpacing={1.6}
+            color={c.ink2}
+            align="center"
+            style={styles.folio}
+          >
+            {folio.toUpperCase()}
+          </Mono>
+          <View style={[styles.folioRule, { backgroundColor: c.border }]} />
+        </View>
       ) : null}
     </View>
   )
@@ -55,9 +71,25 @@ const styles = StyleSheet.create({
   wrap: {
     paddingTop: 12,
     paddingBottom: 24,
-    borderBottomWidth: 1,
+    // Hairline canon · StyleSheet.hairlineWidth em vez de 1px inteiro.
+    // borderBottomColor agora vem de c.borderSoft (cream alpha 0.05 em
+    // dark, ink alpha 0.05 em light) · linha quase invisível, fechamento
+    // editorial sutil. Antes era rgba(26,22,18,0.18) hardcoded warm
+    // cream — em dark mode virava "linha cinza-preta" cortando a página.
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  folioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    marginTop: 8,
+  },
+  folioRule: {
+    width: 22,
+    height: StyleSheet.hairlineWidth,
   },
   folio: {
-    marginTop: 8,
+    // marginTop absorvido pelo folioRow gap
   },
 })

@@ -55,7 +55,7 @@ export function CenterModal({ visible, onClose, children, emphasised, canon }: P
           canon
             ? {
                 backgroundColor: c.bg,
-                borderColor: name === 'dark' ? c.border : 'rgba(26,22,18,0.18)',
+                borderColor: name === 'dark' ? c.border : 'rgba(233,238,242,0.05)',
                 borderRadius: 4,
                 paddingTop: 28,
                 paddingHorizontal: 24,
