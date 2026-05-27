@@ -71,7 +71,7 @@ export default function InboxScreen() {
   })
   const { resetTransientState } = captureActions
   const operationalInbox = useOperationalInbox({
-    enabled: hydrated,
+    enabled: true,
     showToast,
     openAtlasAi,
   })

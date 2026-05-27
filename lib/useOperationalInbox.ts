@@ -34,10 +34,31 @@ import {
 import type { OperationalFilter } from './inboxTypes'
 import { syncAtlasBadge } from './pushNotifications'
 
+const OPERATIONAL_REFRESH_TIMEOUT_MS = 12000
+
 interface UseOperationalInboxParams {
   enabled: boolean
   showToast: (message: string) => void
   openAtlasAi: (threadId?: string | null) => void
+}
+
+function withOperationalTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} demorou demais`))
+    }, OPERATIONAL_REFRESH_TIMEOUT_MS)
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 export function useOperationalInbox({
@@ -60,8 +81,9 @@ export function useOperationalInbox({
     refreshSeq.current = seq
 
     try {
-      await hydrateApiConfig()
-      const session = getMobileDeviceSession() ?? await recoverMobileDeviceSession()
+      await withOperationalTimeout(hydrateApiConfig(), 'configuração operacional')
+      const session = getMobileDeviceSession()
+        ?? await withOperationalTimeout(recoverMobileDeviceSession(), 'sessão mobile')
       if (!session) {
         if (seq !== refreshSeq.current) return
         setItems([])
@@ -73,10 +95,13 @@ export function useOperationalInbox({
         return
       }
 
-      const [response, criticalResponse] = await Promise.all([
-        listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE }),
-        getMobileCriticalInboxReview({ limit: 12 }),
-      ])
+      const [response, criticalResponse] = await withOperationalTimeout(
+        Promise.all([
+          listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE }),
+          getMobileCriticalInboxReview({ limit: 12 }),
+        ]),
+        'inbox operacional',
+      )
       if (seq !== refreshSeq.current) return
       setItems(response.items.filter(isActiveOperationalItem))
       setCriticalReview(criticalResponse.critical_review)

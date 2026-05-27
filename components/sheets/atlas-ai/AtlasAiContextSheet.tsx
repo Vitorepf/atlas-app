@@ -157,6 +157,20 @@ export function ContextSheet({
             {runtimeReadiness.certificationHashShort ? (
               <DataRow label="cert_hash" value={runtimeReadiness.certificationHashShort} />
             ) : null}
+            {runtimeReadiness.assistedExecution ? (
+              <>
+                <DataRow label="doutrina" value={runtimeReadiness.assistedExecution.doctrineGateStatus ?? '—'} />
+                <DataRow label="rota assistida" value={runtimeReadiness.assistedExecution.routeTarget ?? '—'} />
+                <DataRow label="contexto" value={runtimeReadiness.assistedExecution.contextMemoryStatus ?? '—'} />
+                <DataRow label="AREG" value={runtimeReadiness.assistedExecution.aregPath ?? '—'} />
+                <DataRow label="outcome" value={runtimeReadiness.assistedExecution.outcomeFeedbackStatus ?? '—'} />
+                <DataRow label="AEMOR" value={runtimeReadiness.assistedExecution.aemorFeedbackStatus ?? '—'} />
+                <DataList
+                  label="drivers"
+                  items={Array.from(runtimeReadiness.assistedExecution.selectedDrivers).slice(0, 8)}
+                />
+              </>
+            ) : null}
             {runtimeReadiness.blockers.length > 0 ? (
               <DataList label="blockers" items={Array.from(runtimeReadiness.blockers).slice(0, 6)} />
             ) : null}
