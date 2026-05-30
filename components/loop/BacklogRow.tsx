@@ -23,6 +23,7 @@ export function BacklogRow({ finding }: Props) {
   const source = String(finding.source_owner ?? finding.source ?? '').trim()
   const tone = risk !== '' ? riskTone(risk, c) : c.ink3
 
+  const count = typeof finding.count === 'number' && finding.count > 1 ? finding.count : 0
   const detailParts: string[] = []
   if (route !== '') detailParts.push(route)
   if (source !== '') detailParts.push(source)
@@ -35,6 +36,11 @@ export function BacklogRow({ finding }: Props) {
         <Frau weight="med" size={16} lineHeight={22} color={c.ink} numberOfLines={2} style={styles.title}>
           {title}
         </Frau>
+        {count > 0 ? (
+          <Mono size={12} lineHeight={18} color={c.ink3}>
+            {`×${count}`}
+          </Mono>
+        ) : null}
       </View>
       {detail !== '' ? (
         <Mono size={11} lineHeight={16} color={c.ink3} numberOfLines={1} style={styles.detail}>

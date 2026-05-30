@@ -26,8 +26,8 @@ export function BacklogList({ blockedReason, onCount }: Props) {
   // Bubble the honest total up to the section deck (in an effect — never set
   // parent state during this component's render).
   useEffect(() => {
-    if (!win.loading && !win.blocked) onCount?.(win.total)
-  }, [win.total, win.loading, win.blocked, onCount])
+    if (!win.loading && !win.blocked) onCount?.(win.rawTotal)
+  }, [win.rawTotal, win.loading, win.blocked, onCount])
 
   // Cockpit-level blocked beats the list (the area itself is blocked).
   if (blockedReason != null && String(blockedReason).trim() !== '') {

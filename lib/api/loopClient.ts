@@ -590,6 +590,8 @@ export interface AtlasLoopBacklogFinding {
   risk_level: string
   priority_score: number
   route: string
+  /** How many identical findings this row collapses (backend dedup). */
+  count?: number
   [key: string]: unknown
 }
 
@@ -601,6 +603,7 @@ export interface AtlasLoopBacklogResponse {
   read_only: boolean
   findings: {
     total: number
+    distinct_total?: number
     returned: number
     offset: number
     limit: number

@@ -36,8 +36,10 @@ const SERVER_PAGE = 50
 export interface LoopPaginatedWindow<T> {
   /** The bounded slice to render right now (≤ shown ≤ fetched ≤ total). */
   items: T[]
-  /** Server's real total for the collection (honest "de N"). */
+  /** Count of the rendered (deduped) rows — drives pagination / hasMore. */
   total: number
+  /** Underlying count before dedup (e.g. 100 findings collapsed to 1 row). The deck reports this. */
+  rawTotal: number
   /** How many rows are visible right now. */
   shown: number
   /** True while the FIRST page is loading (no data yet) — drives skeletons. */
@@ -82,13 +84,17 @@ export function useLoopBacklogWindow(
     () => data?.findings?.items ?? [],
     [data],
   )
-  const total = data?.findings?.total ?? fetched.length
+  // total drives pagination over the DEDUPED rows; rawTotal is the underlying finding
+  // count the deck reports ("N abertos") even when many collapse into one row.
+  const total = data?.findings?.distinct_total ?? fetched.length
+  const rawTotal = data?.findings?.total ?? total
 
   const win = useVisibleCount(fetched, { step: LOOP_LIST_STEP })
 
   return useBuildWindow({
     win,
     total,
+    rawTotal,
     fetchedCount: fetched.length,
     pageLimit,
     setPageLimit,
@@ -127,6 +133,7 @@ export function useLoopDoneWindow(
 interface BuildWindowArgs<T> {
   win: ReturnType<typeof useVisibleCount<T>>
   total: number
+  rawTotal?: number
   fetchedCount: number
   pageLimit: number
   setPageLimit: (next: number) => void
@@ -140,7 +147,7 @@ interface BuildWindowArgs<T> {
 }
 
 function useBuildWindow<T>(args: BuildWindowArgs<T>): LoopPaginatedWindow<T> {
-  const { win, total, fetchedCount, pageLimit, setPageLimit, query } = args
+  const { win, total, rawTotal, fetchedCount, pageLimit, setPageLimit, query } = args
 
   // First-load = fetching with no data yet. A background refetch never trips this.
   const loading = query.isLoading && query.data == null
@@ -173,6 +180,7 @@ function useBuildWindow<T>(args: BuildWindowArgs<T>): LoopPaginatedWindow<T> {
   return {
     items: win.items,
     total,
+    rawTotal: rawTotal ?? total,
     shown: win.shown,
     loading,
     refreshing,
