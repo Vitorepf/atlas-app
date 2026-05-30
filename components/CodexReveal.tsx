@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { type StyleProp, type ViewStyle } from 'react-native'
 import Animated, { Easing, Keyframe } from 'react-native-reanimated'
 
@@ -56,13 +56,48 @@ interface Props {
   /** Override delay explícito · ignora index. */
   delayMs?: number
   style?: StyleProp<ViewStyle>
+  /**
+   * Reveal at most ONCE. Default false (preserva o comportamento atual de todas
+   * as screens). Em telas que re-renderizam sob polling (e.g. Loop), `true`
+   * garante que a cascade de entrada nunca re-dispare num refetch de fundo: o
+   * `entering` do Reanimated já é mount-only, então isso só importa se algo
+   * remontar a section — aí o flag (escopo por `revealId`, sobrevive a remount)
+   * suprime o replay. Sem `revealId`, o flag é por instância (cobre re-render;
+   * um remount real recomeçaria — por isso passe `revealId` em telas críticas).
+   */
+  animateOnce?: boolean
+  /**
+   * Identidade estável da section para o guard `animateOnce` (e.g. "loop:vitals").
+   * Quando presente, o "já revelou" é lembrado num registry de módulo, então um
+   * remount da mesma section não re-anima. Mantenha o conjunto pequeno (uma id
+   * por section fixa) — é bounded e nunca é limpo em runtime.
+   */
+  revealId?: string
 }
 
-export function CodexReveal({ children, index = 0, delayMs, style }: Props) {
+/** Module registry of sections that have already revealed (animateOnce + revealId). */
+const REVEALED_ONCE = new Set<string>()
+
+export function CodexReveal({ children, index = 0, delayMs, style, animateOnce = false, revealId }: Props) {
   const delay = delayMs ?? REVEAL_INITIAL_DELAY + index * REVEAL_STAGGER_STEP
+
+  // Per-instance one-shot (covers re-render churn even without a revealId).
+  const revealedRef = useRef(false)
+
+  let suppress = false
+  if (animateOnce) {
+    if (revealId != null && revealId !== '') {
+      suppress = REVEALED_ONCE.has(revealId)
+      if (!suppress) REVEALED_ONCE.add(revealId)
+    } else {
+      suppress = revealedRef.current
+    }
+    revealedRef.current = true
+  }
+
   return (
     <Animated.View
-      entering={codexRevealKeyframe.delay(delay)}
+      entering={suppress ? undefined : codexRevealKeyframe.delay(delay)}
       style={style}
     >
       {children}

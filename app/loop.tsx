@@ -2,14 +2,21 @@
 //
 // The FLAGSHIP surface and the ONLY way the operator talks to the autonomous
 // 24h loop. A single weighted vertical reading whose ORDER encodes an ethic:
-//   alive -> what it did -> what it asks -> what you say -> the lever -> audit.
+//   vitals(+start) → track(live) → to-do → done → log → asks → say → lever → audit.
 //
-// One derived `loopState` feeds the masthead pill, the Vitals "estado" row and
-// the RunControl top line — they can NEVER disagree. Honesty is structural:
-// real-or-blocked (no fabricated loop/cycle/merge/proof), proposal-only (APROVAR
-// shows "NÃO executa · roteia ao dono"), directive-not-autonomous (permanent
-// honesty band + exact recipe), honest-stop (run-control writes signal files the
-// runner already obeys, re-reads TRUE post-write disk state, never optimistic).
+// One derived `loopState` feeds the masthead pill, RunPrimary, the Vitals
+// "estado" row, RunTracker and the RunControl top line — they can NEVER disagree.
+// Honesty is structural: real-or-blocked (no fabricated loop/cycle/merge/proof;
+// start-run says "enfileirado", never "running"; FEITO only proven merges),
+// proposal-only (APROVAR shows "NÃO executa · roteia ao dono"),
+// directive-not-autonomous (permanent honesty band + exact recipe), honest-stop
+// (run-control writes signal files the runner obeys, re-reads TRUE disk state).
+//
+// Simplicity is law: ONE start affordance, every list capped at 5 + "carregar
+// mais 5" (the LIST LAW via LoadMoreList / the paginated windows), CONFIANÇA
+// folded under a disclosure, and ZERO flicker — a no-op poll (same surface_hash)
+// is a literal no-op render (stable-ref select) and every CodexReveal is
+// animateOnce so the cascade never re-fires on a background refetch.
 
 import { useCallback, useRef, useState } from 'react'
 import { RefreshControl, ScrollView, View, type LayoutChangeEvent } from 'react-native'
@@ -19,10 +26,12 @@ import { CodexReveal } from '../components/CodexReveal'
 import { Masthead, EditorialDateline, SectionHead, FolioFooter } from '../components/editorial'
 import { BottomSheet } from '../components/sheets/BottomSheet'
 import { PressableTextScale } from '../components/atlas-ui/PressableScale'
-import { Frau, Label, Mono } from '../design/Type'
+import { Frau, Mono } from '../design/Type'
 import { usePalette } from '../design/theme'
 import { editorialDateLine, dailyFolio } from '../lib/folio'
 import {
+  BacklogList,
+  BacklogSkeletons,
   BlockedNote,
   Colophon,
   CycleEntry,
@@ -30,18 +39,24 @@ import {
   DecisionCard,
   DirectiveComposer,
   DirectiveRow,
+  DoneList,
+  LoadMoreList,
   LoopStatusPill,
   RunControlBar,
+  RunPrimary,
+  RunTracker,
   Segmented,
-  TrustColophon,
+  StartRunSheet,
+  TrustFold,
   VitalLedger,
   mapReviewQueue,
   relativeTime,
   shortHash,
+  type DecisionProposal,
   type LoopState,
 } from '../components/loop'
 import { useLoopCommand } from '../lib/loop/useLoopCommand'
-import type { AtlasLoopCycleRecord, AtlasLoopLiveResponse, AtlasLoopOperatorDecisionReceipt } from '../lib/loop'
+import type { AtlasLoopCycleRecord, AtlasLoopDirectiveReceipt, AtlasLoopLiveResponse, AtlasLoopOperatorDecisionReceipt } from '../lib/loop'
 
 export default function LoopScreen() {
   const c = usePalette()
@@ -65,32 +80,49 @@ export default function LoopScreen() {
     postedDirectives,
     busyAction,
     lastReachability,
+    areas,
+    areasLoading,
+    areasError,
+    defaultAreaId,
+    defaultFocus,
+    areaName,
+    startSupported,
+    startUnsupportedCode,
+    startState,
+    startRun,
   } = useLoopCommand()
 
   // Sheet host state (receipt fields live in the ledger record — no extra fetch).
   const [receiptRecord, setReceiptRecord] = useState<AtlasLoopCycleRecord | null>(null)
-  // Operator-decision receipt detail (re-uses the bottom sheet via a record-less view).
   const [decisionReceipt, setDecisionReceipt] = useState<AtlasLoopOperatorDecisionReceipt | null>(null)
+  const [startSheetOpen, setStartSheetOpen] = useState(false)
 
-  // scroll-to-section: ImmuneLedger "kill armado" row -> Section v.
+  // Section counts the deck reads but lives in the child windows. Bubbled up.
+  const [backlogCount, setBacklogCount] = useState(0)
+  const [mergesTotal, setMergesTotal] = useState(0)
+
+  // scroll-to-section anchors. CONTROLE (viii) for the kill row + RunPrimary
+  // deep-links; ACOMPANHAR (ii) for the active-run "ACOMPANHAR ↓" jump.
   const scrollRef = useRef<ScrollView>(null)
   const controlYRef = useRef(0)
+  const trackYRef = useRef(0)
   const onControlLayout = useCallback((e: LayoutChangeEvent) => {
     controlYRef.current = e.nativeEvent.layout.y
   }, [])
+  const onTrackLayout = useCallback((e: LayoutChangeEvent) => {
+    trackYRef.current = e.nativeEvent.layout.y
+  }, [])
   const scrollToControl = useCallback(() => {
     scrollRef.current?.scrollTo({ y: Math.max(0, controlYRef.current - 24), animated: true })
+  }, [])
+  const scrollToTrack = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, trackYRef.current - 24), animated: true })
   }, [])
 
   // Derived view data.
   const reviewQueue = mapReviewQueue(live)
   const pendingCount = reviewQueue.length
   const newestCycleAt = cycles[0]?.recorded_at ?? null
-  // The inline tail is capped at 8 (calm-under-load); the dossier never implies
-  // more than the ledger holds.
-  const TAIL_CAP = 8
-  const showingPartial = !loading && cyclesTotal > TAIL_CAP
-  const directiveHistory = postedDirectives
   const runState = {
     paused: live?.run_state?.pause?.active === true,
     killed: live?.run_state?.kill_switch?.active === true,
@@ -98,6 +130,7 @@ export default function LoopScreen() {
   }
   const killArmed = runState.killed
   const driftDesviado = readDrift(live)
+  const isActive = loopState === 'alive' || loopState === 'blocked' || loopState === 'bug'
 
   const onReceiptOpen = useCallback((record: AtlasLoopCycleRecord) => setReceiptRecord(record), [])
 
@@ -110,8 +143,8 @@ export default function LoopScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.bronze} />
         }
       >
-        {/* index 0 — MASTHEAD + DATELINE + PILL */}
-        <CodexReveal index={0}>
+        {/* MASTHEAD + DATELINE + PILL (verbatim) */}
+        <CodexReveal index={0} animateOnce revealId="loop:masthead">
           <PressableTextScale
             onPress={() => router.replace('/edicao')}
             hitSlop={8}
@@ -127,7 +160,7 @@ export default function LoopScreen() {
 
         {loopState === 'no_signal' ? (
           /* WHOLE-SURFACE BLOCKED — masthead+dateline+pill above, then one note. */
-          <CodexReveal index={1}>
+          <CodexReveal index={1} animateOnce revealId="loop:nosignal">
             <SectionHead numeral="i" title="SINAL" />
             <BlockedNote
               title="Não consigo ler o loop agora."
@@ -138,9 +171,21 @@ export default function LoopScreen() {
           </CodexReveal>
         ) : (
           <>
-            {/* index 1 — i SINAIS VITAIS (HERO #1) */}
-            <CodexReveal index={1}>
+            {/* i — SINAIS VITAIS (HERO). RunPrimary first, then the ledger. */}
+            <CodexReveal index={1} animateOnce revealId="loop:vitals">
               <SectionHead numeral="i" title="SINAIS VITAIS" deck={vitalsDeck(loopState)} />
+              <RunPrimary
+                loopState={loopState}
+                runState={runState}
+                areaName={areaName}
+                areaFocus={defaultFocus}
+                startState={startState}
+                startSupported={startSupported}
+                startUnsupportedCode={startUnsupportedCode}
+                onStartPress={() => setStartSheetOpen(true)}
+                onTrackPress={scrollToTrack}
+                onResumeOrReleasePress={scrollToControl}
+              />
               <VitalLedger
                 live={live}
                 loopState={loopState}
@@ -150,15 +195,50 @@ export default function LoopScreen() {
               />
             </CodexReveal>
 
-            {/* index 2 — ii DIÁRIO DE CICLOS (HERO #2) */}
-            <CodexReveal index={2}>
+            {/* ii — ACOMPANHAR (live; mounts ONLY on a stable active loopState — D.3) */}
+            {isActive && live !== null ? (
+              <CodexReveal index={2} animateOnce revealId="loop:track">
+                <View onLayout={onTrackLayout}>
+                  <SectionHead numeral="ii" title="ACOMPANHAR" deck="vivo · atualiza sozinho" />
+                  <RunTracker live={live} loopState={loopState} newestCycleAt={newestCycleAt} />
+                </View>
+              </CodexReveal>
+            ) : null}
+
+            {/* iii — A FAZER (BACKLOG) */}
+            <CodexReveal index={3} animateOnce revealId="loop:backlog">
               <SectionHead
-                numeral="ii"
+                numeral="iii"
+                title="A FAZER"
+                deck={`${backlogCount} abertos · o que falta implementar`}
+              />
+              {loading && live === null ? (
+                <BacklogSkeletons count={3} />
+              ) : (
+                <BacklogList
+                  blockedReason={live?.cockpit?.status === 'blocked' ? (live?.cockpit?.reason ?? null) : null}
+                  onCount={setBacklogCount}
+                />
+              )}
+            </CodexReveal>
+
+            {/* iv — FEITO (IMPLEMENTADO) */}
+            <CodexReveal index={4} animateOnce revealId="loop:done">
+              <SectionHead numeral="iv" title="FEITO" deck={`${mergesTotal} entregues · com prova`} />
+              <DoneList onOpenReceipt={onReceiptOpen} onCount={setMergesTotal} />
+            </CodexReveal>
+
+            {/* v — DIÁRIO DE CICLOS (the raw log; LIST LAW) */}
+            <CodexReveal index={5} animateOnce revealId="loop:cycles">
+              <SectionHead
+                numeral="v"
                 title="DIÁRIO DE CICLOS"
                 deck={`${loading ? '…' : cyclesReturned} ciclos · do mais recente`}
               />
               <View style={{ marginHorizontal: 32, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Label>janela</Label>
+                <Mono size={11} lineHeight={16} letterSpacing={0.4} color={c.ink3}>
+                  janela
+                </Mono>
                 <Segmented
                   value={window}
                   options={[
@@ -168,7 +248,7 @@ export default function LoopScreen() {
                   onChange={(v) => setWindow(v as '24h' | 'all')}
                 />
               </View>
-              {loading ? (
+              {loading && live === null ? (
                 <CycleSkeletons count={3} />
               ) : cyclesBlocked ? (
                 <BlockedNote
@@ -176,51 +256,59 @@ export default function LoopScreen() {
                   rawCode={cyclesReasonCode ?? undefined}
                   onRetry={() => void refresh()}
                 />
-              ) : cycles.length === 0 ? (
-                <CyclesEmpty window={window} />
               ) : (
-                cycles.slice(0, TAIL_CAP).map((rec, i) => (
-                  <CycleEntry key={rec.cycle_id} record={rec} isNewest={i === 0} onOpenReceipt={onReceiptOpen} />
-                ))
+                <LoadMoreList<AtlasLoopCycleRecord>
+                  items={cycles}
+                  listKey={`cycles:${window}`}
+                  total={cyclesTotal}
+                  keyExtractor={(r) => r.cycle_id}
+                  renderItem={(rec, i) => (
+                    <CycleEntry record={rec} isNewest={i === 0} onOpenReceipt={onReceiptOpen} />
+                  )}
+                  emptyState={<CyclesEmpty window={window} />}
+                />
               )}
-              {showingPartial ? (
-                <PartialNote returned={Math.min(TAIL_CAP, cyclesReturned)} total={cyclesTotal} />
-              ) : null}
             </CodexReveal>
 
-            {/* index 3 — iii DECISÕES PENDENTES */}
-            <CodexReveal index={3}>
+            {/* vi — DECISÕES PENDENTES (LIST LAW) */}
+            <CodexReveal index={6} animateOnce revealId="loop:decisions">
               <SectionHead
-                numeral="iii"
+                numeral="vi"
                 title="DECISÕES PENDENTES"
                 deck={pendingCount > 0 ? `${pendingCount} aguardando você` : undefined}
               />
-              {loading ? (
+              {loading && live === null ? (
                 <DecisionSkeletons count={2} />
-              ) : reviewQueue.length === 0 ? (
-                <DecisionsEmptyPositive />
               ) : (
-                reviewQueue.map((p) => (
-                  <DecisionCard key={p.key} proposal={p} onDecide={decide} onViewReceipt={setDecisionReceipt} />
-                ))
+                <LoadMoreList<DecisionProposal>
+                  items={reviewQueue}
+                  listKey="decisions"
+                  keyExtractor={(p) => p.key}
+                  renderItem={(p) => (
+                    <DecisionCard proposal={p} onDecide={decide} onViewReceipt={setDecisionReceipt} />
+                  )}
+                  emptyState={<DecisionsEmptyPositive />}
+                />
               )}
             </CodexReveal>
 
-            {/* index 4 — iv DIRETIVA */}
-            <CodexReveal index={4}>
-              <SectionHead numeral="iv" title="DIRETIVA" deck="fale com o loop em linguagem natural" />
+            {/* vii — DIRETIVA (composer + honesty band + history LIST LAW) */}
+            <CodexReveal index={7} animateOnce revealId="loop:directive">
+              <SectionHead numeral="vii" title="DIRETIVA" deck="fale com o loop em linguagem natural" />
               <DirectiveComposer onSubmit={sendDirective} disabled={false} lastReachability={lastReachability} />
-              {directiveHistory.length === 0 ? (
-                <DirectiveHistoryEmpty />
-              ) : (
-                directiveHistory.slice(0, 5).map((d) => <DirectiveRow key={d.directive_id} directive={d} />)
-              )}
+              <LoadMoreList<AtlasLoopDirectiveReceipt>
+                items={postedDirectives}
+                listKey="directives"
+                keyExtractor={(d) => d.directive_id}
+                renderItem={(d) => <DirectiveRow directive={d} />}
+                emptyState={<DirectiveHistoryEmpty />}
+              />
             </CodexReveal>
 
-            {/* index 5 — v CONTROLE (the lever, last) */}
-            <CodexReveal index={5} style={{}}>
+            {/* viii — CONTROLE & CONFIANÇA (the lever; trust folded under a disclosure) */}
+            <CodexReveal index={8} animateOnce revealId="loop:control">
               <View onLayout={onControlLayout}>
-                <SectionHead numeral="v" title="CONTROLE" deck={controlDeck(loopState)} />
+                <SectionHead numeral="viii" title="CONTROLE & CONFIANÇA" deck={controlDeck(loopState)} />
                 <RunControlBar
                   loopState={loopState}
                   runState={runState}
@@ -229,27 +317,33 @@ export default function LoopScreen() {
                   onControl={runControl}
                   busyAction={busyAction}
                 />
+                <View style={{ height: 1, backgroundColor: c.ink, opacity: 0.06, marginHorizontal: 32, marginTop: 18 }} />
+                <TrustFold live={live} cycles={cycles} loading={loading} />
               </View>
-            </CodexReveal>
-
-            {/* index 6 — vi CONFIANÇA (audit colophon) */}
-            <CodexReveal index={6}>
-              <SectionHead numeral="vi" title="CONFIANÇA" deck="o que a autonomia prova" />
-              <TrustColophon live={live} cycles={cycles} loading={loading} />
             </CodexReveal>
           </>
         )}
 
-        {/* index 7 — CLOSING */}
-        <CodexReveal index={7}>
+        {/* CLOSING */}
+        <CodexReveal index={9} animateOnce revealId="loop:closing">
           <Colophon schemaShort={shortHash(live?.surface_hash)} generatedAt={relativeTime(live?.generated_at)} />
           <FolioFooter number={dailyFolio().number} suffix="loop" />
         </CodexReveal>
       </Screen>
 
-      {/* Sheet host (outside the Screen scroll) */}
+      {/* Sheet hosts (outside the Screen scroll) */}
       <CycleReceiptSheet record={receiptRecord} visible={!!receiptRecord} onClose={() => setReceiptRecord(null)} />
       <DecisionReceiptSheet receipt={decisionReceipt} onClose={() => setDecisionReceipt(null)} />
+      <StartRunSheet
+        visible={startSheetOpen}
+        onClose={() => setStartSheetOpen(false)}
+        areas={areas}
+        areasLoading={areasLoading}
+        areasError={areasError}
+        defaultAreaId={defaultAreaId}
+        defaultFocus={defaultFocus}
+        onStart={startRun}
+      />
     </>
   )
 }
@@ -347,18 +441,9 @@ function CyclesEmpty({ window }: { window: '24h' | 'all' }) {
         Nenhum ciclo registrado ainda. O primeiro aparecerá aqui.
       </Frau>
       <Mono size={11} lineHeight={15} color={c.ink3}>
-        {`tail 8 · ${window === '24h' ? '24h' : 'tudo'}`}
+        {`janela · ${window === '24h' ? '24h' : 'tudo'}`}
       </Mono>
     </View>
-  )
-}
-
-function PartialNote({ returned, total }: { returned: number; total: number }) {
-  const c = usePalette()
-  return (
-    <Mono size={11} lineHeight={15} color={c.ink3} style={{ marginHorizontal: 32, marginTop: 8 }}>
-      {`mostrando ${returned} de ${total}`}
-    </Mono>
   )
 }
 

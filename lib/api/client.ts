@@ -8674,7 +8674,10 @@ export async function reviewAtlasMemoryRelation(
   return apiPost(`/ai/memory/relations/${encodeURIComponent(id)}/review`, input)
 }
 
-export async function apiGet<T>(path: string, opts: { auth?: boolean } = {}): Promise<T> {
+export async function apiGet<T>(
+  path: string,
+  opts: { auth?: boolean; etag?: boolean } = {},
+): Promise<T> {
   return apiRequest<T>(path, { method: 'GET' }, opts)
 }
 
@@ -8962,6 +8965,50 @@ export interface StoreBehaviorLogInput {
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 const UPLOAD_FETCH_TIMEOUT_MS = 120_000
 
+// --- GET ETag/304 conditional cache ------------------------------------------
+// The backend serves an ETag (a deterministic surface hash over the body minus
+// volatile fields like generated_at) plus a 304 branch when nothing real
+// changed. Without honoring it, every poll re-downloads + re-parses a fresh body
+// = a brand-new object reference each tick, which defeats react-query structural
+// sharing and makes the UI blink. This cache makes GET conditional:
+//   • on a GET with a cached ETag we send `If-None-Match`;
+//   • a 304 returns the PREVIOUSLY-PARSED payload BY REFERENCE (no re-parse, so
+//     the reference is stable → structural sharing keeps it → no re-render);
+//   • a 200 stores the response ETag + parsed payload for next time.
+// It is purely additive and self-gating: endpoints that don't emit an ETag never
+// get a cache entry and never receive an `If-None-Match`, so their behavior is
+// byte-identical to before. Only the operator-token GET surfaces that serve an
+// ETag (the Loop command read models today) take the fast path. The cache is
+// keyed by the absolute request URL (which already carries auth scope via path +
+// query) and is bounded with simple LRU eviction so it can't grow unbounded in a
+// long-lived session.
+interface EtagCacheEntry {
+  etag: string
+  payload: unknown
+}
+
+const ETAG_CACHE = new Map<string, EtagCacheEntry>()
+const ETAG_CACHE_MAX_ENTRIES = 64
+
+function etagCacheGet(url: string): EtagCacheEntry | undefined {
+  const hit = ETAG_CACHE.get(url)
+  if (hit === undefined) return undefined
+  // Touch for LRU recency: delete + re-set moves it to the end of the Map.
+  ETAG_CACHE.delete(url)
+  ETAG_CACHE.set(url, hit)
+  return hit
+}
+
+function etagCacheSet(url: string, entry: EtagCacheEntry): void {
+  if (ETAG_CACHE.has(url)) ETAG_CACHE.delete(url)
+  ETAG_CACHE.set(url, entry)
+  while (ETAG_CACHE.size > ETAG_CACHE_MAX_ENTRIES) {
+    const oldest = ETAG_CACHE.keys().next().value
+    if (oldest === undefined) break
+    ETAG_CACHE.delete(oldest)
+  }
+}
+
 function fetchBackoffMs(attempt: number): number {
   return Math.min(200 * 2 ** attempt, 1400)
 }
@@ -9041,7 +9088,7 @@ async function executeFetch(
 async function apiRequest<T>(
   path: string,
   init: RequestInit,
-  opts: { auth?: boolean; timeoutMs?: number; retry?: boolean } = {},
+  opts: { auth?: boolean; timeoutMs?: number; retry?: boolean; etag?: boolean } = {},
 ): Promise<T> {
   await hydrateApiConfig()
 
@@ -9050,11 +9097,33 @@ async function apiRequest<T>(
     headers.set('X-Atlas-Token', getBackendToken())
   }
 
+  const url = `${getApiBase()}${path}`
+  const method = (init.method ?? 'GET').toUpperCase()
+
+  // Conditional GET — OPT-IN (opts.etag). Default-off so every existing caller is
+  // byte-identical: only callers that ask for it (the Loop read models, whose
+  // backend serves ETag + 304) participate, keeping blast radius to that surface
+  // while concurrent work touches other screens. When on: if we hold a cached
+  // ETag for this exact URL, send `If-None-Match`; a 304 means the body is
+  // byte-identical to what we already parsed, so we hand back the SAME reference
+  // (stable identity → react-query keeps it → no per-poll blink). A caller-supplied
+  // If-None-Match is never overridden.
+  const conditional = opts.etag === true && method === 'GET'
+  const isConditionalGet = conditional && !headers.has('If-None-Match')
+  const cached = isConditionalGet ? etagCacheGet(url) : undefined
+  if (cached !== undefined) headers.set('If-None-Match', cached.etag)
+
   const response = await executeFetch(
-    `${getApiBase()}${path}`,
+    url,
     { ...init, headers },
     { timeoutMs: opts.timeoutMs, retry: opts.retry },
   )
+
+  if (response.status === 304 && cached !== undefined) {
+    // Drain to free the connection; the body is empty by spec. Return cached ref.
+    void response.text().catch(() => undefined)
+    return cached.payload as T
+  }
 
   const text = await response.text()
   const payload = text ? parsePayload(text) : null
@@ -9062,6 +9131,15 @@ async function apiRequest<T>(
   if (!response.ok) {
     const message = errorMessage(path, response.status, payload)
     throw new AtlasApiError(message, response.status, path, payload)
+  }
+
+  // Store/refresh the conditional-GET cache when the server advertises an ETag.
+  // Only for opt-in GETs (self-gating twice over): no opt-in ⇒ no cache entry.
+  if (conditional) {
+    const etag = response.headers.get('ETag')
+    if (etag !== null && etag !== '') {
+      etagCacheSet(url, { etag, payload })
+    }
   }
 
   return payload as T

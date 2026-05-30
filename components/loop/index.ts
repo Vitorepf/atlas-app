@@ -24,8 +24,18 @@ export { DirectiveRow } from './DirectiveRow'
 export { RunControlBar } from './RunControlBar'
 export { RunControlConfirmStrip } from './RunControlConfirmStrip'
 export { TrustColophon } from './TrustColophon'
+export { TrustFold } from './TrustFold'
 export { BlockedNote } from './BlockedNote'
 export { Colophon } from './Colophon'
+// LIST LAW primitive + the new chapters (A FAZER / FEITO / ACOMPANHAR / start).
+export { LoadMoreList, LoadMoreRow } from './LoadMoreList'
+export { PartialNote } from './PartialNote'
+export { RunPrimary, type StartLifecycle } from './RunPrimary'
+export { StartRunSheet, type StartRunInput } from './StartRunSheet'
+export { BacklogRow } from './BacklogRow'
+export { BacklogList, BacklogSkeletons } from './BacklogList'
+export { DoneList, DoneSkeletons } from './DoneList'
+export { RunTracker } from './RunTracker'
 
 export {
   deriveLoopState,

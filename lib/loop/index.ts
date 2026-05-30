@@ -15,35 +15,53 @@
 // directive consumability flag). Distinguishing an unknown-area 404 from a transport failure is
 // left to the screen via AtlasApiError.status — these hooks never swallow that signal.
 
+import { useCallback, useRef } from 'react'
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
+import { nextStableRef, type HasSurfaceHash } from './stableRef'
 import {
   ATLAS_LOOP_DEFAULT_AREA,
   ATLAS_LOOP_DEFAULT_FOCUS,
+  fetchAtlasLoopAreas,
+  fetchAtlasLoopBacklog,
   fetchAtlasLoopCycles,
+  fetchAtlasLoopDone,
   fetchAtlasLoopLive,
   sendAtlasLoopDirective,
+  startAtlasLoopRun,
   submitAtlasLoopOperatorDecision,
   submitAtlasLoopRunControl,
+  type AtlasLoopAreasResponse,
+  type AtlasLoopBacklogResponse,
   type AtlasLoopCyclesResponse,
   type AtlasLoopDirectiveReceipt,
+  type AtlasLoopDoneResponse,
   type AtlasLoopLiveResponse,
   type AtlasLoopOperatorDecisionReceipt,
   type AtlasLoopRunControlResponse,
+  type AtlasLoopStartRunResponse,
+  type FetchAtlasLoopBacklogParams,
   type FetchAtlasLoopCyclesParams,
+  type FetchAtlasLoopDoneParams,
   type FetchAtlasLoopLiveParams,
   type SendAtlasLoopDirectiveInput,
+  type StartAtlasLoopRunInput,
   type SubmitAtlasLoopDecisionInput,
   type SubmitAtlasLoopRunControlInput,
 } from '../api/loopClient'
 
 // Re-export the contract types so screen code can import everything Loop-related from one place.
 export type {
+  AtlasLoopArea,
+  AtlasLoopAreasResponse,
+  AtlasLoopBacklogFinding,
+  AtlasLoopBacklogResponse,
   AtlasLoopCockpit,
   AtlasLoopCockpitHealth,
   AtlasLoopCycleOutcome,
@@ -52,6 +70,7 @@ export type {
   AtlasLoopDirectiveConsumability,
   AtlasLoopDirectiveError,
   AtlasLoopDirectiveReceipt,
+  AtlasLoopDoneResponse,
   AtlasLoopLiveResponse,
   AtlasLoopLockHolder,
   AtlasLoopLockStatus,
@@ -65,11 +84,18 @@ export type {
   AtlasLoopSchedulerBacklog,
   AtlasLoopSchedulerCycleSummary,
   AtlasLoopSignalStatus,
+  AtlasLoopStartRunBlocked,
+  AtlasLoopStartRunError,
+  AtlasLoopStartRunMode,
+  AtlasLoopStartRunResponse,
   AtlasLoopStewardshipRecovery,
   AtlasLoop24hObservability,
+  FetchAtlasLoopBacklogParams,
   FetchAtlasLoopCyclesParams,
+  FetchAtlasLoopDoneParams,
   FetchAtlasLoopLiveParams,
   SendAtlasLoopDirectiveInput,
+  StartAtlasLoopRunInput,
   SubmitAtlasLoopDecisionInput,
   SubmitAtlasLoopRunControlInput,
 } from '../api/loopClient'
@@ -103,6 +129,33 @@ function loopCyclesKey(params: FetchAtlasLoopCyclesParams) {
 /** Broad prefix used by mutations to invalidate every live + cycles query at once. */
 const LOOP_QUERY_ROOT = ['atlas-loop'] as const
 
+// --- stable-reference select (flicker fix #2) ------------------------------------
+
+/**
+ * Build a react-query `select` that collapses identity churn to the STABLE
+ * `surface_hash`. The backend stamps a volatile `generated_at` AFTER computing
+ * the hash (the hash is taken over the body minus every `generated_at`), so two
+ * polls that differ only by timestamp share one `surface_hash`. react-query's
+ * structural sharing alone can't see that — `generated_at` is a real string diff
+ * — so it produces a new top-level reference every tick and the screen blinks.
+ *
+ * This select holds the last {hash,value} in a ref: same hash ⇒ return the exact
+ * SAME object reference as last time (identity stable → memoized children skip
+ * re-render → mount-only `entering` animations never re-fire). A changed hash ⇒
+ * return the new value (and remember it). The select itself is referentially
+ * stable across renders (useCallback over a ref) so react-query doesn't re-run
+ * it spuriously. It NEVER mutates or fabricates data — it only chooses which of
+ * two structurally-equal references to surface.
+ */
+function useStableByHash<T extends HasSurfaceHash>(): (data: T) => T {
+  const last = useRef<{ hash: string; value: T } | null>(null)
+  return useCallback((data: T): T => {
+    const picked = nextStableRef(last.current, data)
+    last.current = picked
+    return picked.value
+  }, [])
+}
+
 // --- read hooks -----------------------------------------------------------------
 
 export interface UseLoopStateOptions extends FetchAtlasLoopLiveParams {
@@ -120,6 +173,7 @@ export interface UseLoopStateOptions extends FetchAtlasLoopLiveParams {
  */
 export function useLoopState(options: UseLoopStateOptions = {}): UseQueryResult<AtlasLoopLiveResponse> {
   const { enabled = true, pollIntervalMs = 6_000, ...params } = options
+  const select = useStableByHash<AtlasLoopLiveResponse>()
   return useQuery({
     queryKey: loopLiveKey(params),
     queryFn: () => fetchAtlasLoopLive(params),
@@ -128,6 +182,10 @@ export function useLoopState(options: UseLoopStateOptions = {}): UseQueryResult<
     refetchIntervalInBackground: false,
     // Just under the poll interval: an in-flight window counts as fresh; a later mount refetches.
     staleTime: Math.max(0, pollIntervalMs - 1_000),
+    // Collapse generated_at churn to the stable surface_hash → no per-poll blink.
+    select,
+    // Background refetch keeps the last good frame visible — never blanks to a skeleton.
+    placeholderData: keepPreviousData,
     // Unknown area is a stable 404 (operator config error), not a transient fault — don't retry it.
     retry: (failureCount, error) => !is404(error) && failureCount < 1,
   })
@@ -145,6 +203,7 @@ export interface UseLoopCyclesOptions extends FetchAtlasLoopCyclesParams {
  */
 export function useLoopCycles(options: UseLoopCyclesOptions = {}): UseQueryResult<AtlasLoopCyclesResponse> {
   const { enabled = true, pollIntervalMs = 8_000, ...params } = options
+  const select = useStableByHash<AtlasLoopCyclesResponse>()
   return useQuery({
     queryKey: loopCyclesKey(params),
     queryFn: () => fetchAtlasLoopCycles(params),
@@ -152,6 +211,92 @@ export function useLoopCycles(options: UseLoopCyclesOptions = {}): UseQueryResul
     refetchInterval: enabled ? pollIntervalMs : false,
     refetchIntervalInBackground: false,
     staleTime: Math.max(0, pollIntervalMs - 1_000),
+    select,
+    placeholderData: keepPreviousData,
+    retry: (failureCount, error) => !is404(error) && failureCount < 1,
+  })
+}
+
+/**
+ * The selectable run areas (AP-712 registry). v1 has exactly one. This rarely changes, so it is NOT
+ * polled — fetched once with a long staleTime; the run picker reads it on mount.
+ */
+export function useLoopAreas(options: { enabled?: boolean } = {}): UseQueryResult<AtlasLoopAreasResponse> {
+  const { enabled = true } = options
+  const select = useStableByHash<AtlasLoopAreasResponse>()
+  return useQuery({
+    queryKey: ['atlas-loop', 'areas'] as const,
+    queryFn: () => fetchAtlasLoopAreas(),
+    enabled,
+    staleTime: 5 * 60_000,
+    select,
+    placeholderData: keepPreviousData,
+    retry: (failureCount, error) => !is404(error) && failureCount < 1,
+  })
+}
+
+export interface UseLoopBacklogOptions extends FetchAtlasLoopBacklogParams {
+  enabled?: boolean
+  /** Poll cadence in ms. Defaults to 12000 (backlog drifts slowly). */
+  pollIntervalMs?: number
+}
+
+/**
+ * The open findings / to-implement backlog for an area (thin cockpit projection). Polled slowly —
+ * the backlog moves only when the loop or a scan changes it. Same no-retry-on-404 discipline.
+ */
+export function useLoopBacklog(options: UseLoopBacklogOptions = {}): UseQueryResult<AtlasLoopBacklogResponse> {
+  const { enabled = true, pollIntervalMs = 12_000, ...params } = options
+  const select = useStableByHash<AtlasLoopBacklogResponse>()
+  return useQuery({
+    queryKey: [
+      'atlas-loop',
+      'backlog',
+      params.area ?? ATLAS_LOOP_DEFAULT_AREA,
+      params.focus ?? ATLAS_LOOP_DEFAULT_FOCUS,
+      params.limit ?? null,
+      params.offset ?? null,
+    ] as const,
+    queryFn: () => fetchAtlasLoopBacklog(params),
+    enabled,
+    refetchInterval: enabled ? pollIntervalMs : false,
+    refetchIntervalInBackground: false,
+    staleTime: Math.max(0, pollIntervalMs - 1_000),
+    select,
+    // Paging keeps the prior page visible while the next loads (no blank flash).
+    placeholderData: keepPreviousData,
+    retry: (failureCount, error) => !is404(error) && failureCount < 1,
+  })
+}
+
+export interface UseLoopDoneOptions extends FetchAtlasLoopDoneParams {
+  enabled?: boolean
+  /** Poll cadence in ms. Defaults to 12000 (a new delivery is rare). */
+  pollIntervalMs?: number
+}
+
+/**
+ * Delivered cycles (real merges with a merge_hash), newest-first. Polled slowly; a delivery is rare.
+ */
+export function useLoopDone(options: UseLoopDoneOptions = {}): UseQueryResult<AtlasLoopDoneResponse> {
+  const { enabled = true, pollIntervalMs = 12_000, ...params } = options
+  const select = useStableByHash<AtlasLoopDoneResponse>()
+  return useQuery({
+    queryKey: [
+      'atlas-loop',
+      'done',
+      params.area ?? ATLAS_LOOP_DEFAULT_AREA,
+      params.focus ?? ATLAS_LOOP_DEFAULT_FOCUS,
+      params.limit ?? null,
+      params.offset ?? null,
+    ] as const,
+    queryFn: () => fetchAtlasLoopDone(params),
+    enabled,
+    refetchInterval: enabled ? pollIntervalMs : false,
+    refetchIntervalInBackground: false,
+    staleTime: Math.max(0, pollIntervalMs - 1_000),
+    select,
+    placeholderData: keepPreviousData,
     retry: (failureCount, error) => !is404(error) && failureCount < 1,
   })
 }
@@ -214,6 +359,37 @@ export function useSendDirective(): UseMutationResult<
     },
   })
 }
+
+/**
+ * Start the REAL reliable 24h loop for an area. HONESTY is structural: the backend ENQUEUES the
+ * runner and returns status=enqueued — it NEVER claims the loop is running. The lock in /live is
+ * the only truth it started, so on success we invalidate live (+ everything) to begin polling for
+ * lock.held. A 409 (loop_already_running) or 422 surfaces as an AtlasApiError the caller handles;
+ * the destructive `mode:'execute'` must be set explicitly by the caller (operator-confirmed).
+ */
+export function useStartRun(): UseMutationResult<
+  AtlasLoopStartRunResponse,
+  unknown,
+  StartAtlasLoopRunInput
+> {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: StartAtlasLoopRunInput) => startAtlasLoopRun(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: LOOP_QUERY_ROOT })
+    },
+  })
+}
+
+// --- list-law re-exports ---------------------------------------------------------
+// One import site for the screen: the LIST LAW primitive + the paginated windows.
+export { clampVisible, LOOP_LIST_STEP, useVisibleCount, type VisibleWindow } from './useVisibleCount'
+export {
+  useLoopBacklogWindow,
+  useLoopDoneWindow,
+  type LoopPaginatedWindow,
+} from './usePaginatedWindow'
+export { nextStableRef, type HasSurfaceHash } from './stableRef'
 
 // --- internal -------------------------------------------------------------------
 

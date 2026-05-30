@@ -238,7 +238,11 @@ export async function fetchAtlasLoopLive(
     portfolio: params.portfolio,
     repo_root: params.repo_root,
   })
-  return apiGet<AtlasLoopLiveResponse>(`/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/live${query}`)
+  // etag:true → conditional GET; a 304 returns the prior body by reference (anti-flicker #1).
+  return apiGet<AtlasLoopLiveResponse>(
+    `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/live${query}`,
+    { etag: true },
+  )
 }
 
 // =================================================================================
@@ -316,7 +320,10 @@ export async function fetchAtlasLoopCycles(
     tail: params.tail,
     hours: params.hours,
   })
-  return apiGet<AtlasLoopCyclesResponse>(`/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/cycles${query}`)
+  return apiGet<AtlasLoopCyclesResponse>(
+    `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/cycles${query}`,
+    { etag: true },
+  )
 }
 
 // =================================================================================
@@ -529,6 +536,246 @@ export async function sendAtlasLoopDirective(
   if (input.target_doc != null) body.target_doc = input.target_doc
   return apiPost<AtlasLoopDirectiveReceipt>(
     `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/directive`,
+    body,
+  )
+}
+
+// =================================================================================
+// (f) GET areas — the selectable run areas (AP-712 Area Contract Registry)
+// =================================================================================
+
+/** AtlasNightShiftAreaFocusContractRegistry::resolve, projected for the run picker. */
+export interface AtlasLoopArea {
+  area_id: string
+  area_name: string
+  focus: string
+  autonomy_tier: number
+  max_tier_for_area: number
+  dev_mode: string
+  registered: boolean
+  objective: string
+  owned_systems: string[]
+  repo_scope: Record<string, unknown>
+  stop_conditions: string[]
+  /** Thin live snapshot so the picker shows which area already has a live run. */
+  run_state: { lock: AtlasLoopLockStatus }
+}
+
+export interface AtlasLoopAreasResponse {
+  schema_version: 'atlas.software_company_stewardship.loop_command_areas.v1' | string
+  read_only: boolean
+  /** TRUTH: exactly ONE registered area in v1 (agentic_engineering_os). */
+  areas: AtlasLoopArea[]
+  area_count: number
+  default_area: string
+  default_focus: string
+  surface_hash: string
+  generated_at: string
+}
+
+export async function fetchAtlasLoopAreas(): Promise<AtlasLoopAreasResponse> {
+  return apiGet<AtlasLoopAreasResponse>('/ai/software-company-stewardship/loop/areas', { etag: true })
+}
+
+// =================================================================================
+// (g) GET backlog — open findings / to-implement for an area (thin cockpit projection)
+// =================================================================================
+
+export interface AtlasLoopBacklogFinding {
+  finding_hash: string
+  title: string
+  source: string
+  source_owner: string
+  gap_kind: string
+  risk_level: string
+  priority_score: number
+  route: string
+  [key: string]: unknown
+}
+
+export interface AtlasLoopBacklogResponse {
+  schema_version: 'atlas.software_company_stewardship.loop_command_backlog.v1' | string
+  area_id: string
+  focus: string
+  portfolio_id: string
+  read_only: boolean
+  findings: {
+    total: number
+    returned: number
+    offset: number
+    limit: number
+    by_risk: Record<string, unknown>
+    by_route: Record<string, unknown>
+    items: AtlasLoopBacklogFinding[]
+  }
+  work_orders: Array<Record<string, unknown>>
+  inbox_items: Array<Record<string, unknown>>
+  budgets: Record<string, unknown>
+  surface_hash: string
+  generated_at: string
+}
+
+export interface FetchAtlasLoopBacklogParams {
+  area?: string
+  focus?: string
+  portfolio?: string
+  repo_root?: string
+  /** Page size over the findings list (default 20, hard-capped 200 server-side). */
+  limit?: number
+  offset?: number
+}
+
+export async function fetchAtlasLoopBacklog(
+  params: FetchAtlasLoopBacklogParams = {},
+): Promise<AtlasLoopBacklogResponse> {
+  const area = params.area ?? ATLAS_LOOP_DEFAULT_AREA
+  const query = buildQuery({
+    focus: params.focus,
+    portfolio: params.portfolio,
+    repo_root: params.repo_root,
+    limit: params.limit,
+    offset: params.offset,
+  })
+  return apiGet<AtlasLoopBacklogResponse>(
+    `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/backlog${query}`,
+    { etag: true },
+  )
+}
+
+// =================================================================================
+// (h) GET done — delivered cycles (merged + real merge_hash + provider-proof)
+// =================================================================================
+
+export interface AtlasLoopDoneResponse {
+  schema_version: 'atlas.software_company_stewardship.loop_command_done.v1' | string
+  area_id: string
+  focus: string
+  read_only: boolean
+  ledger_record_count_total: number
+  delivered_total: number
+  returned: number
+  offset: number
+  limit: number
+  /** Newest-first. Every record is a REAL merge (outcome=merged && merge_performed && merge_hash). */
+  delivered: AtlasLoopCycleRecord[]
+  surface_hash: string
+  generated_at: string
+}
+
+export interface FetchAtlasLoopDoneParams {
+  area?: string
+  focus?: string
+  /** Page size (default 20, hard-capped 200 server-side). */
+  limit?: number
+  offset?: number
+}
+
+export async function fetchAtlasLoopDone(
+  params: FetchAtlasLoopDoneParams = {},
+): Promise<AtlasLoopDoneResponse> {
+  const area = params.area ?? ATLAS_LOOP_DEFAULT_AREA
+  const query = buildQuery({ focus: params.focus, limit: params.limit, offset: params.offset })
+  return apiGet<AtlasLoopDoneResponse>(
+    `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/done${query}`,
+    { etag: true },
+  )
+}
+
+// =================================================================================
+// (i) POST start-run — launch the REAL reliable 24h loop (governed; never fakes running)
+// =================================================================================
+
+/** mode=execute is the DESTRUCTIVE real path and must be explicit; default is dry_run. */
+export type AtlasLoopStartRunMode = 'dry_run' | 'execute'
+
+export interface StartAtlasLoopRunInput {
+  area?: string
+  /** Required — the controller rejects an empty actor with 422. */
+  operator_actor: string
+  focus?: string
+  /** Defaults to dry_run (safe). execute is the real, destructive path — confirm before sending. */
+  mode?: AtlasLoopStartRunMode
+  max_runtime_minutes?: number
+  max_cycles?: number
+  max_merges?: number
+  sleep_seconds?: number
+  auto_merge?: boolean
+  scope_profile?: string
+  provider?: string
+  model?: string
+  repo_root?: string
+}
+
+/**
+ * Start-run receipt. HONEST by construction: the run is QUEUED on the dedicated worker queue, NOT
+ * started — `status` is always 'enqueued' (never 'running'), `started`/`provider_invoked`/
+ * `merge_performed` are false. The ONLY truth the loop started is run_state.lock.held flipping true
+ * in /live once a worker consuming `software_company_loop` picks the job up.
+ */
+export interface AtlasLoopStartRunResponse {
+  schema_version: 'atlas.software_company_stewardship.loop_command_start_run.v1' | string
+  status: 'enqueued' | string
+  launch: 'queued_job' | string
+  queue: 'software_company_loop' | string
+  area_id: string
+  focus: string
+  mode: AtlasLoopStartRunMode
+  execute: boolean
+  requires_worker: boolean
+  operator_actor: string
+  input_echo: {
+    max_runtime_minutes: number | null
+    max_cycles: number | null
+    max_merges: number | null
+    auto_merge: boolean
+    scope_profile: string
+    provider: string
+    model: string
+  }
+  started: false
+  merge_performed: false
+  provider_invoked: false
+  note: string
+  generated_at: string
+}
+
+/** 409 shape when a live run already holds the exclusive lock (never double-launches). */
+export interface AtlasLoopStartRunBlocked {
+  schema_version: 'atlas.software_company_stewardship.loop_command_start_run.v1' | string
+  status: 'blocked'
+  reason: 'loop_already_running' | string
+  area_id: string
+  focus: string
+  holder: { run_id: string; pid: number; acquired_at: string }
+  detail: string
+  generated_at: string
+}
+
+/** 422 shape (missing operator_actor / invalid mode). */
+export interface AtlasLoopStartRunError {
+  status: 'blocked'
+  reason: 'operator_actor_required' | 'invalid_mode' | string
+  detail: string
+}
+
+export async function startAtlasLoopRun(
+  input: StartAtlasLoopRunInput,
+): Promise<AtlasLoopStartRunResponse> {
+  const area = input.area ?? ATLAS_LOOP_DEFAULT_AREA
+  const body: Record<string, unknown> = { operator_actor: input.operator_actor }
+  if (input.focus != null) body.focus = input.focus
+  if (input.mode != null) body.mode = input.mode
+  if (input.max_runtime_minutes != null) body.max_runtime_minutes = input.max_runtime_minutes
+  if (input.max_cycles != null) body.max_cycles = input.max_cycles
+  if (input.max_merges != null) body.max_merges = input.max_merges
+  if (input.sleep_seconds != null) body.sleep_seconds = input.sleep_seconds
+  if (input.auto_merge != null) body.auto_merge = input.auto_merge
+  if (input.scope_profile != null) body.scope_profile = input.scope_profile
+  if (input.provider != null) body.provider = input.provider
+  if (input.model != null) body.model = input.model
+  if (input.repo_root != null) body.repo_root = input.repo_root
+  return apiPost<AtlasLoopStartRunResponse>(
+    `/ai/software-company-stewardship/loop/${encodeURIComponent(area)}/start-run`,
     body,
   )
 }
