@@ -67,7 +67,7 @@ export default function LoopScreen() {
     cyclesTotal,
     loopState,
     loading,
-    refreshing,
+    manualRefreshing,
     reasonCode,
     cyclesBlocked,
     cyclesReasonCode,
@@ -140,7 +140,7 @@ export default function LoopScreen() {
         ref={scrollRef}
         topExtra={22}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.bronze} />
+          <RefreshControl refreshing={manualRefreshing} onRefresh={() => void refresh()} tintColor={c.bronze} />
         }
       >
         {/* MASTHEAD + DATELINE + PILL (verbatim) */}

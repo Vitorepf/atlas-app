@@ -51,8 +51,10 @@ export interface UseLoopCommandResult {
   loopState: LoopState
   /** True on the very first load (no data yet) — drives "·····" placeholders. */
   loading: boolean
-  /** True on any in-flight fetch (drives the RefreshControl tint). */
+  /** True on any in-flight fetch (background poll included) — do NOT drive the spinner with this. */
   refreshing: boolean
+  /** True ONLY during a manual pull-to-refresh — the correct RefreshControl signal. */
+  manualRefreshing: boolean
   /** Stable 404 reason code for the whole-surface blocked state. */
   reasonCode: string | null
   /** Per-section honesty: the cycles read failed (not genuinely empty). */
@@ -101,6 +103,9 @@ export function useLoopCommand(): UseLoopCommandResult {
   const [postedDirectives, setPostedDirectives] = useState<AtlasLoopDirectiveReceipt[]>([])
   const [lastReachability, setLastReachability] = useState<AtlasLoopDirectiveConsumability | null>(null)
   const [busyAction, setBusyAction] = useState<AtlasLoopRunControlAction | null>(null)
+  // Manual pull-to-refresh ONLY — never the background poll, so the RefreshControl spinner
+  // never spins on its own (the 6s poll is silent; keepPreviousData holds the frame).
+  const [manualRefreshing, setManualRefreshing] = useState(false)
 
   const liveQuery = useLoopState()
   const cyclesQuery = useLoopCycles({ tail: 20, hours: window === '24h' ? 24 : undefined })
@@ -204,7 +209,12 @@ export function useLoopCommand(): UseLoopCommandResult {
   }, [startState, lockHeld, live])
 
   const refresh = useCallback(async () => {
-    await Promise.all([liveQuery.refetch(), cyclesQuery.refetch()])
+    setManualRefreshing(true)
+    try {
+      await Promise.all([liveQuery.refetch(), cyclesQuery.refetch()])
+    } finally {
+      setManualRefreshing(false)
+    }
   }, [liveQuery, cyclesQuery])
 
   const decide = useCallback(
@@ -306,6 +316,7 @@ export function useLoopCommand(): UseLoopCommandResult {
     loopState,
     loading,
     refreshing,
+    manualRefreshing,
     reasonCode,
     cyclesBlocked,
     cyclesReasonCode,
