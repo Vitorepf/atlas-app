@@ -688,6 +688,9 @@ export async function fetchAtlasLoopDone(
 /** mode=execute is the DESTRUCTIVE real path and must be explicit; default is dry_run. */
 export type AtlasLoopStartRunMode = 'dry_run' | 'execute'
 
+/** Duration model: bound by cycles, bound by hours, or run until the first block. */
+export type AtlasLoopRunMode = 'cycles' | 'hours' | 'until_blocked'
+
 export interface StartAtlasLoopRunInput {
   area?: string
   /** Required — the controller rejects an empty actor with 422. */
@@ -695,6 +698,12 @@ export interface StartAtlasLoopRunInput {
   focus?: string
   /** Defaults to dry_run (safe). execute is the real, destructive path — confirm before sending. */
   mode?: AtlasLoopStartRunMode
+  /** Duration model; the backend derives the runner budgets + continue_on_blocked from this. */
+  run_mode?: AtlasLoopRunMode
+  /** Bound for run_mode='cycles'. */
+  cycles?: number
+  /** Bound (hours) for run_mode='hours'. */
+  hours?: number
   max_runtime_minutes?: number
   max_cycles?: number
   max_merges?: number
@@ -724,6 +733,8 @@ export interface AtlasLoopStartRunResponse {
   requires_worker: boolean
   operator_actor: string
   input_echo: {
+    run_mode: AtlasLoopRunMode | null
+    continue_on_blocked: boolean | null
     max_runtime_minutes: number | null
     max_cycles: number | null
     max_merges: number | null
@@ -765,6 +776,9 @@ export async function startAtlasLoopRun(
   const body: Record<string, unknown> = { operator_actor: input.operator_actor }
   if (input.focus != null) body.focus = input.focus
   if (input.mode != null) body.mode = input.mode
+  if (input.run_mode != null) body.run_mode = input.run_mode
+  if (input.cycles != null) body.cycles = input.cycles
+  if (input.hours != null) body.hours = input.hours
   if (input.max_runtime_minutes != null) body.max_runtime_minutes = input.max_runtime_minutes
   if (input.max_cycles != null) body.max_cycles = input.max_cycles
   if (input.max_merges != null) body.max_merges = input.max_merges

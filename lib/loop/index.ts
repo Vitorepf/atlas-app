@@ -86,6 +86,7 @@ export type {
   AtlasLoopSignalStatus,
   AtlasLoopStartRunBlocked,
   AtlasLoopStartRunError,
+  AtlasLoopRunMode,
   AtlasLoopStartRunMode,
   AtlasLoopStartRunResponse,
   AtlasLoopStewardshipRecovery,

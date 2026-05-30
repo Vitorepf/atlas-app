@@ -279,9 +279,12 @@ export function useLoopCommand(): UseLoopCommandResult {
         operator_actor: OPERATOR_ACTOR,
         focus: 'dev_forge',
         mode: input.execute ? 'execute' : 'dry_run',
-        // single → cap at one cycle; until-blocked → leave max_cycles unset so the
-        // runner's own backlog/stop-condition governance decides when to stop.
-        max_cycles: input.mode === 'single' ? 1 : undefined,
+        // The duration model: the backend derives max_cycles/max_runtime_minutes +
+        // continue_on_blocked from run_mode (cycles/hours repair-and-continue;
+        // until_blocked stops at the first block).
+        run_mode: input.runMode,
+        cycles: input.runMode === 'cycles' ? input.cycles : undefined,
+        hours: input.runMode === 'hours' ? input.hours : undefined,
         auto_merge: false,
         scope_profile: 'factory_max',
       })
