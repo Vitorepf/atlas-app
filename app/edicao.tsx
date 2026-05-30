@@ -1146,6 +1146,16 @@ export default function HomeScreen() {
             Vocabulário de TOC de livro encadernado / Monocle daily briefing.
             Round 4 polish · stagger fade-in 40ms × idx · TOC entra como
             páginas de livro folheadas uma a uma, não cascata SaaS. */}
+        <Animated.View entering={FadeInDown.duration(420).delay(120).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
+          <TocRow
+            label="Loop"
+            value="run vivo · comando 24h"
+            onPress={() => router.push('/loop')}
+            accessibilityLabel="Abrir o Loop · run vivo e comando do ciclo 24h."
+            variant="codex"
+            live
+          />
+        </Animated.View>
         <Animated.View entering={FadeInDown.duration(420).delay(140).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
           <TocRow
             label="Memory"

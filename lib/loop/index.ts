@@ -40,7 +40,7 @@ import {
   type SendAtlasLoopDirectiveInput,
   type SubmitAtlasLoopDecisionInput,
   type SubmitAtlasLoopRunControlInput,
-} from '../api/client'
+} from '../api/loopClient'
 
 // Re-export the contract types so screen code can import everything Loop-related from one place.
 export type {
@@ -72,7 +72,7 @@ export type {
   SendAtlasLoopDirectiveInput,
   SubmitAtlasLoopDecisionInput,
   SubmitAtlasLoopRunControlInput,
-} from '../api/client'
+} from '../api/loopClient'
 
 // --- query keys -----------------------------------------------------------------
 
