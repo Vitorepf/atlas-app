@@ -1,5 +1,5 @@
 import { Platform, ScrollView, StyleSheet, View, type ScrollViewProps, type ViewStyle } from 'react-native'
-import { type ReactNode } from 'react'
+import { forwardRef, type ReactNode } from 'react'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import Animated, { Easing, Keyframe } from 'react-native-reanimated'
 import { CartogBackground } from './CartogBackground'
@@ -58,15 +58,22 @@ const KEYBOARD_BREATH_INSET = { top: 0, left: 0, bottom: 48, right: 0 } as const
 // - Cartography grid (sussurro)
 // - SafeAreaView top edge (immune to insets-race-condition)
 // - Scroll container with dock-clearance bottom (responsive to safe area)
-export function Screen({
-  children,
-  bare = false,
-  topExtra = 24,
-  bottomPad = 24,
-  containerStyle,
-  bgAxis = 'both',
-  ...rest
-}: Props) {
+//
+// An optional forwarded ref reaches the inner ScrollView (e.g. for a
+// scroll-to-section gesture). Backward-compatible — callers that pass no ref are
+// unaffected; the ScrollView is created the same way either way.
+export const Screen = forwardRef<ScrollView, Props>(function Screen(
+  {
+    children,
+    bare = false,
+    topExtra = 24,
+    bottomPad = 24,
+    containerStyle,
+    bgAxis = 'both',
+    ...rest
+  }: Props,
+  ref,
+) {
   const c = usePalette()
   const insets = useSafeAreaInsets()
   const totalBottom = DOCK_BASELINE + insets.bottom + bottomPad
@@ -76,6 +83,7 @@ export function Screen({
       <Animated.View entering={atlasSettle} style={styles.fill}>
         <SafeAreaView edges={['top']} style={styles.fill}>
           <ScrollView
+            ref={ref}
             contentContainerStyle={{
               paddingTop: topExtra,
               // F mockup canon · `.content { padding: 0 32px }`. Trilho borda
@@ -124,7 +132,7 @@ export function Screen({
       </Animated.View>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },

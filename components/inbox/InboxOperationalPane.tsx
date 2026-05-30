@@ -50,6 +50,38 @@ export function InboxOperationalPane({
         onRetry={retry}
       />
 
+      {__DEV__ && inbox.diagnostics ? (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 6, gap: 2 }}>
+          <Mono size={10} color={c.prussian}>
+            {`dev · base=${inbox.diagnostics.apiBase} · fase=${inbox.diagnostics.lastPhase} · status=${inbox.diagnostics.lastStatus ?? '—'} · ${inbox.diagnostics.lastDurationMs}ms`}
+          </Mono>
+          {inbox.diagnostics.lastErrorDetail ? (
+            <Mono size={10} color={c.prussian}>{inbox.diagnostics.lastErrorDetail}</Mono>
+          ) : null}
+        </View>
+      ) : null}
+
+      {inbox.error && !inbox.apiBase.includes(inbox.defaultHost) ? (
+        <Pressable
+          onPress={() => void inbox.reconnectViaDefaultHost()}
+          style={({ pressed }) => [
+            {
+              marginHorizontal: 16,
+              marginBottom: 10,
+              paddingVertical: 11,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: c.border,
+              backgroundColor: pressed ? c.premium : 'transparent',
+            },
+          ]}
+        >
+          <Sans weight="sb" size={12.5} lineHeight={17} color={c.prussian} align="center">
+            {`Reconectar pelo host do dev server (${inbox.defaultHost})`}
+          </Sans>
+        </Pressable>
+      ) : null}
+
       {inbox.showList ? (
         <>
           <CriticalReviewPanel
@@ -65,7 +97,12 @@ export function InboxOperationalPane({
             onChange={inbox.setFilter}
           />
           <View style={styles.list}>
-            {inbox.items.length === 0 ? (
+            {inbox.loading && inbox.items.length === 0 && !inbox.error ? (
+              <OperationalEmptyState
+                title="Carregando operacional"
+                body="A fila operacional está consultando aprovações, recomendações e alertas do Atlas server."
+              />
+            ) : inbox.items.length === 0 ? (
               <OperationalEmptyState
                 title={inbox.error ? 'Sem dados operacionais' : 'Operacional limpo'}
                 body={inbox.error

@@ -40,6 +40,20 @@ export const SNOOZE_CHOICES: Array<{ key: string; label: string; days: number; r
 ]
 
 export const ARCHIVE_HINT_STORAGE_KEY = 'atlas-inbox.archive-hint-shown'
-export const OPERATIONAL_PAGE_SIZE = 25
+export const OPERATIONAL_PAGE_SIZE = 12
 export const OPERATIONAL_POLL_INTERVAL_MS = 90_000
 export const OPERATIONAL_POLL_JITTER_MS = 4_000
+
+// Per-phase client timeouts owned by the fetch layer (AbortController), so a
+// real error/abort surfaces instead of being masked by a shorter hook-level
+// race. The list call uses retry:false so a failure shows the real cause fast
+// (a list GET is safe to re-trigger with pull-to-refresh). These MUST stay >=
+// each other's expectations and the list timeout MUST be the source of truth
+// for "took too long" — never a separate, shorter wrapper.
+export const OPERATIONAL_LIST_TIMEOUT_MS = 10_000
+export const OPERATIONAL_SESSION_TIMEOUT_MS = 8_000
+export const OPERATIONAL_CRITICAL_TIMEOUT_MS = 8_000
+// hydrateApiConfig() reads local storage and has no network timeout of its own;
+// this is a last-resort guard against a wedged SecureStore/MMKV read, not a
+// network race.
+export const OPERATIONAL_HYDRATE_GUARD_MS = 8_000

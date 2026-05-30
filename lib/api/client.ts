@@ -5834,6 +5834,19 @@ export async function setBackendHost(host: string): Promise<void> {
   await atlasStorage.setItem(HOST_KEY, cachedHost)
 }
 
+// Drop a stored backend host so the app reverts to the build-injected default
+// host (set by `npm run dev:ios` to the Mac's LAN IP). Recovery path for when a
+// previously-stored host (e.g. a Tailscale IP) stops being reachable and would
+// otherwise permanently shadow the working default.
+export async function clearStoredBackendHost(): Promise<void> {
+  cachedHost = null
+  await atlasStorage.removeItem(HOST_KEY)
+}
+
+export function getDefaultBackendHost(): string {
+  return DEFAULT_HOST
+}
+
 export async function setBackendPort(port: number): Promise<void> {
   cachedPort = Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT
   await atlasStorage.setItem(PORT_KEY, String(cachedPort))
@@ -5953,14 +5966,16 @@ export async function confirmMobilePairing(input: {
   return response
 }
 
-export async function recoverMobileDeviceSession(): Promise<MobileDeviceSession | null> {
+export async function recoverMobileDeviceSession(
+  opts: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<MobileDeviceSession | null> {
   await hydrateApiConfig()
   const currentSession = getMobileDeviceSession()
   if (currentSession) return currentSession
   if (!cachedMobileDeviceToken) return null
 
   try {
-    const response = await listMobileDevices()
+    const response = await listMobileDevices(opts)
     const currentDevice = currentMobileDevice(response)
     if (!currentDevice?.id) return null
 
@@ -5978,8 +5993,10 @@ export async function recoverMobileDeviceSession(): Promise<MobileDeviceSession 
   }
 }
 
-export async function listMobileDevices(): Promise<MobileDevicesResponse> {
-  return mobileApiGet<MobileDevicesResponse>('/v1/mobile/devices')
+export async function listMobileDevices(
+  opts: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<MobileDevicesResponse> {
+  return mobileApiGet<MobileDevicesResponse>('/v1/mobile/devices', opts)
 }
 
 export async function listMobileConstelacaoPositions(params: {
@@ -6270,18 +6287,24 @@ export async function revokeMobileDevice(deviceId: string): Promise<{ device: At
   return response
 }
 
-export async function listMobileInbox(params: {
-  status?: 'unread' | 'read' | 'actioned' | 'resolved' | 'dismissed' | 'expired' | 'snoozed' | 'active' | 'all'
-  type?: AtlasOperationalInboxType
-  severity?: 'debug' | 'info' | 'warning' | 'critical'
-  limit?: number
-  cursor?: string | null
-} = {}): Promise<MobileInboxResponse> {
-  return mobileApiGet<MobileInboxResponse>(`/v1/mobile/inbox${queryString(params)}`)
+export async function listMobileInbox(
+  params: {
+    status?: 'unread' | 'read' | 'actioned' | 'resolved' | 'dismissed' | 'expired' | 'snoozed' | 'active' | 'all'
+    type?: AtlasOperationalInboxType
+    severity?: 'debug' | 'info' | 'warning' | 'critical'
+    limit?: number
+    cursor?: string | null
+  } = {},
+  opts: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<MobileInboxResponse> {
+  return mobileApiGet<MobileInboxResponse>(`/v1/mobile/inbox${queryString(params)}`, opts)
 }
 
-export async function getMobileCriticalInboxReview(params: { limit?: number } = {}): Promise<MobileCriticalInboxReviewResponse> {
-  return mobileApiGet<MobileCriticalInboxReviewResponse>(`/v1/mobile/inbox/critical-review${queryString(params)}`)
+export async function getMobileCriticalInboxReview(
+  params: { limit?: number } = {},
+  opts: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<MobileCriticalInboxReviewResponse> {
+  return mobileApiGet<MobileCriticalInboxReviewResponse>(`/v1/mobile/inbox/critical-review${queryString(params)}`, opts)
 }
 
 export async function getMobileInboxItem(id: string): Promise<{ item: AtlasOperationalInboxItem }> {
@@ -8655,8 +8678,11 @@ export async function apiGet<T>(path: string, opts: { auth?: boolean } = {}): Pr
   return apiRequest<T>(path, { method: 'GET' }, opts)
 }
 
-export async function mobileApiGet<T>(path: string): Promise<T> {
-  return mobileApiRequest<T>(path, { method: 'GET' })
+export async function mobileApiGet<T>(
+  path: string,
+  opts: { timeoutMs?: number; retry?: boolean } = {},
+): Promise<T> {
+  return mobileApiRequest<T>(path, { method: 'GET' }, opts)
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -9249,3 +9275,49 @@ function currentMobileDevice(response: MobileDevicesResponse): AtlasMobileDevice
 
   return response.devices.find((device) => !device.revoked_at) ?? null
 }
+
+// Atlas Loop Command Surface · re-exported so callers keep importing from `lib/api/client`
+// (the same surface every sibling lib module uses) while the implementation lives in its own
+// `loopClient` file. loopClient depends only on the apiGet/apiPost defined above; this barrel
+// re-export is evaluated after they exist, so there is no init-order hazard.
+export {
+  ATLAS_LOOP_DEFAULT_AREA,
+  ATLAS_LOOP_DEFAULT_FOCUS,
+  ATLAS_LOOP_DEFAULT_PORTFOLIO,
+  fetchAtlasLoopLive,
+  fetchAtlasLoopCycles,
+  submitAtlasLoopOperatorDecision,
+  submitAtlasLoopRunControl,
+  sendAtlasLoopDirective,
+} from './loopClient'
+export type {
+  AtlasLoopCycleOutcome,
+  AtlasLoopWorkClass,
+  AtlasLoopOperatorDecision,
+  AtlasLoopRiskLevel,
+  AtlasLoopRunControlAction,
+  AtlasLoopLockHolder,
+  AtlasLoopLockStatus,
+  AtlasLoopSignalStatus,
+  AtlasLoopStewardshipRecovery,
+  AtlasLoopSchedulerCycleSummary,
+  AtlasLoopSchedulerBacklog,
+  AtlasLoopRunState,
+  AtlasLoopCockpitHealth,
+  AtlasLoop24hObservability,
+  AtlasLoopCockpit,
+  AtlasLoopLiveResponse,
+  FetchAtlasLoopLiveParams,
+  AtlasLoopCycleRecord,
+  AtlasLoopCyclesResponse,
+  FetchAtlasLoopCyclesParams,
+  SubmitAtlasLoopDecisionInput,
+  AtlasLoopOperatorDecisionReceipt,
+  AtlasLoopOperatorDecisionError,
+  SubmitAtlasLoopRunControlInput,
+  AtlasLoopRunControlResponse,
+  SendAtlasLoopDirectiveInput,
+  AtlasLoopDirectiveConsumability,
+  AtlasLoopDirectiveReceipt,
+  AtlasLoopDirectiveError,
+} from './loopClient'

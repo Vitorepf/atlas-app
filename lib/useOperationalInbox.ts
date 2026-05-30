@@ -1,10 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import {
   AtlasApiError,
+  clearStoredBackendHost,
   dismissMobileInboxItem,
   discussMobileInboxItem,
+  getApiBase,
+  getDefaultBackendHost,
   getMobileCriticalInboxReview,
   getMobileDeviceSession,
   hydrateApiConfig,
@@ -16,9 +19,13 @@ import {
   type MobileCriticalInboxReviewResponse,
 } from './api/client'
 import {
+  OPERATIONAL_CRITICAL_TIMEOUT_MS,
+  OPERATIONAL_HYDRATE_GUARD_MS,
+  OPERATIONAL_LIST_TIMEOUT_MS,
   OPERATIONAL_PAGE_SIZE,
   OPERATIONAL_POLL_INTERVAL_MS,
   OPERATIONAL_POLL_JITTER_MS,
+  OPERATIONAL_SESSION_TIMEOUT_MS,
 } from './inboxConstants'
 import {
   daysFromNowIso,
@@ -34,31 +41,73 @@ import {
 import type { OperationalFilter } from './inboxTypes'
 import { syncAtlasBadge } from './pushNotifications'
 
-const OPERATIONAL_REFRESH_TIMEOUT_MS = 12000
-
 interface UseOperationalInboxParams {
   enabled: boolean
   showToast: (message: string) => void
   openAtlasAi: (threadId?: string | null) => void
 }
 
-function withOperationalTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label} demorou demais`))
-    }, OPERATIONAL_REFRESH_TIMEOUT_MS)
+export interface OperationalInboxDiagnostics {
+  apiBase: string
+  lastPhase: string
+  lastStatus: number | null
+  lastDurationMs: number
+  lastErrorDetail: string | null
+}
 
+interface DescribedError {
+  human: string
+  dev: string
+  status: number | null
+}
+
+// Translate a raw failure into a human message (prod) and a technical message
+// (dev) that names the backend host so the operator can immediately tell a
+// "wrong server / unreachable host" failure from a "server returned an error".
+function describeOperationalError(error: unknown, apiBase: string): DescribedError {
+  if (error instanceof AtlasApiError) {
+    const human = error.status >= 500
+      ? 'O Atlas server falhou ao carregar a inbox operacional.'
+      : error.status === 0
+        ? 'Não foi possível conectar ao Atlas server.'
+        : 'Não foi possível carregar a inbox operacional.'
+    return { status: error.status, human, dev: `[HTTP ${error.status}] ${error.message} @ ${apiBase}` }
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  const name = (error as { name?: string } | null)?.name
+  if (name === 'AbortError' || /abort|timed?\s*out|timeout/i.test(message)) {
+    return {
+      status: null,
+      human: 'A inbox operacional não respondeu a tempo.',
+      dev: `timeout/abort @ ${apiBase} — ${message}`,
+    }
+  }
+  return {
+    status: null,
+    human: 'Não foi possível conectar ao Atlas server.',
+    dev: `network error @ ${apiBase} — ${message}`,
+  }
+}
+
+// Local-only deadline guard for operations that have NO network timeout of their
+// own (hydrateApiConfig reads SecureStore/MMKV). Network calls own their own
+// timeout via the fetch layer, so they are NOT wrapped here — that is exactly
+// the masking race this hook used to suffer from.
+function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms)
     promise.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error) => {
-        clearTimeout(timer)
-        reject(error)
-      },
+      (value) => { clearTimeout(timer); resolve(value) },
+      (error) => { clearTimeout(timer); reject(error) },
     )
   })
+}
+
+function logPhase(phase: string, apiBase: string, elapsedMs: number, extra?: string): void {
+  if (__DEV__) {
+    console.log(`[inbox.operational] ${phase} +${elapsedMs}ms base=${apiBase}${extra ? ` ${extra}` : ''}`)
+  }
 }
 
 export function useOperationalInbox({
@@ -74,16 +123,37 @@ export function useOperationalInbox({
   const [error, setError] = useState<string | null>(null)
   const [mobilePaired, setMobilePaired] = useState<boolean | null>(null)
   const [criticalReview, setCriticalReview] = useState<MobileCriticalInboxReviewResponse['critical_review'] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<OperationalInboxDiagnostics | null>(null)
   const refreshSeq = useRef(0)
 
   const refresh = useCallback(async () => {
     const seq = refreshSeq.current + 1
     refreshSeq.current = seq
 
+    const apiBase = getApiBase()
+    const startedAt = Date.now()
+    const elapsed = () => Date.now() - startedAt
+    let phase = 'start'
+    const mark = (next: string, extra?: string) => {
+      phase = next
+      logPhase(next, apiBase, elapsed(), extra)
+    }
+
+    setLoading(true)
+    mark('refresh_start')
+
     try {
-      await withOperationalTimeout(hydrateApiConfig(), 'configuração operacional')
+      // Local storage hydrate has no network timeout of its own → guarded.
+      mark('hydrate_start')
+      await withDeadline(hydrateApiConfig(), OPERATIONAL_HYDRATE_GUARD_MS, 'hydrate')
+      mark('hydrate_ok')
+
+      // Session: the recover path makes an HTTP call that owns its own timeout.
+      mark('session_start')
       const session = getMobileDeviceSession()
-        ?? await withOperationalTimeout(recoverMobileDeviceSession(), 'sessão mobile')
+        ?? await recoverMobileDeviceSession({ timeoutMs: OPERATIONAL_SESSION_TIMEOUT_MS, retry: false })
+      mark('session_ok', session ? 'paired' : 'unpaired')
       if (!session) {
         if (seq !== refreshSeq.current) return
         setItems([])
@@ -95,23 +165,47 @@ export function useOperationalInbox({
         return
       }
 
-      const [response, criticalResponse] = await withOperationalTimeout(
-        Promise.all([
-          listMobileInbox({ status: 'active', limit: OPERATIONAL_PAGE_SIZE }),
-          getMobileCriticalInboxReview({ limit: 12 }),
-        ]),
-        'inbox operacional',
+      // List: the fetch layer owns the single 10s timeout (retry:false) so a
+      // real abort/HTTP error surfaces fast instead of a masked generic message.
+      mark('list_start')
+      const response = await listMobileInbox(
+        { status: 'active', limit: OPERATIONAL_PAGE_SIZE },
+        { timeoutMs: OPERATIONAL_LIST_TIMEOUT_MS, retry: false },
       )
       if (seq !== refreshSeq.current) return
+      mark('list_ok', `items=${response.items.length}`)
       setItems(response.items.filter(isActiveOperationalItem))
-      setCriticalReview(criticalResponse.critical_review)
       setCursor(response.next_cursor ?? null)
       setError(null)
       void syncAtlasBadge(response.unread_count)
       setMobilePaired(true)
+      if (__DEV__) {
+        setDiagnostics({ apiBase, lastPhase: 'list_ok', lastStatus: 200, lastDurationMs: elapsed(), lastErrorDetail: null })
+      }
+
+      // Critical review is best-effort and MUST NOT block or fail the list.
+      try {
+        mark('critical_start')
+        const criticalResponse = await getMobileCriticalInboxReview(
+          { limit: 6 },
+          { timeoutMs: OPERATIONAL_CRITICAL_TIMEOUT_MS, retry: false },
+        )
+        if (seq !== refreshSeq.current) return
+        mark('critical_ok')
+        setCriticalReview(criticalResponse.critical_review)
+      } catch (criticalError) {
+        if (seq !== refreshSeq.current) return
+        mark('critical_skipped')
+        setCriticalReview(null)
+        if (__DEV__) {
+          console.warn('[inbox.operational] critical-review skipped:', describeOperationalError(criticalError, apiBase).dev)
+        }
+      }
     } catch (caught) {
       if (seq !== refreshSeq.current) return
 
+      // A 401 means the device is not (or no longer) paired — local session was
+      // already cleared inside the client. Show the pairing surface, not an error.
       if (caught instanceof AtlasApiError && caught.status === 401) {
         setItems([])
         setCursor(null)
@@ -122,11 +216,29 @@ export function useOperationalInbox({
         return
       }
 
-      const message = caught instanceof Error ? caught.message : 'falha ao carregar inbox operacional'
-      setError(message)
-      showToast(message)
+      const described = describeOperationalError(caught, apiBase)
+      setError(__DEV__ ? `${described.human} · ${described.dev}` : described.human)
+      showToast(described.human)
+      if (__DEV__) {
+        setDiagnostics({
+          apiBase,
+          lastPhase: phase,
+          lastStatus: described.status,
+          lastDurationMs: elapsed(),
+          lastErrorDetail: described.dev,
+        })
+      }
+    } finally {
+      // Only the latest refresh owns the loading flag; stale runs leave it alone.
+      if (seq === refreshSeq.current) setLoading(false)
     }
   }, [showToast])
+
+  useEffect(() => {
+    if (!enabled) return
+
+    void refresh()
+  }, [enabled, refresh])
 
   const loadMore = useCallback(async () => {
     if (!cursor || loadingMore) return
@@ -280,6 +392,18 @@ export function useOperationalInbox({
     }
   }, [busyId, refresh, showToast])
 
+  // Recovery: drop a stale/unreachable stored host and reconnect against the
+  // build-injected default host (the LAN IP set by `npm run dev:ios`). Fixes the
+  // "stored Tailscale IP is dead and shadows the working default" lockout.
+  const reconnectViaDefaultHost = useCallback(async () => {
+    await clearStoredBackendHost()
+    if (__DEV__) console.log('[inbox.operational] host reset → default', getDefaultBackendHost())
+    await refresh()
+  }, [refresh])
+
+  const defaultHost = getDefaultBackendHost()
+  const apiBase = getApiBase()
+
   const counts = useMemo(() => countOperationalItems(items), [items])
   const criticalCount = useMemo(
     () => items.filter((item) => item.severity === 'critical').length,
@@ -290,24 +414,31 @@ export function useOperationalInbox({
     [filter, items],
   )
   const showList = mobilePaired !== false && (
+    loading ||
     items.length > 0 ||
-    (!error && mobilePaired === true)
+    (!error && mobilePaired === true) ||
+    mobilePaired === null
   )
 
   return {
     busyId,
     counts,
     criticalCount,
+    apiBase,
     criticalReview,
     cursor,
+    defaultHost,
+    diagnostics,
     error,
     filter,
     filteredItems,
     items,
     loadMore,
+    loading,
     loadingMore,
     mobilePaired,
     discussCriticalItem,
+    reconnectViaDefaultHost,
     refresh,
     runCriticalReviewAction,
     runAction,
