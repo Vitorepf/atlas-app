@@ -1186,15 +1186,6 @@ export default function HomeScreen() {
         </Animated.View>
         <Animated.View entering={FadeInDown.duration(420).delay(260).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
           <TocRow
-            label="Rivals"
-            value="relatório fair claude"
-            onPress={() => router.push('/rivals')}
-            accessibilityLabel="Abrir Atlas Rivals · relatório Fair Claude."
-            variant="codex"
-          />
-        </Animated.View>
-        <Animated.View entering={FadeInDown.duration(420).delay(300).easing(exhaleEase()).springify().damping(20).stiffness(160)}>
-          <TocRow
             label="Cartografia"
             value="mapa vivo do atlas"
             onPress={() => router.push('/cartografia')}
