@@ -20,6 +20,7 @@ import { Dock } from './Dock'
 import { Frau, Sans } from '../design/Type'
 import { useTheme } from '../design/theme'
 import { OfflineBanner } from './OfflineBanner'
+import { ActiveAgentsBadge } from './ActiveAgentsBadge'
 import { OverlayHost } from './sheets/OverlayHost'
 import { useAtlasStore } from '../lib/atlasStore'
 
@@ -150,6 +151,9 @@ export function AtlasShell({ children }: Props) {
             OfflineBanner abaixo já dá sinal visual de sync ("Sem conexão · fila local")
             mais informativo que hairline animada. */}
         <OfflineBanner visible={showQueue} queue={queue} label={showOffline ? 'Sem conexão' : 'Sync pendente'} />
+        {/* PERSISTENT FLEET ALARM — always visible above the dock when any autonomous agent is running.
+            Renders nothing when the machine is idle. Tapping it opens the full fleet screen. */}
+        <ActiveAgentsBadge />
         <Dock />
         <OverlayHost />
         {toast && <Toast key={toast.key} variant={toast.variant} msg={toast.msg} />}

@@ -98,6 +98,7 @@ function ThemedRoot() {
           <Stack.Screen name="projects" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="engineering" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="loop" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
+          <Stack.Screen name="agents" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="rivals" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="routines" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="bitacula" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
