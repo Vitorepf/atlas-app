@@ -279,6 +279,12 @@ export function openBrainPayloadForRouting(routing: RoutingState): Record<string
     mode: 'auto',
     surface: 'app_ai',
     provider_safe_only: true,
+    policy: {
+      provider_safe_only: true,
+      raw_text_exposed: false,
+      raw_logs_allowed: false,
+      providers_invoked: false,
+    },
   }
 }
 
