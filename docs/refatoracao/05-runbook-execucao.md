@@ -226,7 +226,7 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 - Extrair seções; corrigir `key={index}` (linhas 347, 898) na passada. [V-STD].
 - **⚠️ key={i} são falsos-positivos**: :347 é waveform (bars posicionais de amplitude, sem id estável — key={i} correto); :898 é lista estática de strings de detalhe (não reordena). §6.12 (glitch de reorder) não se aplica a listas posicionais/estáticas. Não mexer.
 - [x] **parte segura feita** — 34 helpers puros → `components/sheets/detail/detailHelpers.ts` (331L); `DetailSheet.tsx` 2054→1689L. `statusColor`/`densityColor` param `c` retipado `ReturnType<useTheme>['c']`→`AtlasPalette` (idêntico). **Bônus**: deletados 7 helpers mortos pré-existentes (destinationSummaryTitle/Body/Noun, contextDetail, densityLabel/Color, destinationDetail — zero callers, typecheck confirma). [V-STD]+bundle verde.
-- [ ] **restante (render-gated)** — dividir sub-componentes JSX (DetailContent/TriageInlineMode/etc.) por seção precisa de verificação visual no app. Operador valida.
+- [x] **sub-componentes extraídos** — 16 componentes JSX top-level (DetailContent/MetadataDisclosure/InfoSection/TriageInlineMode/TaskPrioritySelector/ClarificationProse/InfoListBlock/InfoBlock/DomainPill/Tag/ActionButton/QuickActionBar/QuickAction/TriageOverflowSheet/SnoozeSheet/OverflowRow) → 3 arquivos em `components/sheets/detail/` (DetailPrimitives/DetailActions/DetailContent). Verbatim, module-scope. **`DetailSheet.tsx` 1689→84L (2054→84 no total — só o wrapper)**. Estilos mortos podados. Sem ciclo. [V-STD]+bundle verde. Verificação visual final: operador.
 
 ---
 
