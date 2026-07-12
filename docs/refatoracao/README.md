@@ -14,7 +14,13 @@ Documentação completa da obra de eliminação, refatoração e migração do a
   - **R11** `SettingsSheet` 4116→**1660** (150 helpers puros + 16 componentes presentacionais → `settings/`).
   - **R12** `DetailSheet` 2054→**84** (só o wrapper; 34 helpers + 16 componentes → `detail/`; 7 mortos deletados).
   - **M0** `PENDING_SUBMISSION_KEY` consolidado.
-- **24 novos módulos focados** criados; 31 commits; cada um verde (typecheck + testes + bundle iOS).
+- **24 novos módulos focados** criados; 34 commits; cada um verde (typecheck + testes + bundle iOS).
+
+### ✅ VALIDAÇÃO RUNTIME (rodei o app de fato)
+- `react-native-web` ESTÁ instalado (premissa "web impossível" da E-D2 tb estava errada). `npx expo start --web` **bundlou (2778 módulos) e renderizou**.
+- **A tela primária (AtlasAiSheet) renderiza limpa após os 34 commits — ZERO erros de console.** Prova runtime de que os refactors não quebraram o render principal + o atlasStore hidratou (app subiu).
+- **Limites confirmados empiricamente p/ o restante**: AI funcional = **CORS bloqueia** fetch web→127.0.0.1:3737 (`net::ERR_FAILED`); navegação/sheets = **reanimated-web** quebra (`layoutReanimation/web/componentStyle.js`, limitação da lib, não do código); voz (M5) = **precisa de device físico** (sem LiveKit no web). App iOS não roda aqui (managed workflow, sem simulator/dev-client build).
+- **Conclusão**: FASE M (fluxos backend/voz) + R10 `create()` (mutação de state) + SettingsSheet render-sections precisam do **app iOS em device**. Não é conservadorismo — testado.
 
 **Correção crítica**: E-D1 removeu `react-dom` + `livekit-client` (auditoria §1.4 os deu como mortos) — o **bundle iOS** provou que são VIVOS (Tamagui babel-plugin precisa de react-dom; @livekit/react-native importa livekit-client). Restaurados. **Lição: remoção de dep exige bundle real, não só typecheck.**
 
