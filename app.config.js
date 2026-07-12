@@ -23,8 +23,23 @@ function readEnvFile(filePath) {
   }
 }
 
-const atlasServerEnv = readEnvFile(path.resolve(__dirname, '../atlas-server/.env'))
+const atlasServerEnvPath = path.resolve(__dirname, '../atlas-server/.env')
+const atlasServerEnv = readEnvFile(atlasServerEnvPath)
 const atlasExtra = appJson.expo.extra?.atlas ?? {}
+
+// Host/token/liveKitUrl no longer live in app.json (no committed infra IP or
+// dev token). They come from env (dev-ios.sh sets ATLAS_API_HOST / LIVEKIT_URL)
+// or ../atlas-server/.env (ATLAS_TOKEN). Warn loudly instead of falling back
+// to the client.ts placeholders silently.
+if (!(process.env.ATLAS_API_TOKEN ?? atlasServerEnv.ATLAS_TOKEN)) {
+  console.warn(
+    `[atlas] No ATLAS_API_TOKEN and no ATLAS_TOKEN in ${atlasServerEnvPath} — ` +
+      'falling back to the placeholder dev token. Set one before building for a real device.',
+  )
+}
+if (!process.env.ATLAS_API_HOST) {
+  console.warn('[atlas] No ATLAS_API_HOST set — falling back to 127.0.0.1 (ok for simulator; set it for LAN/Tailscale).')
+}
 
 const expo = {
   ...appJson.expo,
