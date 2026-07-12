@@ -219,7 +219,8 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 ### R11 · `SettingsSheet.tsx` → `components/sheets/settings/`
 - Dividir por seção + `SettingsRow`/`SettingsSection` compartilhados. [V-STD].
 - [x] **parcial (parte segura)** — extraídos 150 helpers PUROS (status/description/format, zero JSX/hook) + 9 tipos p/ `components/sheets/settings/settingsStatus.ts` (1713L). `SettingsSheet.tsx` 4116→2534L. Behavior-preserving por construção (funções puras, como os splits de API). [V-STD]+bundle verde.
-- [ ] **restante (render-gated)** — dividir o componente de 1400L (45 hooks) + sub-componentes presentacionais (Section/Row/PolicyFlowPicker/Segmented) por seção. Precisa de verificação VISUAL no app rodando (render/props/hooks) — [V-STD] não pega regressão de UI. Operador valida.
+- [x] **sub-componentes extraídos** — 16 componentes presentacionais top-level (Section/Row/StatusBadge/ApiAutoSaveBadge/MiniButton/ModelMetric/Segmented/ApiTextInput/SecretApiInput/PolicyFlowPicker/EffectivePolicyPreviewPanel/ChoiceButton/RuntimeButton/AiSessionsDashboard/AiRuntimeModelSummary/ActiveAiSessionsList) → 4 arquivos em `components/sheets/settings/` (SettingsPrimitives/ApiInputs/PolicyPanels/AiPanels). Todos module-scope (não fecham sobre estado) → relocação verbatim, behavior-preserving. `SettingsSheet.tsx` **2534→1660L (4116→1660 no total)**. Estilos/imports mortos podados. Sem ciclo. [V-STD]+bundle verde. **Verificação visual final: operador (como F3).**
+- [ ] **restante** — o componente `SettingsSheet()` em si (~1400L, 45 hooks) renderiza 13 `<Section>` inline; quebrar cada seção em sub-componente exige thread de estado/handlers (mais invasivo). Deixado p/ operador com app rodando.
 
 ### R12 · `DetailSheet.tsx` → `components/sheets/detail/`
 - Extrair seções; corrigir `key={index}` (linhas 347, 898) na passada. [V-STD].
