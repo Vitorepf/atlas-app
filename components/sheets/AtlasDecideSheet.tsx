@@ -72,11 +72,11 @@ const TASKS: Array<{ key: RoutingTask; label: string; subtitle: string; modes: R
 ]
 
 const EXECUTORS: Array<{ key: RoutingExecutor; label: string; subtitle: string }> = [
-  { key: 'auto',         label: 'Atlas decide', subtitle: 'pelo modo e pela tarefa' },
-  { key: 'claude_cli',   label: 'Claude',       subtitle: 'síntese e conversa' },
-  { key: 'codex_cli',    label: 'Codex',        subtitle: 'engenharia e estrutura' },
-  { key: 'gemini_cli',   label: 'Gemini',       subtitle: 'contexto longo e multimodal' },
-  { key: 'claude_codex', label: 'Conselho',     subtitle: 'múltiplas vozes em deliberação' },
+  { key: 'auto',            label: 'Atlas decide', subtitle: 'Hermes por padrão quando fizer sentido' },
+  { key: 'hermes_cli',      label: 'Hermes',       subtitle: 'runtime executivo com tools, skills e modelo interno' },
+  { key: 'minimax_m27_cli', label: 'MiniMax M3',   subtitle: 'modelo direto e independente no ATLS' },
+  { key: 'codex_cli',       label: 'Codex',        subtitle: 'engenharia e estrutura' },
+  { key: 'claude_cli',      label: 'Claude',       subtitle: 'julgamento e arquitetura manual' },
 ]
 
 const STYLES: Array<{ key: RoutingStyle; label: string; subtitle: string }> = [
@@ -269,10 +269,9 @@ export function AtlasDecideSheet({ visible, initial, onClose, onConfirm }: Props
 // Lógica funcional preservada do RoutingSheet original
 // =============================================================================
 
-// applyAtlasMode · cascading defaults quando user troca de modo. Cada modo tem
-// sua "tarefa default", "domain natural" e "estilo característico". Sem isso,
-// trocar pra "Programação" deixaria o user com uma combinação inválida (ex:
-// task=responder, domain=blackink, style=claro · não faz sentido pra código).
+// applyAtlasMode · cascading defaults quando user troca de modo. Modo pode
+// ajustar task/domain/style, mas a escolha manual de executor é soberana:
+// Hermes, MiniMax M3, Codex e Claude não viram detalhe um do outro.
 function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
   if (mode === 'auto') {
     return sanitizeRoutingState({
@@ -288,9 +287,7 @@ function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
       mode,
       task: state.task === 'debug' ? 'debug' : 'dev',
       domain: 'atlas',
-      executor: state.executor === 'claude_cli' || state.executor === 'gemini_cli' || state.executor === 'claude_codex'
-        ? state.executor
-        : 'codex_cli',
+      executor: state.executor,
       style: 'technical',
     })
   }
@@ -301,7 +298,7 @@ function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
       mode,
       task: 'review',
       domain: 'atlas',
-      executor: state.executor === 'codex_cli' ? 'auto' : state.executor,
+      executor: state.executor,
       style: 'complete',
     })
   }
@@ -310,7 +307,7 @@ function applyAtlasMode(state: RoutingState, mode: RoutingMode): RoutingState {
     ...ROUTING_DEFAULT,
     mode,
     task: mode === 'conversation' || mode === 'general' ? 'direct' : 'plan',
-    executor: state.executor === 'codex_cli' ? 'auto' : state.executor,
+    executor: state.executor,
   })
 }
 
@@ -351,6 +348,8 @@ function decideModeWord(mode: RoutingMode): string {
 // "claude" puro · combinado com "modo X" forma "modo geral · atlas decide".
 function decideExecutorWord(executor: RoutingExecutor): string {
   switch (executor) {
+    case 'hermes_cli':   return 'hermes'
+    case 'minimax_m27_cli': return 'minimax m3'
     case 'claude_cli':   return 'claude'
     case 'codex_cli':    return 'codex'
     case 'gemini_cli':   return 'gemini'

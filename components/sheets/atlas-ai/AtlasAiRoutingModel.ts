@@ -77,7 +77,7 @@ function routingDefaultForMode(mode: RoutingMode, fallback: RoutingState): Routi
       mode,
       task: fallback.task === 'debug' ? 'debug' : 'dev',
       domain: fallback.domain === 'auto' ? 'atlas' : fallback.domain,
-      executor: fallback.executor === 'auto' ? 'codex_cli' : fallback.executor,
+      executor: fallback.executor,
       style: fallback.style === 'clear' ? 'technical' : fallback.style,
     })
   }
@@ -121,6 +121,8 @@ export function providerGovernanceFromThread(thread: AtlasAiThread): ThreadProvi
 }
 
 export function executorAsProviderWord(executor: RoutingExecutor): string | undefined {
+  if (executor === 'hermes_cli') return 'hermes'
+  if (executor === 'minimax_m27_cli') return 'minimax m3'
   if (executor === 'claude_cli') return 'claude'
   if (executor === 'codex_cli') return 'codex'
   if (executor === 'gemini_cli') return 'gemini'
@@ -130,6 +132,8 @@ export function executorAsProviderWord(executor: RoutingExecutor): string | unde
 
 export function providerFromRouting(routing: RoutingState): AtlasAiProvider | null {
   routing = sanitizeRoutingState(routing)
+  if (routing.executor === 'hermes_cli') return 'hermes_cli'
+  if (routing.executor === 'minimax_m27_cli') return 'minimax_m27_cli'
   if (routing.executor === 'claude_cli') return 'claude_cli'
   if (routing.executor === 'codex_cli') return 'codex_cli'
   if (routing.executor === 'gemini_cli') return 'gemini_cli'
@@ -312,7 +316,7 @@ function isRoutingDomain(value: unknown): value is RoutingState['domain'] {
 }
 
 function isRoutingExecutor(value: unknown): value is RoutingExecutor {
-  return value === 'auto' || value === 'claude_cli' || value === 'codex_cli' || value === 'gemini_cli' || value === 'claude_codex'
+  return value === 'auto' || value === 'hermes_cli' || value === 'minimax_m27_cli' || value === 'claude_cli' || value === 'codex_cli' || value === 'gemini_cli' || value === 'claude_codex'
 }
 
 function isRoutingStyle(value: unknown): value is RoutingStyle {

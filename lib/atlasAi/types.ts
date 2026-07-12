@@ -41,7 +41,7 @@ export type AtlasAiTask = 'auto' | 'direct' | 'plan' | 'review' | 'dev' | 'debug
  * aqui — quando o operador deixa em auto, o campo `requested_provider` é
  * omitido do payload (backend escolhe).
  */
-export type AtlasAiProvider = 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+export type AtlasAiProvider = 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 
 /**
  * Choice exposta no composer mobile (pill provider). Inclui `auto` para o

@@ -1,8 +1,8 @@
 /**
- * Slice 6d · Dedicated bottom sheet picker para provider.
+ * Slice 6d · Dedicated bottom sheet picker para runtime/modelo.
  *
- * Substitui a routing sheet genérica heavyweight quando user toca no provider
- * pill. Premium UX: BottomSheet 50% height · 5 providers canon · ✦ marca
+ * Substitui a routing sheet genérica heavyweight quando user toca no runtime/modelo
+ * pill. Premium UX: BottomSheet 50% height · 5 opções canon · marca
  * selecionado · descrições editoriais.
  *
  * Espelha PROVIDER_OPTIONS do contract canon `lib/atlasAi/contract.ts:33-43`.
@@ -21,33 +21,33 @@ interface ProviderOption {
 }
 
 /**
- * 5 providers canon · alinhado com PROVIDER_OPTIONS V2 do contract.
+ * 5 opções canon · alinhado com PROVIDER_OPTIONS V2 do contract.
  */
 const PROVIDER_OPTIONS: ReadonlyArray<ProviderOption> = [
   {
     value: 'auto',
     label: 'auto',
-    description: 'Atlas Decide escolhe o provider ideal pelo contexto',
+    description: 'Atlas roteia runtime/modelo; Hermes é o padrão executivo quando fizer sentido',
   },
   {
-    value: 'claude_cli',
-    label: 'claude',
-    description: 'Anthropic via Claude CLI · vision premium',
+    value: 'hermes_cli',
+    label: 'hermes',
+    description: 'Runtime executivo · escolhe ferramentas, skills e modelo interno',
+  },
+  {
+    value: 'minimax_m27_cli',
+    label: 'minimax m3',
+    description: 'Modelo direto no ATLS · resposta independente',
   },
   {
     value: 'codex_cli',
     label: 'codex',
-    description: 'OpenAI via Codex CLI · raciocínio técnico',
+    description: 'Rota técnica especializada · engenharia e revisão',
   },
   {
-    value: 'gemini_cli',
-    label: 'gemini',
-    description: 'Google Gemini · multimodal',
-  },
-  {
-    value: 'claude_codex',
-    label: 'conselho',
-    description: 'Claude + Codex em conselho · resposta consolidada',
+    value: 'claude_cli',
+    label: 'claude',
+    description: 'Rota manual especializada · julgamento e arquitetura',
   },
 ]
 
@@ -67,7 +67,7 @@ export function ComposerProviderSheet({ visible, selected, onSelect, onClose }: 
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <SheetHeading title="Provider" subtitle="quem responde · pode ser auto-decidido" />
+        <SheetHeading title="Runtime / modelo" subtitle="Hermes e MiniMax M3 são opções separadas" />
 
         <View style={styles.optionsGroup}>
           {PROVIDER_OPTIONS.map((option, index) => {

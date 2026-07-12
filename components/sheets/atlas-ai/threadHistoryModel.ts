@@ -178,6 +178,8 @@ export function threadHistoryModeOptions(
 
 export function providerWord(provider: AtlasAiTrace['provider'] | undefined): string | undefined {
   if (provider === 'claude_codex') return 'conselho'
+  if (provider === 'hermes_cli') return 'hermes'
+  if (provider === 'minimax_m27_cli') return 'minimax m3'
   if (provider === 'claude_cli') return 'claude'
   if (provider === 'codex_cli') return 'codex'
   if (provider === 'gemini_cli') return 'gemini'

@@ -20,7 +20,7 @@ export const ROUTING_DOMAIN_OPTIONS = [
   { key: 'financas',      label: 'Finanças', word: 'finanças' },
 ] as const
 export type RoutingDomain = (typeof ROUTING_DOMAIN_OPTIONS)[number]['key']
-export type RoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+export type RoutingExecutor = 'auto' | 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type RoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
 export type RoutingMode = AtlasAiMode
 
@@ -127,6 +127,8 @@ export function routingDomainAllowedForMode(domain: RoutingDomain, mode: Routing
 
 function executorVerb(executor: RoutingExecutor): string {
   switch (executor) {
+    case 'hermes_cli':   return 'hermes executa'
+    case 'minimax_m27_cli': return 'minimax responde'
     case 'claude_cli':   return 'claude pensa'
     case 'codex_cli':    return 'codex pensa'
     case 'gemini_cli':   return 'gemini analisa'
@@ -190,7 +192,7 @@ function isRoutingMode(value: unknown): value is RoutingMode {
 }
 
 function isRoutingExecutor(value: unknown): value is RoutingExecutor {
-  return value === 'auto' || value === 'claude_cli' || value === 'codex_cli' || value === 'gemini_cli' || value === 'claude_codex'
+  return value === 'auto' || value === 'hermes_cli' || value === 'minimax_m27_cli' || value === 'claude_cli' || value === 'codex_cli' || value === 'gemini_cli' || value === 'claude_codex'
 }
 
 function isRoutingStyle(value: unknown): value is RoutingStyle {

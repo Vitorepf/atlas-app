@@ -1832,6 +1832,8 @@ function transcriptionQueueDescription(health: AtlasHealth | null): string {
 
 function providerLabel(provider: string | null | undefined): string {
   if (provider === 'auto') return 'Auto'
+  if (provider === 'hermes_cli') return 'Hermes'
+  if (provider === 'minimax_m27_cli') return 'MiniMax M3'
   if (provider === 'claude_cli') return 'Claude CLI'
   if (provider === 'codex_cli') return 'Codex CLI'
   if (provider === 'gemini_cli') return 'Gemini CLI'
@@ -2118,12 +2120,12 @@ function firstNumber(...values: unknown[]): number | null {
 function defaultProviderDescription(status: AiProvidersStatusResponse | null): string {
   if (!status) return 'Ainda não verificado'
   if (defaultProviderChoice(status) === 'auto') {
-    return 'Atlas Decide escolhe o melhor provider permitido para cada tarefa'
+    return 'Atlas Decide roteia runtime/modelo; Hermes é o padrão executivo quando fizer sentido'
   }
   const model = status.default_model
   const label = model?.model_label || model?.model || 'modelo padrão do CLI'
   const tier = model?.model_tier ? ` · tier ${model.model_tier}` : ''
-  return `${providerLabel(status.default_provider ?? 'claude_cli')} será usado quando nenhum provider for escolhido · ${label}${tier}`
+  return `${providerLabel(status.default_provider ?? 'hermes_cli')} será usado quando nenhum runtime/modelo for escolhido · ${label}${tier}`
 }
 
 function modelPolicyByProvider(status: AiProvidersStatusResponse | null, provider: string) {

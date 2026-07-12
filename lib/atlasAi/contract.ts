@@ -48,11 +48,11 @@ export const PROVIDER_OPTIONS: ReadonlyArray<{
   label: string
   sub: string
 }> = [
-  { value: 'auto', label: 'Auto (Atlas Decide)', sub: 'Atlas escolhe o provider ideal por contexto' },
-  { value: 'claude_cli', label: 'Claude', sub: 'Anthropic via Claude CLI · vision premium' },
-  { value: 'codex_cli', label: 'Codex', sub: 'OpenAI via Codex CLI · raciocínio técnico' },
-  { value: 'gemini_cli', label: 'Gemini', sub: 'Google Gemini · multimodal' },
-  { value: 'claude_codex', label: 'Claude+Codex council', sub: 'Dois provedores em conselho · resposta consolidada' },
+  { value: 'auto', label: 'Auto (Atlas Decide)', sub: 'Atlas roteia runtime/modelo; Hermes é o padrão executivo quando fizer sentido' },
+  { value: 'hermes_cli', label: 'Hermes', sub: 'runtime executivo · escolhe ferramentas, skills e modelo interno' },
+  { value: 'minimax_m27_cli', label: 'MiniMax M3', sub: 'modelo direto no ATLS · resposta independente' },
+  { value: 'codex_cli', label: 'Codex', sub: 'rota técnica especializada · engenharia e revisão' },
+  { value: 'claude_cli', label: 'Claude', sub: 'rota manual especializada · julgamento e arquitetura' },
 ]
 
 /**
@@ -75,7 +75,7 @@ export const MODE_OPTIONS: ReadonlyArray<{ value: AtlasAiMode; label: string; su
 ]
 
 export const TASK_OPTIONS_AUTO: ReadonlyArray<{ value: AtlasAiTask; label: string; sub: string }> = [
-  { value: 'auto', label: 'Auto', sub: 'backend decide o task pelo Hyperflow' },
+  { value: 'auto', label: 'Auto', sub: 'Atlas Decide escolhe a melhor ação pelo contexto' },
   { value: 'direct', label: 'Direto', sub: 'resposta imediata' },
   { value: 'plan', label: 'Plan', sub: 'pensar antes de responder' },
   { value: 'review', label: 'Review', sub: 'auditar/avaliar antes de agir' },

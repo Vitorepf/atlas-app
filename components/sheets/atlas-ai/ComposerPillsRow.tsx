@@ -38,7 +38,7 @@ import {
 interface Props {
   /** Atlas mode atual (auto/general/operational/programming/research/finance/etc.) */
   mode: string
-  /** Provider executor atual (auto/claude_cli/codex_cli/gemini_cli/claude_codex) */
+  /** Runtime/modelo atual (auto/hermes_cli/minimax_m27_cli/claude_cli/codex_cli/gemini_cli/claude_codex) */
   provider: string
   /** Draft text · usado pra cálculo de tokens */
   draft: string

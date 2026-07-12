@@ -31,7 +31,7 @@ export interface V1RoutingStateLike {
   mode: 'general' | 'operational' | 'programming'
   task: 'direct' | 'plan' | 'review' | 'dev' | 'debug'
   domain: string
-  executor: 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+  executor: 'auto' | 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
   style: string
 }
 

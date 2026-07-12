@@ -9,7 +9,7 @@ import type {
 } from './atlasAi/types'
 
 export type AtlasAiRoutingStyle = 'clear' | 'brief' | 'technical' | 'complete'
-export type AtlasAiRoutingExecutor = 'auto' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+export type AtlasAiRoutingExecutor = 'auto' | 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type AtlasAiRoutingDomain = 'auto' | 'atlas' | 'vault-curador' | 'saude' | 'blackink' | 'financas'
 
 export interface AtlasAiThreadRoutingState {
@@ -197,6 +197,8 @@ export function appendRoutingHistory(
 }
 
 function providerFromRoutingExecutor(executor: AtlasAiRoutingExecutor): string | null {
+  if (executor === 'hermes_cli') return 'hermes_cli'
+  if (executor === 'minimax_m27_cli') return 'minimax_m27_cli'
   if (executor === 'claude_cli') return 'claude_cli'
   if (executor === 'codex_cli') return 'codex_cli'
   if (executor === 'gemini_cli') return 'gemini_cli'

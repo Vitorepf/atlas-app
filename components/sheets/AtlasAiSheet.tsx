@@ -215,7 +215,10 @@ import { copyToClipboard } from './atlas-ai/AtlasAiClipboard'
 import { AtlasAiHeader } from './atlas-ai/AtlasAiHeader'
 import {
   PENDING_SUBMISSION_RETRY_DELAY_MS,
+  ACTIVE_TRACE_STUCK_MS,
   COMPUTE_EFFORT_KEY,
+  PENDING_SUBMISSION_MAX_RECOVERY_AGE_MS,
+  PENDING_SUBMISSION_STUCK_MS,
   ROUTING_KEY,
   THREAD_PAGE_SIZE,
   pinnedTraceStorageKey,
@@ -2425,6 +2428,74 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     }
   }, [activeTrace, refresh, refreshFailures, visible])
 
+  useEffect(() => {
+    if (!visible || pending?.status !== 'sending') return
+
+    const remainingMs = pending.startedAt + PENDING_SUBMISSION_STUCK_MS - Date.now()
+    const timeout = setTimeout(() => {
+      setPending((current) => {
+        if (!current || current.clientId !== pending.clientId || current.status !== 'sending') return current
+        return {
+          ...current,
+          status: 'failed',
+          attachmentPhase: 'failed',
+          errorMessage: 'Envio interrompido. O composer foi liberado para uma nova mensagem.',
+        }
+      })
+      setSubmitting(false)
+      void clearPendingSubmission(pending.clientId)
+      void recordAtlasAiEvent({
+        eventName: 'pending_submission_watchdog_released_composer',
+        correlation_id: pending.correlationId,
+        client_id: pending.clientId,
+        thread_id: currentThreadIdRef.current,
+        duration_ms: Math.max(0, Date.now() - pending.startedAt),
+        metadata: {
+          timeout_ms: PENDING_SUBMISSION_STUCK_MS,
+        },
+      })
+    }, Math.max(0, remainingMs))
+
+    return () => clearTimeout(timeout)
+  }, [pending, visible])
+
+  useEffect(() => {
+    if (!visible || !activeTrace) return
+
+    const createdAt = new Date(activeTrace.created_at).getTime()
+    if (!Number.isFinite(createdAt)) return
+    const remainingMs = createdAt + ACTIVE_TRACE_STUCK_MS - Date.now()
+    const timeout = setTimeout(() => {
+      setTraces((current) =>
+        current.map((trace) => {
+          if (trace.id !== activeTrace.id || !isAtlasTraceActive(trace)) return trace
+          return locallyFailTrace(trace, 'Conexão com o servidor interrompida; liberei o composer.')
+        }),
+      )
+      if (currentStreamTraceIdRef.current === activeTrace.id) {
+        currentStreamRunIdRef.current += 1
+        streamCancelRef.current?.()
+        streamCancelRef.current = null
+        streamedTraceIdsRef.current.delete(activeTrace.id)
+        currentStreamTraceIdRef.current = null
+      }
+      void recordAtlasAiEvent({
+        eventName: 'active_trace_watchdog_released_composer',
+        trace_id: activeTrace.id,
+        thread_id: activeTrace.thread_id ?? currentThreadIdRef.current,
+        provider: activeTrace.provider,
+        agent_slug: activeTrace.agent_slug,
+        duration_ms: Math.max(0, Date.now() - createdAt),
+        metadata: {
+          status: activeTrace.status,
+          timeout_ms: ACTIVE_TRACE_STUCK_MS,
+        },
+      })
+    }, Math.max(0, remainingMs))
+
+    return () => clearTimeout(timeout)
+  }, [activeTrace, visible])
+
   // Drop pending the moment its real twin appears via polling, so we don't
   // render the same turn twice after retries or request timeouts.
   useEffect(() => {
@@ -2794,12 +2865,19 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           void loadThreadData(trace.thread_id ?? currentThreadIdRef.current, { silent: true })
         }
       },
-      onError: () => {
+      onError: (error) => {
         if (currentStreamRunIdRef.current !== streamRunId) return
         streamedTraceIdsRef.current.delete(trace.id)
         if (currentStreamTraceIdRef.current === trace.id) {
           currentStreamTraceIdRef.current = null
         }
+        setTraces((current) =>
+          current.map((item) =>
+            item.id === trace.id && isAtlasTraceActive(item)
+              ? locallyFailTrace(item, humanAiError(error, 'servidor desconectado.'))
+              : item,
+          ),
+        )
         const voiceRuntimeTurn = voiceTraceRuntimeTurnsRef.current[trace.id]
         if (voiceRuntimeTurn?.startedAt != null) {
           void recordAtlasAiEvent({
@@ -2810,11 +2888,22 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
               session_id: voiceRuntimeTurn.sessionId,
               turn_id: voiceRuntimeTurn.turnId,
               last_sequence: streamSequencesRef.current.get(trace.id) ?? null,
+              error_class: errorClassFromUnknown(error),
               latency_ms: Math.max(0, Math.round(Date.now() - voiceRuntimeTurn.startedAt)),
             },
           })
         }
-        // Polling continua como trilho de recuperação; stream é melhoria de latência.
+        void recordAtlasAiEvent({
+          eventName: 'atlas_ai_stream_error_released_composer',
+          trace_id: trace.id,
+          thread_id: trace.thread_id ?? currentThreadIdRef.current,
+          provider: trace.provider,
+          agent_slug: trace.agent_slug,
+          metadata: {
+            error_class: errorClassFromUnknown(error),
+            last_sequence: streamSequencesRef.current.get(trace.id) ?? null,
+          },
+        })
       },
     }, { after: afterSequence })
 
@@ -4430,6 +4519,32 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
     if (!pendingSubmission) return
     if ((pendingSubmission.threadId ?? null) !== currentThreadId) return
 
+    const pendingAgeMs = Date.now() - pendingSubmission.startedAt
+    if (pendingAgeMs > PENDING_SUBMISSION_MAX_RECOVERY_AGE_MS) {
+      await clearPendingSubmission(pendingSubmission.clientId)
+      setPending((current) =>
+        current?.clientId === pendingSubmission.clientId
+          ? {
+              ...current,
+              status: 'failed',
+              attachmentPhase: 'failed',
+              errorMessage: 'Envio antigo descartado. O composer está livre para uma nova mensagem.',
+            }
+          : current,
+      )
+      void recordAtlasAiEvent({
+        eventName: 'pending_submission_recovery_expired',
+        correlation_id: pendingSubmission.correlationId,
+        client_id: pendingSubmission.clientId,
+        thread_id: pendingSubmission.threadId,
+        duration_ms: pendingAgeMs,
+        metadata: {
+          max_age_ms: PENDING_SUBMISSION_MAX_RECOVERY_AGE_MS,
+        },
+      })
+      return
+    }
+
     const existingTrace = traces.find((trace) => traceMatchesClientId(trace, pendingSubmission.clientId))
     if (existingTrace) {
       void recordAtlasAiEvent({
@@ -4449,7 +4564,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       return
     }
 
-    if (Date.now() - pendingSubmission.startedAt < PENDING_SUBMISSION_RETRY_DELAY_MS) return
+    if (pendingAgeMs < PENDING_SUBMISSION_RETRY_DELAY_MS) return
 
     recoveringPendingRef.current = true
     try {
@@ -4617,6 +4732,13 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
       })
     }
     threadViewVersionRef.current += 1
+    currentStreamRunIdRef.current += 1
+    streamCancelRef.current?.()
+    streamCancelRef.current = null
+    if (currentStreamTraceIdRef.current) {
+      streamedTraceIdsRef.current.delete(currentStreamTraceIdRef.current)
+      currentStreamTraceIdRef.current = null
+    }
     setCurrentThreadId(null)
     setCurrentThread(null)
     setSessionState(null)
@@ -4817,7 +4939,7 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
   )
 
   const switchProvider = useCallback(
-    async (executor: Extract<RoutingExecutor, 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'>) => {
+    async (executor: Extract<RoutingExecutor, 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'>) => {
       const nextRouting = sanitizeRoutingState({ ...routing, executor })
       setRouting(nextRouting)
       if (interactionLocked) {
@@ -5632,6 +5754,32 @@ async function recordMobileVoiceRuntimeFailedWithTelemetry(
         latency_ms: Math.max(0, Math.round(Date.now() - startedAt)),
       },
     })
+  }
+}
+
+function locallyFailTrace(trace: AtlasAiTrace, message: string): AtlasAiTrace {
+  const finishedAt = new Date().toISOString()
+  const failJob = (job: AtlasAiJob): AtlasAiJob =>
+    ['queued', 'processing', 'awaiting_user_choice'].includes(job.status)
+      ? {
+          ...job,
+          status: 'failed',
+          error_code: job.error_code ?? 'mobile_stream_disconnected',
+          error_message: job.error_message ?? message,
+          finished_at: job.finished_at ?? finishedAt,
+        }
+      : job
+
+  return {
+    ...trace,
+    status: 'failed',
+    completed_at: trace.completed_at ?? finishedAt,
+    metadata: {
+      ...trace.metadata,
+      mobile_terminal_state: 'stream_disconnected',
+    },
+    job: trace.job ? failJob(trace.job) : trace.job,
+    jobs: trace.jobs?.map(failJob),
   }
 }
 

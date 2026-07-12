@@ -3946,7 +3946,7 @@ export interface AtlasCognitiveGameRun {
   updated_at: string
 }
 
-export type AtlasAiProvider = 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
+export type AtlasAiProvider = 'hermes_cli' | 'minimax_m27_cli' | 'claude_cli' | 'codex_cli' | 'gemini_cli' | 'claude_codex'
 export type AtlasAiStatus = 'queued' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'awaiting_user_choice'
 
 export type AtlasAiChoiceAction = 'switch_provider' | 'downgrade_model' | 'wait' | 'fail' | 'cancel' | 'retry_same'

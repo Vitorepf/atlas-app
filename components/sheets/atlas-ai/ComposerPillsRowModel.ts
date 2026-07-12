@@ -72,6 +72,8 @@ export function labelForMode(mode: string): string {
  */
 export function labelForProvider(provider: string): string {
   if (provider === 'auto') return 'auto'
+  if (provider === 'hermes_cli') return 'hermes'
+  if (provider === 'minimax_m27_cli') return 'minimax m3'
   if (provider === 'claude_cli') return 'claude'
   if (provider === 'codex_cli') return 'codex'
   if (provider === 'gemini_cli') return 'gemini'
