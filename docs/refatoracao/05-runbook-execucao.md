@@ -256,6 +256,8 @@ Tentativa de extrair `useAtlasThread`/`useAtlasTraceStream` verbatim ABORTADA: o
 4. **Effect drop-pending** (≈2501-2505) lê `traces` (thread) p/ escrever `setPending(null)` (submit).
 **Pré-requisito real de M1** (logic change, precisa de app rodando): quebrar `loadThreadData` em loader thread-only vs bootstrap routing/providers/observability/quality/context; içar os 2 refs de voz de `startTraceStream` (passar runtime-turn como arg). SÓ depois desse decoupling é que `useAtlasThread` extrai limpo. Confirma: FASE M inteira precisa de decoupling com verificação runtime, não é relocação mecânica.
 
+**PROVA no código (por que nem o decouple é safe headless)**: `loadThreadData` (2075+) faz UM `Promise.all` de 8 fetches em paralelo — thread (interactions/thread/state/threads/snapshots) MISTURADO com foreign (providers/observability/quality) — um único round-trip, depois seta tudo intercalado. Separar em loader thread-only exige QUEBRAR esse batch em 2 round-trips = muda timing de rede + tratamento de erro (`threadListError`, `refreshFailures`) = **mudança de comportamento** que precisa de teste funcional. Teste funcional web = CORS-bloqueado (`net::ERR_FAILED`→:3737); app iOS não roda headless; voz = device. Logo o decouple NÃO é refactor puro — é redesenho de fetch que precisa do app em device. Confirmado lendo o código, não só análise.
+
 ### M1 · `useAtlasThread` + `useAtlasTraceStream` (risco ALTO)
 - Criar `components/sheets/atlas-ai/hooks/useAtlasThread.ts` e `useAtlasTraceStream.ts` conforme contrato [03 §7]. Mover: state 416/794-798, refs 1726-1733, `loadThreadData` 2075, `refresh` 2160, `startTraceStream` 2781, effects 2305-2567.
 - Regra: nenhum outro código toca os refs de stream — só via hook.
