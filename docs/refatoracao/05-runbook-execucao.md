@@ -223,7 +223,8 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 ### R12 · `DetailSheet.tsx` → `components/sheets/detail/`
 - Extrair seções; corrigir `key={index}` (linhas 347, 898) na passada. [V-STD].
 - **⚠️ key={i} são falsos-positivos**: :347 é waveform (bars posicionais de amplitude, sem id estável — key={i} correto); :898 é lista estática de strings de detalhe (não reordena). §6.12 (glitch de reorder) não se aplica a listas posicionais/estáticas. Não mexer.
-- [ ] **restante (render-gated)** — extração de seções/sub-componentes precisa de verificação visual no app. Parte segura (helpers puros: destination*/kind*/detail*/format*, ~300L) é extraível como em R11 se desejado, mas DetailSheet (2054L) já é o menor god-component — valor modesto. Operador decide.
+- [x] **parte segura feita** — 34 helpers puros → `components/sheets/detail/detailHelpers.ts` (331L); `DetailSheet.tsx` 2054→1689L. `statusColor`/`densityColor` param `c` retipado `ReturnType<useTheme>['c']`→`AtlasPalette` (idêntico). **Bônus**: deletados 7 helpers mortos pré-existentes (destinationSummaryTitle/Body/Noun, contextDetail, densityLabel/Color, destinationDetail — zero callers, typecheck confirma). [V-STD]+bundle verde.
+- [ ] **restante (render-gated)** — dividir sub-componentes JSX (DetailContent/TriageInlineMode/etc.) por seção precisa de verificação visual no app. Operador valida.
 
 ---
 
