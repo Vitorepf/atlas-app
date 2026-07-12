@@ -94,7 +94,8 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   Nota: `scripts/inbox-models.test.ts` importa de `lib/inboxCaptureModels` (vivo), **não** de `lib/inboxModels.ts` — a bateria `test:engineering` não é afetada.
   **NÃO deletar** `lib/atlasAiModeContract.ts` (cai só na M4 — o teste do v1Adapter usa como golden-reference).
 - **Verificação**: [V-STD].
-- [ ] feito
+- **⚠️ Correção**: auditoria §1.3/§5 hedgeavam (patamar4State "é usado", manter client) — FALSO, cluster patamar4 é loop morto fechado (typecheck confirma). 8 deletados.
+- [x] feito
 
 ### E-E1 · Registrar 3 testes órfãos vivos na bateria
 - **Passos**: em `package.json`, script `test:atlas-ai`, anexar ao final:
