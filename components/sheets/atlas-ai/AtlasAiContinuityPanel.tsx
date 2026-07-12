@@ -1,3 +1,4 @@
+import { formatRelative } from '../../../lib/formatRelative'
 import { Pressable, StyleSheet, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Animated, {
@@ -333,23 +334,6 @@ function formatLatency(ms: number): string {
   if (seconds < 10) return `${seconds.toFixed(1)} s`
   return `${Math.round(seconds)} s`
 }
-
-function formatRelative(value: string | null | undefined): string {
-  if (!value) return 'sem data'
-  const time = new Date(value).getTime()
-  if (!Number.isFinite(time)) return 'sem data'
-
-  const diffMs = Date.now() - time
-  if (diffMs < 60_000) return 'agora'
-  const minutes = Math.floor(diffMs / 60_000)
-  if (minutes < 60) return `há ${minutes} min`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `há ${hours} h`
-  const days = Math.floor(hours / 24)
-  if (days < 14) return `há ${days} d`
-  return new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-}
-
 const styles = StyleSheet.create({
   continuityPanel: {
     paddingBottom: 12,

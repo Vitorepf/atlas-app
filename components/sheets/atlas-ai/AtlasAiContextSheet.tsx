@@ -1,3 +1,4 @@
+import { formatRelative } from '../../../lib/formatRelative'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { Sans } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
@@ -306,21 +307,6 @@ function truncateForDisplay(text: string, max: number): string {
 function shortId(id: string): string {
   return id.length <= 12 ? id : `${id.slice(0, 8)}…${id.slice(-4)}`
 }
-
-function formatRelative(value: string | null | undefined): string {
-  if (!value) return 'agora'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const diff = Date.now() - date.getTime()
-  const minutes = Math.round(diff / 60_000)
-  if (minutes < 1) return 'agora'
-  if (minutes < 60) return `${minutes} min`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} h`
-  const days = Math.round(hours / 24)
-  return `${days} d`
-}
-
 const styles = StyleSheet.create({
   sheetContent: {
     paddingHorizontal: 28,

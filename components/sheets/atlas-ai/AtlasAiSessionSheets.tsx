@@ -1,3 +1,4 @@
+import { formatRelative } from '../../../lib/formatRelative'
 import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
@@ -243,21 +244,6 @@ function truncateForDisplay(text: string, max: number): string {
   if (trimmed.length <= max) return trimmed
   return `${trimmed.slice(0, max - 1)}…`
 }
-
-function formatRelative(value: string | null | undefined): string {
-  if (!value) return 'agora'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  const diff = Date.now() - date.getTime()
-  const minutes = Math.round(diff / 60_000)
-  if (minutes < 1) return 'agora'
-  if (minutes < 60) return `${minutes} min`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours} h`
-  const days = Math.round(hours / 24)
-  return `${days} d`
-}
-
 const styles = StyleSheet.create({
   sheetContent: {
     paddingHorizontal: 28,
