@@ -16,7 +16,7 @@ import {
   visibleHealthSnapshots,
   type QueuedPassiveSignal,
 } from '../lib/atlasStore'
-import type { AtlasHealthSnapshot, AtlasPassiveSignal } from '../lib/api/client'
+import type { AtlasHealthSnapshot } from '../lib/api/client'
 import { buildReadinessV1, type ReadinessV1Model } from '../lib/readiness'
 import { sleepDeficitHours, type SleepTargetEvidence } from '../lib/sleepTarget'
 import { analyzeSleepDays, type DailySleepAnalysis, type SleepEpisodeAnalysis } from '../lib/sleepAnalysis'
@@ -31,11 +31,26 @@ import {
   type SleepTimelineStage,
 } from '../lib/sleepOperational'
 import { isMainSleepCandidate } from '../lib/sleepValidity'
-
-type HealthSignal = Pick<
-  AtlasPassiveSignal,
-  'id' | 'client_id' | 'source' | 'signal_type' | 'value_numeric' | 'value_text' | 'unit' | 'started_at' | 'ended_at' | 'recorded_timezone' | 'metadata'
->
+import {
+  average,
+  formatDateTime,
+  hasValidSleepSnapshotData,
+  idealSleepStageHours,
+  isRecord,
+  median,
+  quantile,
+  queuedToSignal,
+  signalEndTime,
+  snapshotDateKey,
+  snapshotNumber,
+  snapshotSleepAwakeHours,
+  snapshotSleepDate,
+  snapshotSleepInBedHours,
+  snapshotSleepSortTime,
+  sleepNeedAdjustmentText,
+  sleepTargetRowLabel,
+  type HealthSignal,
+} from '../lib/healthDerive'
 
 interface SleepNight {
   key: string
@@ -949,24 +964,6 @@ function latestSleepSnapshot(snapshots: AtlasHealthSnapshot[]): AtlasHealthSnaps
     .sort((a, b) => snapshotSleepSortTime(b) - snapshotSleepSortTime(a))[0] ?? null
 }
 
-function hasValidSleepSnapshotData(snapshot: AtlasHealthSnapshot): boolean {
-  const durationHours = snapshotSleepNumber(snapshot, 'duration_hours') ?? snapshot.sleep_duration_hours ?? null
-  return isMainSleepCandidate({
-    asleepHours: durationHours,
-    bedtime: sleepPayloadText(snapshot, 'bedtime'),
-    wakeTime: sleepPayloadText(snapshot, 'wake_time'),
-  })
-}
-
-function snapshotSleepSortTime(snapshot: AtlasHealthSnapshot): number {
-  const sleep = isRecord(snapshot.sleep) ? snapshot.sleep : null
-  const wakeTime = typeof sleep?.wake_time === 'string' ? sleep.wake_time : null
-  const date = wakeTime ?? snapshot.computed_at ?? snapshot.snapshot_date
-  const time = new Date(date).getTime()
-  if (Number.isFinite(time)) return time
-  return new Date(snapshotDateKey(snapshot.snapshot_date)).getTime()
-}
-
 function matchingSignalNight(snapshot: AtlasHealthSnapshot | null, nights: SleepNight[]): SleepNight | null {
   if (!snapshot) return null
   const key = snapshotDateKey(snapshot.snapshot_date)
@@ -1850,29 +1847,10 @@ function sleepTargetEvidenceMetric(evidence: SleepTargetEvidence, date: string):
   }
 }
 
-function sleepTargetRowLabel(evidence: SleepTargetEvidence): string {
-  if (
-    evidence.sleepDebtAdjustmentHours > 0
-    || evidence.strainAdjustmentHours > 0
-    || evidence.napAdjustmentHours > 0
-  ) {
-    return 'Necessidade de sono'
-  }
-  return evidence.method === 'minimum' ? 'Mínimo aceitável' : 'Alvo de sono'
-}
-
 function sleepTargetEvidenceSummary(evidence: SleepTargetEvidence): string {
   if (evidence.method === 'outcome') return 'resultado pessoal'
   if (evidence.method === 'duration') return 'padrão pessoal'
   return 'mínimo aceitável'
-}
-
-function sleepNeedAdjustmentText(evidence: SleepTargetEvidence): string | null {
-  const parts = [`base ${formatHoursMetric(evidence.baselineHours)}`]
-  if (evidence.sleepDebtAdjustmentHours > 0) parts.push(`dívida +${formatHoursMetric(evidence.sleepDebtAdjustmentHours)}`)
-  if (evidence.strainAdjustmentHours > 0) parts.push(`carga +${formatHoursMetric(evidence.strainAdjustmentHours)}`)
-  if (evidence.napAdjustmentHours > 0) parts.push(`cochilo -${formatHoursMetric(evidence.napAdjustmentHours)}`)
-  return parts.length > 1 ? parts.join(' · ') : null
 }
 
 function sleepStageReference(
@@ -1920,26 +1898,6 @@ function sleepStagePersonalPercentRange(
   }
 }
 
-function idealSleepStageHours(baseHours: number, minRatio: number, maxRatio: number): string {
-  return `ideal ${formatHoursMetric(baseHours * minRatio)}-${formatHoursMetric(baseHours * maxRatio)}`
-}
-
-function snapshotSleepInBedHours(snapshot: AtlasHealthSnapshot | null): number | null {
-  if (!snapshot) return null
-  const stored = snapshotSleepNumber(snapshot, 'in_bed_hours')
-  if (typeof stored === 'number') return stored
-  const durationHours = snapshotSleepNumber(snapshot, 'duration_hours') ?? snapshot.sleep_duration_hours
-  const awakeHours = snapshotSleepAwakeHours(snapshot)
-  if (typeof durationHours === 'number' && typeof awakeHours === 'number') {
-    return durationHours + awakeHours
-  }
-  return null
-}
-
-function snapshotSleepAwakeHours(snapshot: AtlasHealthSnapshot | null): number | null {
-  return snapshotSleepNumber(snapshot, 'awake_hours')
-}
-
 function snapshotSleepNumber(snapshot: AtlasHealthSnapshot | null, key: string): number | null {
   if (!snapshot || !isRecord(snapshot.sleep)) return null
   return snapshotNumber(snapshot.sleep[key])
@@ -1949,10 +1907,6 @@ function sleepPayloadText(snapshot: AtlasHealthSnapshot | null, key: string): st
   if (!snapshot || !isRecord(snapshot.sleep)) return null
   const value = snapshot.sleep[key]
   return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-function snapshotSleepDate(snapshot: AtlasHealthSnapshot): string {
-  return sleepPayloadText(snapshot, 'wake_time') ?? snapshot.computed_at
 }
 
 function snapshotSleepMetricQuality(snapshot: AtlasHealthSnapshot, key: string): { confidence: number; label: string; reason: string | null } | null {
@@ -2031,20 +1985,8 @@ function axisLabel(score: number | null): string {
   return 'baixo'
 }
 
-function snapshotNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
 function numericMetricValue(value?: number | null): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function snapshotDateKey(value: string): string {
-  return value.split('T')[0] || value
 }
 
 function buildSleepNights(signals: HealthSignal[]): SleepNight[] {
@@ -2235,22 +2177,6 @@ function signalMetricTime(signal: HealthSignal, useEndTime = false): number {
   return new Date(useEndTime ? signal.ended_at ?? signal.started_at : signal.started_at).getTime()
 }
 
-function queuedToSignal(signal: QueuedPassiveSignal): HealthSignal {
-  return {
-    id: `local:${signal.client_id}`,
-    client_id: signal.client_id,
-    source: signal.source,
-    signal_type: signal.signal_type,
-    value_numeric: signal.value_numeric ?? null,
-    value_text: signal.value_text ?? null,
-    unit: signal.unit ?? null,
-    started_at: signal.started_at,
-    ended_at: signal.ended_at ?? null,
-    recorded_timezone: signal.recorded_timezone,
-    metadata: signal.metadata ?? {},
-  }
-}
-
 function mergeSignals(signals: HealthSignal[]): HealthSignal[] {
   const byClientId = new Map<string, HealthSignal>()
   for (const signal of signals) {
@@ -2260,10 +2186,6 @@ function mergeSignals(signals: HealthSignal[]): HealthSignal[] {
     }
   }
   return [...byClientId.values()].sort((a, b) => signalEndTime(b) - signalEndTime(a))
-}
-
-function signalEndTime(signal: HealthSignal): number {
-  return new Date(signal.ended_at ?? signal.started_at).getTime()
 }
 
 function formatHoursMetric(hours?: number | null): string {
@@ -2320,15 +2242,6 @@ function formatTime(iso: string): string {
   }).format(new Date(iso))
 }
 
-function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(iso))
-}
-
 function formatLongDate(iso: string): string {
   return new Intl.DateTimeFormat('pt-BR', {
     weekday: 'long',
@@ -2343,29 +2256,6 @@ function localDateKey(iso: string): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
-}
-
-function quantile(values: number[], q: number): number {
-  const sorted = [...values].sort((a, b) => a - b)
-  const position = (sorted.length - 1) * q
-  const base = Math.floor(position)
-  const rest = position - base
-  const next = sorted[base + 1]
-  return typeof next === 'number' ? sorted[base] + rest * (next - sorted[base]) : sorted[base]
-}
-
-function average(values: number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }
 
 function BackArrow({ color }: { color: string }) {
