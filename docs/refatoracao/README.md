@@ -8,7 +8,13 @@ Documentação completa da obra de eliminação, refatoração e migração do a
 - ✅ **FASE E** completa (E-D1/D2/A/B/C/E1/E2) — código morto, deps, artefatos.
 - ✅ **FASE F** — F1 CANCELADO (fontes são vivas), F2 (secret+IP fora do app.json), F3 (ATS local).
 - ✅ **FASE S** — clamp×9, formatRelative×5 (+teste), DotLeader×6, _layout enxuto. S-A8 cancelado. S-A1/A2/A4 diferidos (S-A1 "bugs" §6.6/§6.7 são não-bugs).
-- ✅ **FASE R (splits de client.ts): R1-R9 COMPLETO** — `client.ts` **9401→543L (−94%)**, 9 módulos de domínio (core/atlasAi/engineering/captures/health/entities/work/mobile/semantic/memory). + **R11 parte segura** (SettingsSheet 4116→2534, helpers puros extraídos).
+- ✅ **FASE R (splits): R1-R9 COMPLETO** — `client.ts` **9401→543L (−94%)**, 9 módulos de domínio (core/atlasAi/engineering/captures/health/entities/work/mobile/semantic/memory).
+- ✅ **God-objects/components decompostos (partes seguras, verbatim/behavior-preserving)**:
+  - **R10** `atlasStore` 3474→2551 (62 converters puros → `storeConverters.ts`; `create()`/`persist`/`PersistedAtlasState`/`STORAGE_KEY` **byte-idênticos** = shape MMKV provado intacto).
+  - **R11** `SettingsSheet` 4116→**1660** (150 helpers puros + 16 componentes presentacionais → `settings/`).
+  - **R12** `DetailSheet` 2054→**84** (só o wrapper; 34 helpers + 16 componentes → `detail/`; 7 mortos deletados).
+  - **M0** `PENDING_SUBMISSION_KEY` consolidado.
+- **24 novos módulos focados** criados; 31 commits; cada um verde (typecheck + testes + bundle iOS).
 
 **Correção crítica**: E-D1 removeu `react-dom` + `livekit-client` (auditoria §1.4 os deu como mortos) — o **bundle iOS** provou que são VIVOS (Tamagui babel-plugin precisa de react-dom; @livekit/react-native importa livekit-client). Restaurados. **Lição: remoção de dep exige bundle real, não só typecheck.**
 
