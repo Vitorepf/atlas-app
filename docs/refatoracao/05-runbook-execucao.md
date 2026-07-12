@@ -198,7 +198,7 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 
 ### R3 · `lib/api/engineering.ts`
 - Funções 7241-7657 + tipos 1304-3228. Barrel. [V-STD] (`test:engineering` cobre).
-- [ ] feito
+- [x] feito — `engineering.ts` 1697L (85 tipos + 42 fns; só importa de `./core`, zero ciclo); `client.ts` 6985→5306L. `AtlasEngineeringPackageResponse` + `fetchTaskEngineering`/`freeze...` ficaram no client (referenciam `AtlasTaskEvent`, tipo não-eng); ilhas `AtlasTool*`/`AtlasStructureMotherAudit*` deixadas no lugar. [V-STD]+bundle verde.
 
 ### R4-R9 · Demais domínios (lotes de 2-3)
 - Ordem sugerida: health+captures+sync → inbox+voice+devices → projects+tasks+agenda+routines → mac+cartografia+cognitive+memory. Layout completo no [02 Parte B](02-refatoracao.md). Barrel sempre. [V-STD] por lote.
