@@ -37,8 +37,13 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   ```
   Em `../CLAUDE.md`-filho (`atlas-app/CLAUDE.md`): remover a linha `- **Forms**: react-hook-form + Zod`.
 - **Verificação**: [V-STD] + `npx expo-doctor` sem erro novo.
-- **⚠️ Correção de auditoria**: `@expo-google-fonts/fraunces` está na lista de removíveis da auditoria (§1.4), mas é **VIVO** — `design/fonts.ts` importa e `app/_layout.tsx:44` carrega (gate do primeiro render). Removidas só 5 deps; fraunces mantida.
-- [x] feito
+- **⚠️ Correção de auditoria (3 falsos-mortos)**: a metodologia grep "sem import em app/components/lib = morto" (§1.4) falha para deps consumidas por build-plugins ou por outros node_modules nativos. Confirmados VIVOS via bundle real (`expo export:embed`):
+  - `@expo-google-fonts/fraunces` — `design/fonts.ts` importa, `app/_layout.tsx:44` carrega (gate do render).
+  - `react-dom` — o **Tamagui babel-plugin** (`@tamagui/static` → `react-native-web-internals` → `@tamagui/web`) faz `require('react-dom')` em TODO bundle, inclusive iOS. Sem ele: `iOS Bundling failed: Cannot find module 'react-dom'`.
+  - `livekit-client` — `@livekit/react-native/src/e2ee/RNKeyProvider.ts` importa direto (peer `^2.15.8`). Metro não resolve transitivo: `Unable to resolve module livekit-client`.
+  - **Removíveis de fato (zero uso, confirmado)**: `react-hook-form`, `@hookform/resolvers`, `zod`. Só essas 3 saíram.
+  - **Lição**: verificação de remoção de dep exige BUNDLE real ([V-VOICE]), não só [V-STD]+expo-doctor. typecheck/tsx não pegam deps de build/nativo.
+- [x] feito (corrigido: 3 removidas, não 5/6)
 
 ### E-D2 · Remover script `web` morto + dedup plugin expo-notifications
 - **Passos**: em `package.json` remover a linha `"web": "expo start --web",`. Em `app.json`, remover `expo-notifications` do array `plugins` (mantém o re-append de `app.config.js:52`, que é quem executa por último).
