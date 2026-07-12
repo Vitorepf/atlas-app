@@ -84,12 +84,9 @@ function ThemedRoot() {
             animationDuration: 400,
           }}
         >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="inbox" />
-          {/* Tabs principais · review e ritual herdam fade default (eram
-              slide_from_bottom = modal SaaS rude · removido). */}
-          <Stack.Screen name="ritual" />
-          <Stack.Screen name="review" />
+          {/* Tabs principais (index, inbox, ritual, review) são auto-registradas
+              pelo expo-router e herdam o fade default do screenOptions acima —
+              cross-fade contemplativo, NÃO slide_from_bottom (modal SaaS rude). */}
           <Stack.Screen name="mobile-pairing" options={{ animation: 'slide_from_bottom', animationDuration: 380 }} />
           <Stack.Screen name="mobile-inbox-item" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
           <Stack.Screen name="mobile-thread" options={{ animation: 'slide_from_right', animationDuration: 320 }} />
