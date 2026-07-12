@@ -187,7 +187,8 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 - Mover de `client.ts`: linhas 1-48 (config cache), 5752-5762 (AtlasApiError), 5764-5911 (config+auth), 8677-8763 (wrappers), 8965-9360 (engine+token storage) + envelopes compartilhados de 5586-5751.
 - `client.ts` importa e re-exporta tudo de `core.ts` (barrel) — **zero import site muda**.
 - Verificação: [V-VOICE].
-- [ ] feito
+- **⚠️ Correção**: os "envelopes 5586-5751" (CapturesResponse, DomainsResponse, …) NÃO são fundação — são tipos de resposta de domínio, o engine `apiGet<T>` é genérico. Ficaram em `client.ts` (movem nos R3-R9). Também moveu junto o engine mobile (`mobileApiRequest` + wrappers) porque lê o estado privado `cachedMobileDeviceToken`; `apiRequest`/`queryString` promovidos a export (usados por domínio); 2 getters `getMobileDeviceToken/Id` adicionados ao core (mesmos valores).
+- [x] feito — `core.ts` 639L (sem import de `./client`, zero ciclo); `client.ts` 9401→8807L; `export * from './core'`. [V-VOICE] verde (bundle iOS 3032 módulos OK) após restaurar react-dom+livekit-client.
 
 ### R2 · `lib/api/atlasAi.ts` ★ pré-requisito da FASE M
 - Mover o bloco contíguo `createAiInteraction`(7872) → `runAiQualityAction`(8493) + `CreateAiInteractionInput`(7842) + tipos `AtlasAi*` (~3949-4650).
