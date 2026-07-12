@@ -103,7 +103,7 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   && tsx scripts/ob05-open-brain-injection.test.ts && tsx scripts/youtube-prewarm.test.ts && tsx scripts/youtube-summary.test.ts
   ```
 - **Verificação**: `npm run test:atlas-ai` verde.
-- [ ] feito
+- [x] feito
 
 ### E-E2 · Deletar artefatos raiz (~600KB)
 - **Passos**:
