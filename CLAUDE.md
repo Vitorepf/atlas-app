@@ -7,7 +7,6 @@ Este arquivo cobre só o específico do app mobile. **Governança canônica est�
 - **Roteamento**: expo-router 6 — file-based em `app/` (cada `.tsx` é uma rota)
 - **UI**: Tamagui 2 (`tamagui.config.ts`)
 - **Estado**: Zustand 5 + React Query 5
-- **Forms**: react-hook-form + Zod
 - **Voz/áudio**: LiveKit (`@livekit/react-native`) + expo-audio
 - **Native sensíveis**: HealthKit, Calendar, Location, Notifications, SecureStore, MMKV
 - **New Architecture habilitada** (`newArchEnabled: true` em `app.json`) — cuidado com libs incompatíveis
@@ -53,7 +52,6 @@ docs/                   → specs e documentação local
 | Roteamento | **expo-router** (file-based) | React Navigation (imperativo) |
 | UI lib | **Tamagui** | StyleSheet/RN nativo |
 | Testes | **tsx + .test.ts manuais** | Jest + jest-expo |
-| Forms | react-hook-form + Zod | — |
 | Voz | LiveKit | — |
 
 ## Regras invioláveis
