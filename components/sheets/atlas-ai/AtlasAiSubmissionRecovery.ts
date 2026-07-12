@@ -17,8 +17,7 @@ import {
   newAttachmentId,
 } from './AtlasAiAttachmentModel'
 import { normalizeStoredRouting } from './AtlasAiRoutingModel'
-
-const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
+import { PENDING_SUBMISSION_KEY } from './AtlasAiStorageKeys'
 
 export interface PendingAiSubmission {
   clientId: string

@@ -1,5 +1,6 @@
 export const ROUTING_KEY = 'atlas-ai.routing'
 export const COMPUTE_EFFORT_KEY = 'atlas-ai.compute-effort'
+export const PENDING_SUBMISSION_KEY = 'atlas-ai.pending-submission'
 export const THREAD_PAGE_SIZE = 10
 export const PENDING_SUBMISSION_RETRY_DELAY_MS = 8_000
 export const PENDING_SUBMISSION_STUCK_MS = 45_000

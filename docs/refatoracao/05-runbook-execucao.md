@@ -149,7 +149,7 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 - **Escolhas canônicas obrigatórias** (bugs §6.6-6.7): `isRecord` = `typeof v === 'object' && v !== null`; `idealSleepStageHours` formata com `formatHours`.
 - **⚠️ Correção de auditoria — os "bugs" §6.6/§6.7 NÃO são bugs**: `isRecord` health (`value !== null`) e sleep (`Boolean(value)`) são logicamente equivalentes para todo input com `typeof==='object'` (só objetos+null). E a canônica sugerida dropa `!Array.isArray` que AMBOS têm — segui-la faria isRecord aceitar arrays (regressão). `idealSleepStageHours`: `formatHours` e `formatHoursMetric` produzem string idêntica para os inputs numéricos que a função recebe. Logo S-A1 é dedup puro, sem correção de comportamento.
 - [x] **parte pura feita** — 18 helpers realmente idênticos → `lib/healthDerive.ts` (154L); health.tsx 5222→5101, sleep.tsx 2589→2479. Canônicas aplicadas: `isRecord` c/ guard `!Array.isArray`, `idealSleepStageHours` c/ `formatHours`. `clamp` de health→`mathUtils` (40 sites), clamp morto de sleep deletado. **8 helpers DIVERGEM de fato** (cleanUnit, mergeSignals, qualityStatusLabel, snapshotSleepMetricQuality, sleepStagePersonalPercentRange, sleepStageReference, metricSubtitle, sleepTargetEvidenceMetric) — NÃO mesclados (seriam mudança de comportamento; a auditoria dizia "verbatim" mas erra). [V-STD]+bundle verde.
-- [ ] **restante** — `DetailBlock`/`DetailList`/`DetailMetric` (componentes JSX) → `components/health/HealthPrimitives.tsx` (render-gated, operador valida).
+- [x] **componentes: SKIP (divergem)** — `DetailMetric` diverge entre telas (valor `size 13/ls 0.13` em health vs `12/0.12` em sleep — diferença visual real); `DetailBlock`/`DetailList` são idênticos mas dependem de estilos file-local. Merge cegaria a diferença de DetailMetric (mudança visual silenciosa, como BackArrow em S-A7). Mantidos separados. **S-A1 concluído** (18 helpers puros consolidados; 3 componentes divergem → não mesclar).
 
 ### S-A2 · `components/atlas-ui/` — Metric, StatusPill, SmallAction, Fact
 - Extrair de `app/engineering.tsx` (versão mais completa como base); substituir as redefinições em projects, rivals, routines, open-brain, memory.
@@ -238,7 +238,15 @@ Contratos das APIs dos hooks: [03 §7](03-migracao-atlas-ai.md). Teste manual po
 ### M0 · Preparação
 - Pré: R2 concluído. Consolidar `PENDING_SUBMISSION_KEY` (de `AtlasAiSubmissionRecovery.ts:21`) em `AtlasAiStorageKeys.ts`.
 - Escrever os 3 testes de rede de segurança ([03 §6](03-migracao-atlas-ai.md)): RoutingModel dispatch, snapshot de payload de submit, stream merge/dedup. Registrar na bateria.
-- [ ] feito
+- [x] **key consolidada** — `PENDING_SUBMISSION_KEY` agora vive só em `AtlasAiStorageKeys.ts`; `AtlasAiSubmissionRecovery` importa. [V-VOICE] verde.
+- **Rede de segurança já existe em grande parte**: `atlas-ai-thread-routing` (routing dispatch), `atlas-ai-streaming` (stream merge/dedup), `atlas-ai-runtime`/`mobile-voice-runtime` (submit/payload) já cobrem os 3 alvos. Reforçar com snapshots específicos quando as fatias M1-M8 forem feitas.
+
+### ⚠️ M1-M8 · Extração de hooks stateful — RUNTIME/DEVICE-GATED
+- `AtlasAiSheet.tsx` (5807L) = ~99% componente stateful (69 useState, 44 useRef, 28 return branches). Extrair `useAtlasThread`/`useAtlasTraceStream` (M1), `useAtlasRouting` (M2), `useComposerRecorder` (M3), `useAtlasVoiceController` (M5), `useAtlasSubmit` (M7), shell (M8) PUXA state/refs/effects PARA FORA do componente — muda a estrutura interna de forma que typecheck+bundle NÃO validam (ordem de hooks, sharing de refs, deps de effects). O runbook manda **teste manual por fatia** (enviar texto, voice mode, record memo, attachment, trocar thread, decide/routing, kill-app com submit pendente) e **M5 exige device físico**.
+- Helpers puros de AtlasAiSheet = só ~130L (não vale extração isolada; movem junto com suas fatias).
+- M4 (matar contrato V1) depende de confirmação do backend (`atlas:ai:session-bootstrap`).
+- **Requer app rodando + device. Não executável headless com segurança.**
+- [ ] M1 [ ] M2 [ ] M3 [ ] M4(backend) [ ] M5(device) [ ] M6 [ ] M7 [ ] M8
 
 ### M1 · `useAtlasThread` + `useAtlasTraceStream` (risco ALTO)
 - Criar `components/sheets/atlas-ai/hooks/useAtlasThread.ts` e `useAtlasTraceStream.ts` conforme contrato [03 §7]. Mover: state 416/794-798, refs 1726-1733, `loadThreadData` 2075, `refresh` 2160, `startTraceStream` 2781, effects 2305-2567.
