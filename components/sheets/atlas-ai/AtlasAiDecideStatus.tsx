@@ -2,7 +2,6 @@ import { Pressable, StyleSheet, View } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { Frau } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
-import type { RoutingExecutor } from '../../console/StatusRouting'
 import {
   classifyDecideDestino,
   type DecideDestino,
@@ -32,7 +31,6 @@ function nextDecideDestino(current: DecideDestino | null): DecideDestino {
  */
 export function DecideStatusLine({
   text,
-  executor: _executor,
   destinoOverride,
   onOpenConfig,
   onToggleDestino,
@@ -40,15 +38,12 @@ export function DecideStatusLine({
   locked,
 }: {
   text: string
-  /** @deprecated Slice 6b · executor agora vive no ComposerPillsRow. Mantido na assinatura por compat. */
-  executor: RoutingExecutor
   destinoOverride: DecideDestino | null
   onOpenConfig: () => void
   onToggleDestino: (next: DecideDestino) => void
   decideEnabled?: boolean
   locked?: boolean
 }) {
-  void _executor // Slice 6b · executor consumed by ComposerPillsRow agora
   const c = useTheme().c
   const classified = decideEnabled ? classifyDecideDestino(text) : null
   const destino = decideEnabled ? destinoOverride ?? classified : null

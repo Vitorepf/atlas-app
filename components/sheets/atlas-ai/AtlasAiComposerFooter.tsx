@@ -7,7 +7,6 @@ import Animated, {
 import { Frau, Mono } from '../../../design/Type'
 import { useTheme } from '../../../design/theme'
 import { labelForMode } from './ComposerPillsRowModel'
-import type { RoutingExecutor } from '../../console/StatusRouting'
 import type {
   ComposerFileAttachment,
   ComposerImageAttachment,
@@ -37,7 +36,6 @@ export function AtlasAiComposerFooter({
   onChangeDraft,
   onSubmit,
   interactionLocked,
-  executor,
   destinoOverride,
   onOpenRouting,
   onSetDestinoOverride,
@@ -67,7 +65,6 @@ export function AtlasAiComposerFooter({
   onChangeDraft: (text: string) => void
   onSubmit: () => void
   interactionLocked: boolean
-  executor: RoutingExecutor
   destinoOverride: DecideDestino | null
   onOpenRouting: () => void
   onSetDestinoOverride: (next: DecideDestino) => void
@@ -176,7 +173,6 @@ export function AtlasAiComposerFooter({
       {shouldShowDecideSection ? (
         <DecideStatusLine
           text={draft}
-          executor={executor}
           destinoOverride={destinoOverride}
           onOpenConfig={onOpenRouting}
           onToggleDestino={onSetDestinoOverride}

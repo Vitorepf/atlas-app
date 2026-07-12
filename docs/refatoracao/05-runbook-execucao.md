@@ -43,7 +43,8 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
 ### E-D2 · Remover script `web` morto + dedup plugin expo-notifications
 - **Passos**: em `package.json` remover a linha `"web": "expo start --web",`. Em `app.json`, remover `expo-notifications` do array `plugins` (mantém o re-append de `app.config.js:52`, que é quem executa por último).
 - **Verificação**: `npx expo config --type public | grep -c notification` (plugin aparece 1×) + [V-STD].
-- [ ] feito
+- **⚠️ Correção**: mantido o decl CONFIGURADO em `app.json` (som `atlas-bronze.wav`) e removido o re-append **cru** em `app.config.js:52` — o inverso do que o card dizia dropava o som. Verificado: plugin 1×, som preservado.
+- [x] feito
 
 ### E-A · Deletar 13 componentes mortos (~2.061 linhas)
 - **Pré-condição**: branch `feat/agent-governance-fleet-screen` mergeado/resolvido (2 arquivos do lote estão modificados nele).

@@ -5452,7 +5452,6 @@ export function AtlasAiSheet({ presentationMode = 'sheet' }: AtlasAiSheetProps =
           onChangeDraft={setDraft}
           onSubmit={submit}
           interactionLocked={composerLocked}
-          executor={routing.executor}
           destinoOverride={destinoOverride}
           decideEnabled={canClassifyDraftAsCapture}
           onOpenRouting={openRouting}
