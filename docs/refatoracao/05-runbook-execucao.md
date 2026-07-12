@@ -79,7 +79,7 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   Em `app/_layout.tsx`: remover os `<Stack.Screen>` de `plan-visible`, `detail`, `decision`.
   No Dock (grep `FOCUSED_ROUTES`): remover `'/detail'` e `'/decision'` do literal.
 - **Verificação**: [V-STD] + abrir o app (`npm run dev:ios`) e navegar pelo Dock sem crash.
-- [ ] feito
+- [x] feito (V-STD verde; nav manual do Dock não executada — deleção de rotas sem inbound nav, provada por typecheck + grep vazio)
 
 ### E-C · Deletar módulos lib/ mortos (~360 linhas)
 - **Verificar antes**: `grep -rn "usePatamar4State\|patamar4\|useProviderChoice\|atlasAi/placeholders\|lib/inboxModels\|richInput/computeEffort" --include='*.ts*' app components lib | grep -v "lib/atlasAi/patamar4\|lib/atlasAi/usePatamar4\|lib/atlasAi/placeholders\|lib/hooks/useProviderChoice\|lib/inboxModels\|lib/richInput/computeEffort"` → vazio.
