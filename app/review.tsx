@@ -1,3 +1,4 @@
+import { DotLeader } from '../components/atlas-ui/DotLeader'
 import { useMemo } from 'react'
 import { StyleSheet, View } from 'react-native'
 import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
@@ -134,23 +135,6 @@ export default function ReviewScreen() {
   )
 }
 
-function DotLeader() {
-  const c = usePalette()
-  return (
-    <View style={styles.leader}>
-      <Mono
-        size={11}
-        lineHeight={16}
-        letterSpacing={2}
-        color={c.ink3}
-        numberOfLines={1}
-        style={{ opacity: 0.45 }}
-      >
-        {'·'.repeat(60)}
-      </Mono>
-    </View>
-  )
-}
 
 function weeklyRows(captures: ReturnType<typeof visibleCaptures>) {
   const audio = captures.filter((capture) => capture.kind === 'audio').length
@@ -213,10 +197,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  leader: {
-    flex: 1,
-    overflow: 'hidden',
   },
   gestureFooter: {
     marginTop: 36,

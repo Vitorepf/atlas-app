@@ -1,3 +1,4 @@
+import { DotLeader } from '../components/atlas-ui/DotLeader'
 import { StyleSheet, View } from 'react-native'
 import { useMemo } from 'react'
 import { useRouter } from 'expo-router'
@@ -333,23 +334,6 @@ function PhysicalRow({
   )
 }
 
-function DotLeader() {
-  const c = usePalette()
-  return (
-    <View style={styles.leader}>
-      <Mono
-        size={11}
-        lineHeight={16}
-        letterSpacing={2}
-        color={c.ink3}
-        numberOfLines={1}
-        style={styles.leaderDots}
-      >
-        {'·'.repeat(60)}
-      </Mono>
-    </View>
-  )
-}
 
 const styles = StyleSheet.create({
   contentRail: {
@@ -377,13 +361,6 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     paddingVertical: 8,
     gap: 8,
-  },
-  leader: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  leaderDots: {
-    opacity: 0.45,
   },
   gestureFooter: {
     marginTop: 36,

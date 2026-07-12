@@ -1,3 +1,4 @@
+import { DotLeader } from '../atlas-ui/DotLeader'
 import { useMemo } from 'react'
 import { Pressable, StyleSheet, View } from 'react-native'
 import { BottomSheet } from './BottomSheet'
@@ -75,7 +76,7 @@ function Body({ options, onSelect }: { options: SnoozeOption[]; onSelect: (opt: 
           <Frau italic size={22} lineHeight={29} letterSpacing={-0.18} color={c.ink}>
             {opt.label}
           </Frau>
-          <DotLeader />
+          <DotLeader opacity={0.5} />
           <Mono size={11} lineHeight={14} letterSpacing={0.4} color={c.ink2} style={styles.meta}>
             {opt.metaLabel}
           </Mono>
@@ -88,23 +89,6 @@ function Body({ options, onSelect }: { options: SnoozeOption[]; onSelect: (opt: 
   )
 }
 
-function DotLeader() {
-  const { c } = useTheme()
-  return (
-    <View style={styles.leader}>
-      <Mono
-        size={11}
-        lineHeight={16}
-        letterSpacing={2}
-        color={c.ink3}
-        numberOfLines={1}
-        style={styles.leaderDots}
-      >
-        {'·'.repeat(60)}
-      </Mono>
-    </View>
-  )
-}
 
 const styles = StyleSheet.create({
   wrap: {
@@ -121,13 +105,6 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 32,
     gap: 8,
-  },
-  leader: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  leaderDots: {
-    opacity: 0.5,
   },
   meta: {
     flexShrink: 0,

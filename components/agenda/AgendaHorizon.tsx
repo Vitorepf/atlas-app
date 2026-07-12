@@ -1,3 +1,4 @@
+import { DotLeader } from '../atlas-ui/DotLeader'
 import { StyleSheet, View } from 'react-native'
 import Animated, { Easing, FadeInDown } from 'react-native-reanimated'
 import { Frau, Mono } from '../../design/Type'
@@ -95,23 +96,6 @@ export function AgendaHorizon({ days, onSelectDay }: Props) {
   )
 }
 
-function DotLeader() {
-  const c = usePalette()
-  return (
-    <View style={styles.leader}>
-      <Mono
-        size={11}
-        lineHeight={16}
-        letterSpacing={2}
-        color={c.ink3}
-        numberOfLines={1}
-        style={styles.leaderDots}
-      >
-        {'·'.repeat(60)}
-      </Mono>
-    </View>
-  )
-}
 
 const styles = StyleSheet.create({
   wrap: {
@@ -128,13 +112,6 @@ const styles = StyleSheet.create({
     width: 64,
     flexShrink: 0,
     textTransform: 'lowercase',
-  },
-  leader: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  leaderDots: {
-    opacity: 0.45,
   },
   allEmpty: {
     paddingVertical: 8,

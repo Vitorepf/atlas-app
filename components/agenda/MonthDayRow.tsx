@@ -1,3 +1,4 @@
+import { DotLeader } from '../atlas-ui/DotLeader'
 import { StyleSheet, View } from 'react-native'
 import { Frau, Mono } from '../../design/Type'
 import { usePalette } from '../../design/theme'
@@ -115,7 +116,7 @@ export function MonthDayRow({ day, onPress }: Props) {
       >
         {day.dow.toUpperCase()}
       </Mono>
-      <DotLeader />
+      <DotLeader opacity={0.4} />
       <View style={styles.metaBlock}>
         <Frau italic weight={metaWeight === 'med' ? 'med' : undefined} size={13} lineHeight={19} color={metaColor}>
           {day.meta}
@@ -166,23 +167,6 @@ export function MonthDayRow({ day, onPress }: Props) {
   return row
 }
 
-function DotLeader() {
-  const c = usePalette()
-  return (
-    <View style={styles.leader}>
-      <Mono
-        size={11}
-        lineHeight={16}
-        letterSpacing={2}
-        color={c.ink3}
-        numberOfLines={1}
-        style={styles.leaderDots}
-      >
-        {'·'.repeat(60)}
-      </Mono>
-    </View>
-  )
-}
 
 const styles = StyleSheet.create({
   row: {
@@ -202,13 +186,6 @@ const styles = StyleSheet.create({
   },
   dowItalic: {
     fontStyle: 'italic',
-  },
-  leader: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  leaderDots: {
-    opacity: 0.4,
   },
   metaBlock: {
     flexShrink: 1,
