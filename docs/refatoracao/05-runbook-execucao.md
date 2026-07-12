@@ -194,7 +194,7 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 - Mover o bloco contíguo `createAiInteraction`(7872) → `runAiQualityAction`(8493) + `CreateAiInteractionInput`(7842) + tipos `AtlasAi*` (~3949-4650).
 - Fora da fronteira: Memory/Open-Brain (8499+), youtube (já em `youtubePrewarmClient.ts`).
 - `client.ts` re-exporta (barrel). Verificação: [V-VOICE].
-- [ ] feito
+- [x] feito — `atlasAi.ts` 1841L (119 símbolos + helpers; sem import de `./client`, zero ciclo); `client.ts` 8807→6985L; `export * from './atlasAi'`. Tipos AI 3942-5070 (param em `AtlasWorkspaceProfile`); `listAtlasWorkspaceProfiles`/`createAtlasWorkspaceProfile` (ilha não-AI no meio) ficaram no client. [V-VOICE] verde.
 
 ### R3 · `lib/api/engineering.ts`
 - Funções 7241-7657 + tipos 1304-3228. Barrel. [V-STD] (`test:engineering` cobre).
