@@ -214,7 +214,8 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 - Ordem interna: `persistence.ts` + `converters.ts` + `coreSlice` → domainsSlice → capturesSlice → checkins/behaviors → healthSlice (leva o cluster sleep-repair) → screenTime/mission → **syncSlice por último** (o `sync()` de 426 linhas depende das filas de todos).
 - Invariante: `PersistedAtlasState` + `persist()` centralizados; shape MMKV `atlas.store.v1` **não muda** (diff de snapshot antes/depois: hidratar, serializar, comparar JSON).
 - 1 slice por PR. [V-STD] (`test:health` cobre o grosso).
-- [ ] feito
+- [x] **converters.ts feito** (parte segura) — 62 blocos puros (queuedTo*/merge*/sleep-derivation/slugify/captureTriage/…) → `lib/storeConverters.ts` (1010L). `atlasStore.ts` **3474→2551L**. **Invariante PROVADO**: `create()`, `persist`, `PersistedAtlasState`, `initialPersistedState`, `STORAGE_KEY`, `normalizePersistedState` byte-idênticos (git diff não toca nenhum). Zero risco de shape/hydration. Sem ciclo. [V-STD]+bundle verde.
+- [ ] **restante (runtime-gated)** — o slice split do `create()` de ~1240L (actions + `sync()`) precisa de app rodando p/ validar hidratação/state. A parte perigosa foi deixada intacta de propósito.
 
 ### R11 · `SettingsSheet.tsx` → `components/sheets/settings/`
 - Dividir por seção + `SettingsRow`/`SettingsSection` compartilhados. [V-STD].
