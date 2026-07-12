@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 import { hasMeaningfulSleepEpisode, isMainSleepCandidate } from './sleepValidity'
 
 export type SleepStageKey = 'awake' | 'rem' | 'core' | 'deep' | 'asleep' | 'inBed'
@@ -471,8 +472,4 @@ function dateFromLocalKey(key: string): Date | null {
   const [year, month, day] = key.split('-').map((part) => Number.parseInt(part, 10))
   if (!year || !month || !day) return null
   return new Date(year, month - 1, day)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }

@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 export const ATLAS_PHYSIOLOGICAL_AGE_MODEL_VERSION = 'atlas_physiological_age_v1'
 
 const DEFAULT_WINDOW_DAYS = 90
@@ -888,11 +889,6 @@ function round(value: number, digits: number): number {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
 }
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

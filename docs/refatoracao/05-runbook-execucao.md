@@ -126,12 +126,12 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
 ### F2 · Secret e IP commitados em app.json
 - **Passos**: em `app.json`, remover `extra.atlas.apiToken`, `extra.atlas.apiHost`, `extra.atlas.liveKitUrl` (valores movem para `.env` local que o `app.config.js` já lê). Em `app.config.js`: onde o fallback silencioso cai no placeholder (`:26,44`), lançar `console.warn` explícito quando `../atlas-server/.env` não existir.
 - **Verificação**: `npx expo config --type public | grep -i "token\|100\.80"` → vazio; app conecta normalmente via env local.
-- [ ] feito
+- [x] feito — config sem IP/placeholder; host resolve via env (127.0.0.1 fallback); token só via ../atlas-server/.env.
 
 ### F3 · ATS desabilitado app-wide
 - **Passos**: em `app.json`, trocar `NSAllowsArbitraryLoads: true` por exceção de domínio (`NSExceptionDomains` com o host do atlas-server permitindo HTTP local). Requer rebuild dev-client.
 - **Verificação**: `npm run build:ios:dev` + fluxo de API funcionando no device.
-- [ ] feito
+- [x] aplicado (`NSAllowsLocalNetworking:true`) — ⚠️ verificação on-device (build+device) PENDENTE, não executável neste ambiente. Tailscale-over-HTTP intencionalmente fora (mover p/ TLS server-side, não re-commitar IP).
 
 ---
 

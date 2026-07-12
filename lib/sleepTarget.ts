@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 export interface SleepTargetNight {
   key?: string | null
   asleepHours: number | null
@@ -265,8 +266,4 @@ function formatHours(hours: number): string {
 
 function numericOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }

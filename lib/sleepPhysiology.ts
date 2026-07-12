@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 export interface SleepPhysiologySignal {
   signal_type: string
   value_numeric: number | null
@@ -225,8 +226,4 @@ function dateFromLocalKey(key: string): Date | null {
   const [year, month, day] = key.split('-').map((part) => Number.parseInt(part, 10))
   if (!year || !month || !day) return null
   return new Date(year, month - 1, day)
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }

@@ -1,3 +1,4 @@
+import { clamp as clampNumber } from './mathUtils'
 import { atlasStorage } from './storage'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
@@ -2409,15 +2410,6 @@ function anchorKey(kind: string, identifier: string): string {
 function uniqueTypes<T extends string>(types: readonly T[]): T[] {
   return [...new Set(types)]
 }
-
-function chunks<T>(items: readonly T[], size: number): T[][] {
-  const result: T[][] = []
-  for (let index = 0; index < items.length; index += size) {
-    result.push(items.slice(index, index + size))
-  }
-  return result
-}
-
 async function readHealthKitDebugTrail(): Promise<string[]> {
   try {
     const raw = await atlasStorage.getItem(HEALTHKIT_DEBUG_KEY)
@@ -2498,11 +2490,6 @@ function localDateKey(date: Date): string {
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '00'
   return `${get('year')}-${get('month')}-${get('day')}`
 }
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)

@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 import type {
   AtlasCheckin,
   AtlasDigitalActivitySnapshot,
@@ -985,11 +986,6 @@ function emptySleepRegularity(nights = 0): Record<string, number | null> & { reg
     regularity_nights: nights,
   }
 }
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
 function startOfLocalDay(date: Date): Date {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)

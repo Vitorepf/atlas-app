@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 import type { AtlasCheckin, AtlasDigitalActivitySnapshot, AtlasPassiveSignal } from './api/client'
 import {
   inferSleepTarget,
@@ -2411,8 +2412,4 @@ function median(values: number[]): number {
 function average(values: number[]): number {
   if (values.length === 0) return 0
   return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }

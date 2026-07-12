@@ -1,3 +1,4 @@
+import { clamp as clampNumber } from './mathUtils'
 import { atlasStorage } from './storage'
 import { NativeModules, Platform } from 'react-native'
 import type {
@@ -651,11 +652,6 @@ function asIntentionality(value: unknown): StoreDigitalSessionInput['intentional
     ? candidate as StoreDigitalSessionInput['intentionality']
     : null
 }
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
-}
-
 function stableUuid(value: string): string {
   const hashes = [0x811c9dc5, 0x45d9f3b, 0x27d4eb2d, 0x165667b1].map((seed) => fnv1a(value, seed))
   const hex = hashes.map((hash) => hash.toString(16).padStart(8, '0')).join('').slice(0, 32)

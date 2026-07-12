@@ -1,3 +1,4 @@
+import { clamp } from './mathUtils'
 export type SleepTimelineStage = 'awake' | 'rem' | 'core' | 'deep' | 'asleep' | 'inBed'
 
 export interface SleepTimelineSignal {
@@ -244,8 +245,4 @@ function formatNumber(value: number): string {
   if (Math.abs(value) >= 100) return Math.round(value).toLocaleString('pt-BR')
   if (Number.isInteger(value)) return String(value)
   return value.toFixed(1).replace('.', ',')
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }
