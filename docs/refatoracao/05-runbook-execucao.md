@@ -142,35 +142,37 @@ Cada item: criar/usar o destino, mover, atualizar imports, deletar as cópias. [
 ### S-A1 · `lib/healthDerive.ts` + `components/health/HealthPrimitives.tsx`
 - Mover os ~28 helpers duplicados de `app/health.tsx` ↔ `app/sleep.tsx` (lista: median, quantile, clamp, isRecord, average, cleanUnit, formatDateTime, snapshotSleep*, sleepStage*, idealSleepStageHours → lib; DetailBlock, DetailList, DetailMetric → components).
 - **Escolhas canônicas obrigatórias** (bugs §6.6-6.7): `isRecord` = `typeof v === 'object' && v !== null`; `idealSleepStageHours` formata com `formatHours`.
-- [ ] feito
+- **⚠️ Correção de auditoria — os "bugs" §6.6/§6.7 NÃO são bugs**: `isRecord` health (`value !== null`) e sleep (`Boolean(value)`) são logicamente equivalentes para todo input com `typeof==='object'` (só objetos+null). E a canônica sugerida dropa `!Array.isArray` que AMBOS têm — segui-la faria isRecord aceitar arrays (regressão). `idealSleepStageHours`: `formatHours` e `formatHoursMetric` produzem string idêntica para os inputs numéricos que a função recebe. Logo S-A1 é dedup puro, sem correção de comportamento.
+- [ ] **DIFERIDO** — dedup puro de ~28 helpers interdependentes entre 2 telas grandes; valor médio, risco não-trivial, sem bug real. Priorizado FASE R/M (lever de qualidade primário da auditoria, e R desbloqueia M). Retomar após R/M.
 
 ### S-A2 · `components/atlas-ui/` — Metric, StatusPill, SmallAction, Fact
 - Extrair de `app/engineering.tsx` (versão mais completa como base); substituir as redefinições em projects, rivals, routines, open-brain, memory.
-- [ ] feito
+- [ ] **DIFERIDO** — variantes divergem entre telas (risco de mudança visual que [V-STD] não pega). Retomar após R/M com verificação visual.
 
 ### S-A3 · `lib/formatRelative.ts`
 - 1 função canônica; substituir as 5 cópias (AtlasAiTurnModel, AtlasAiContextSheet, AtlasAiSessionSheets, AtlasAiExecutionSheet, AtlasAiContinuityPanel). **Escolha canônica**: formato curto "agora/5min/2h/3d" (maioria); ContinuityPanel adota o mesmo.
-- [ ] feito
+- [x] feito — `now` injetável + `scripts/format-relative.test.ts` pinando o contrato. ContinuityPanel unificado (§6.5).
 
 ### S-A4 · Scrim único
 - `BottomSheet.tsx`, `CenterModal.tsx`, `SideSheet.tsx` passam a compor `Scrim.tsx` em vez de reimplementar fade.
-- [ ] feito
+- [ ] **DIFERIDO** — mudança de timing de animação sem verificação visual; retomar após R/M.
 
 ### S-A5+A6 · `lib/mathUtils.ts` — clamp + chunk
 - `clamp(v,min,max)` substitui as 6 cópias (sleepOperational:249, readiness:2416, sleepAnalysis:476, sleepPhysiology:230, atlasStore:3311); `chunk<T>` substitui atlasStore:3289 + healthKit:2413.
-- [ ] feito
+- **⚠️ Correção**: 9 cópias reais de clamp (não 6), consolidadas. `clampLevel` (atlasStore) é diferente, mantido. chunk NÃO consolidado: `chunks` de healthKit era morto (deletado); `chunkItems` de atlasStore é único user vivo (YAGNI).
+- [x] feito (só clamp; chunk resolvido por deleção do morto)
 
 ### S-A7 · BackArrow + DotLeader → `components/atlas-ui/`
 - bitacula↔sleep (BackArrow), review↔ritual (DotLeader).
-- [ ] feito
+- [x] feito parcial — DotLeader (6 cópias, não 2) consolidado com prop `opacity`. **BackArrow NÃO**: as 2 cópias renderizam diferente (2px reto top:8 vs 3px arredondado top:2); merge seria mudança visual silenciosa. Mantidas.
 
 ### S-A8 · `structuredClone` em healthKit:2469
 - Trocar `JSON.parse(JSON.stringify(value))` por `structuredClone(value)`.
-- [ ] feito
+- [ ] **CANCELADO** — `toPlain` normaliza objetos nativos do HealthKit em JSON-safe (Date→ISO, dropa undefined, native→String no catch). `structuredClone` preserva não-JSON e joga no catch (→String) em host objects nativos: muda o payload da API. Não é deep-clone genérico. Auditoria §2 errou.
 
 ### S-A9 · `_layout.tsx` enxuto
 - Remover os `<Stack.Screen>` sem opções custom (~9 linhas); expo-router auto-registra.
-- [ ] feito
+- [x] feito — index/inbox/ritual/review auto-registradas, herdam fade default.
 
 ---
 
