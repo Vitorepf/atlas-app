@@ -21,13 +21,16 @@ export * from './core'
 export * from './atlasAi'
 // engineering domain API surface (types + functions) lives in ./engineering, re-exported here.
 export * from './engineering'
+// captures domain API surface (types + functions) lives in ./captures, re-exported here.
+export * from './captures'
+// health domain API surface (types + functions) lives in ./health, re-exported here.
+export * from './health'
 import {
   apiGet,
   apiPost,
   apiPut,
   apiPatch,
   apiDelete,
-  apiUpload,
   mobileApiGet,
   mobileApiPost,
   mobileApiDelete,
@@ -56,6 +59,11 @@ import type {
   AtlasEngineeringBenchmarkResultSummary,
   AtlasEngineeringEvidence,
 } from './engineering'
+// Captures types still referenced by client.ts's kept triage/sync code (which stays because it
+// references project/semantic/checkin types that remain here).
+import type { AtlasCapture, CaptureTriageAction, StoreTextCaptureInput } from './captures'
+// Health types still referenced by client.ts's kept sync-delta code.
+import type { AtlasHealthSnapshot, StoreHealthSnapshotInput } from './health'
 
 
 export interface AtlasNotificationPreferences {
@@ -790,18 +798,6 @@ export interface AtlasDomain {
   updated_at: string | null
 }
 
-export interface AtlasCaptureLink {
-  id: string
-  capture_id: string
-  target_type: 'semantic_note' | 'semantic_curation_proposal' | 'task' | 'project' | 'hypothesis' | 'external' | string
-  target_id: string | null
-  target_title: string | null
-  relation_type: string
-  metadata: Record<string, unknown>
-  created_at: string
-  updated_at: string
-}
-
 export interface AtlasInboxHealth {
   open_count: number
   no_destination_count: number
@@ -815,90 +811,6 @@ export interface AtlasInboxHealth {
     failed_count: number
     curation_candidate_count: number
   }>
-}
-
-export interface AtlasHealth {
-  status: 'ok' | string
-  version: string
-  service: string
-  ts: string
-  db_connected: boolean
-  overall_ok?: boolean
-  checks?: {
-    database?: { ok: boolean }
-    storage?: {
-      ok: boolean
-      writable: boolean
-      path: string | null
-      error: string | null
-    }
-    transcription?: {
-      enabled: boolean
-      engine: string | null
-      language: string | null
-      binary_path: string | null
-      binary_exists: boolean
-      binary_executable: boolean
-      model_path: string | null
-      model_exists: boolean
-      ffmpeg_path: string | null
-      ffmpeg_exists: boolean
-      ffmpeg_executable: boolean
-    }
-    transcription_jobs?: {
-      queued: number
-      processing: number
-      failed: number
-    }
-    scheduler?: {
-      configured: boolean
-      note: string
-    }
-    queue?: {
-      connection: string
-      transcription_queue: string
-      note: string
-    }
-  }
-}
-
-export type CaptureKind = 'audio' | 'text' | 'photo'
-export type TranscriptionStatus = 'pending' | 'processing' | 'done' | 'failed' | 'na'
-export type CaptureTriageAction =
-  | 'promote'
-  | 'archive'
-  | 'snooze'
-  | 'attach_note'
-  | 'create_task'
-  | 'create_project'
-  | 'create_hypothesis'
-
-export interface AtlasCapture {
-  id: string
-  client_id: string
-  kind: CaptureKind
-  domain: DomainKey
-  content_text: string | null
-  content_file_path: string | null
-  content_file_exists: boolean | null
-  content_file_integrity: 'available' | 'missing' | 'not_applicable' | string
-  content_duration_ms: number | null
-  content_size_bytes: number | null
-  content_sha256: string | null
-  content_mime_type: string | null
-  transcription_status: TranscriptionStatus
-  transcription_engine: string | null
-  transcription_error: string | null
-  captured_at: string
-  captured_timezone: string
-  captured_lat: number | null
-  captured_lng: number | null
-  pre_capture_digital_context?: Record<string, unknown>
-  metadata: Record<string, unknown>
-  links?: AtlasCaptureLink[]
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
 }
 
 export interface CaptureTriageInput {
@@ -2102,60 +2014,6 @@ export interface RoutinesGenerateDueResponse {
   tasks: AtlasTask[]
 }
 
-export interface AtlasHealthSnapshot {
-  id: string
-  client_id: string
-  source: 'atlas_app' | 'server' | 'import'
-  snapshot_date: string
-  snapshot_timezone: string
-  computed_at: string
-  signal_count: number
-  readiness_score: number | null
-  current_score: number | null
-  body_score: number | null
-  mind_score: number | null
-  drive_score: number | null
-  sleep_score: number | null
-  autonomic_score: number | null
-  load_score: number | null
-  subjective_score: number | null
-  stability_score: number | null
-  confidence: number | null
-  sleep_duration_hours: number | null
-  sleep_efficiency: number | null
-  hrv_ms: number | null
-  resting_heart_rate_bpm: number | null
-  respiratory_rate: number | null
-  wrist_temperature_c: number | null
-  active_energy_kcal: number | null
-  basal_energy_kcal: number | null
-  exercise_minutes: number | null
-  stand_minutes: number | null
-  steps: number | null
-  walking_running_distance_m: number | null
-  vo2max: number | null
-  body_mass_kg: number | null
-  body_fat_percentage: number | null
-  lean_body_mass_kg: number | null
-  muscle_mass_percentage: number | null
-  body_mass_index: number | null
-  waist_circumference_cm: number | null
-  energy_level: number | null
-  mood_level: number | null
-  state: AtlasCheckin['state'] | null
-  metrics: Record<string, unknown>
-  readiness: Record<string, unknown>
-  sleep: Record<string, unknown>
-  recovery: Record<string, unknown>
-  load: Record<string, unknown>
-  subjective: Record<string, unknown>
-  body: Record<string, unknown>
-  metadata: Record<string, unknown>
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
-}
-
 export interface AtlasDigitalActivitySnapshot {
   id: string
   client_id: string
@@ -3060,12 +2918,6 @@ export interface AtlasMemoryMaintenanceResponse {
   memory_maintenance: AtlasMemoryMaintenance
 }
 
-export interface CapturesResponse {
-  captures: AtlasCapture[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
 export interface DomainsResponse {
   domains: AtlasDomain[]
 }
@@ -3114,12 +2966,6 @@ export interface CheckinsResponse {
 
 export interface PassiveSignalsResponse {
   passive_signals: AtlasPassiveSignal[]
-  next_cursor: string | null
-  has_more: boolean
-}
-
-export interface HealthSnapshotsResponse {
-  health_snapshots: AtlasHealthSnapshot[]
   next_cursor: string | null
   has_more: boolean
 }
@@ -3215,31 +3061,12 @@ export interface SyncDeltaResponse {
 }
 
 
-export function getCaptureFileUrl(captureId: string): string {
-  return `${getApiBase()}/captures/${encodeURIComponent(captureId)}/file`
-}
-
-export async function getHealth(): Promise<AtlasHealth> {
-  return apiGet<AtlasHealth>('/health', { auth: false })
-}
-
 export async function listDomains(params: { include_inactive?: boolean } = {}): Promise<DomainsResponse> {
   return apiGet<DomainsResponse>(`/domains${queryString(params)}`)
 }
 
 export async function createDomain(input: CreateAtlasDomainInput): Promise<AtlasDomain> {
   return apiPost<AtlasDomain>('/domains', input)
-}
-
-export async function listCaptures(params: {
-  since?: string | null
-  limit?: number
-  cursor?: string | null
-  domain?: DomainKey
-  kind?: CaptureKind
-  client_id?: string
-} = {}): Promise<CapturesResponse> {
-  return apiGet<CapturesResponse>(`/captures${queryString(params)}`)
 }
 
 export async function listInbox(params: {
@@ -3765,17 +3592,6 @@ export async function listPassiveSignals(params: {
   return apiGet<PassiveSignalsResponse>(`/passive-signals${queryString(params)}`)
 }
 
-export async function listHealthSnapshots(params: {
-  since?: string | null
-  limit?: number
-  cursor?: string | null
-  source?: AtlasHealthSnapshot['source']
-  date_from?: string
-  date_to?: string
-} = {}): Promise<HealthSnapshotsResponse> {
-  return apiGet<HealthSnapshotsResponse>(`/health-snapshots${queryString(params)}`)
-}
-
 export async function listDigitalActivitySnapshots(params: {
   since?: string | null
   limit?: number
@@ -3846,70 +3662,8 @@ export async function getBitaculaAnalysis(params: {
   return apiGet<BitaculaAnalysisResponse>(`/bitacula/analysis${queryString(params)}`)
 }
 
-export async function createTextCapture(input: StoreTextCaptureInput): Promise<AtlasCapture> {
-  return apiPost<AtlasCapture>('/captures', {
-    ...input,
-    kind: 'text',
-  })
-}
-
-export async function uploadCaptureFile(input: UploadCaptureFileInput): Promise<AtlasCapture> {
-  const form = new FormData()
-
-  appendForm(form, 'client_id', input.client_id)
-  appendForm(form, 'kind', input.kind)
-  appendForm(form, 'domain', input.domain)
-  appendForm(form, 'captured_at', input.captured_at)
-  appendForm(form, 'captured_timezone', input.captured_timezone)
-  appendForm(form, 'captured_lat', input.captured_lat)
-  appendForm(form, 'captured_lng', input.captured_lng)
-  appendForm(form, 'content_duration_ms', input.content_duration_ms)
-  appendForm(form, 'metadata', JSON.stringify(input.metadata ?? {}))
-
-  form.append('file', {
-    uri: input.file_uri,
-    name: input.file_name,
-    type: input.mime_type,
-  } as unknown as Blob)
-
-  return apiUpload<AtlasCapture>('/captures', form)
-}
-
-export async function patchCapture(
-  id: string,
-  patch: Partial<Pick<AtlasCapture, 'domain' | 'content_text' | 'content_duration_ms' | 'captured_at' | 'captured_timezone' | 'captured_lat' | 'captured_lng' | 'metadata'>>,
-): Promise<AtlasCapture> {
-  return apiPatch<AtlasCapture>(`/captures/${id}`, patch)
-}
-
-export async function deleteCapture(id: string): Promise<{
-  ok: boolean
-  deleted_capture_id: string
-  deletion: {
-    content_purged: boolean
-    file_deleted: boolean
-  }
-}> {
-  return apiDelete<{
-    ok: boolean
-    deleted_capture_id: string
-    deletion: {
-      content_purged: boolean
-      file_deleted: boolean
-    }
-  }>(`/captures/${id}`)
-}
-
-export async function retryCaptureTranscription(id: string): Promise<AtlasCapture> {
-  return apiPost<AtlasCapture>(`/captures/${encodeURIComponent(id)}/transcription/retry`, {})
-}
-
 export async function triageCapture(id: string, input: CaptureTriageInput): Promise<CaptureTriageResponse> {
   return apiPost<CaptureTriageResponse>(`/captures/${encodeURIComponent(id)}/triage`, input)
-}
-
-export async function clarifyCapture(id: string): Promise<{ capture: AtlasCapture }> {
-  return apiPost<{ capture: AtlasCapture }>(`/captures/${encodeURIComponent(id)}/semantic/clarify`, {})
 }
 
 export async function listCaptureProjectPlanProposals(id: string): Promise<ProjectPlanProposalsResponse> {
@@ -3956,10 +3710,6 @@ export async function createCheckin(input: StoreCheckinInput): Promise<AtlasChec
 
 export async function createPassiveSignal(input: StorePassiveSignalInput): Promise<AtlasPassiveSignal> {
   return apiPost<AtlasPassiveSignal>('/passive-signals', input)
-}
-
-export async function createHealthSnapshot(input: StoreHealthSnapshotInput): Promise<AtlasHealthSnapshot> {
-  return apiPost<AtlasHealthSnapshot>('/health-snapshots', input)
 }
 
 export async function createBehavior(input: StoreBehaviorInput): Promise<AtlasBehavior> {
@@ -5023,32 +4773,6 @@ export async function reviewAtlasMemoryRelation(
 }
 
 
-export interface StoreTextCaptureInput {
-  client_id: string
-  domain: DomainKey
-  content_text: string
-  captured_at: string
-  captured_timezone: string
-  captured_lat?: number | null
-  captured_lng?: number | null
-  metadata?: Record<string, unknown>
-}
-
-export interface UploadCaptureFileInput {
-  client_id: string
-  kind: Exclude<CaptureKind, 'text'>
-  domain: DomainKey
-  file_uri: string
-  file_name: string
-  mime_type: string
-  content_duration_ms?: number | null
-  captured_at: string
-  captured_timezone: string
-  captured_lat?: number | null
-  captured_lng?: number | null
-  metadata?: Record<string, unknown>
-}
-
 export interface StoreCheckinInput {
   client_id: string
   state: AtlasCheckin['state']
@@ -5072,56 +4796,6 @@ export interface StorePassiveSignalInput {
   recorded_timezone: string
   metadata?: Record<string, unknown>
   deleted_at?: string | null
-}
-
-export interface StoreHealthSnapshotInput {
-  client_id: string
-  source: AtlasHealthSnapshot['source']
-  snapshot_date: string
-  snapshot_timezone: string
-  computed_at: string
-  signal_count: number
-  readiness_score?: number | null
-  current_score?: number | null
-  body_score?: number | null
-  mind_score?: number | null
-  drive_score?: number | null
-  sleep_score?: number | null
-  autonomic_score?: number | null
-  load_score?: number | null
-  subjective_score?: number | null
-  stability_score?: number | null
-  confidence?: number | null
-  sleep_duration_hours?: number | null
-  sleep_efficiency?: number | null
-  hrv_ms?: number | null
-  resting_heart_rate_bpm?: number | null
-  respiratory_rate?: number | null
-  wrist_temperature_c?: number | null
-  active_energy_kcal?: number | null
-  basal_energy_kcal?: number | null
-  exercise_minutes?: number | null
-  stand_minutes?: number | null
-  steps?: number | null
-  walking_running_distance_m?: number | null
-  vo2max?: number | null
-  body_mass_kg?: number | null
-  body_fat_percentage?: number | null
-  lean_body_mass_kg?: number | null
-  muscle_mass_percentage?: number | null
-  body_mass_index?: number | null
-  waist_circumference_cm?: number | null
-  energy_level?: number | null
-  mood_level?: number | null
-  state?: AtlasCheckin['state'] | null
-  metrics?: Record<string, unknown>
-  readiness?: Record<string, unknown>
-  sleep?: Record<string, unknown>
-  recovery?: Record<string, unknown>
-  load?: Record<string, unknown>
-  subjective?: Record<string, unknown>
-  body?: Record<string, unknown>
-  metadata?: Record<string, unknown>
 }
 
 export interface StoreDigitalSessionInput {
@@ -5243,11 +4917,6 @@ export interface StoreBehaviorLogInput {
   metadata?: Record<string, unknown>
 }
 
-
-function appendForm(form: FormData, key: string, value: unknown): void {
-  if (value === undefined || value === null || value === '') return
-  form.append(key, String(value))
-}
 
 function currentMobileDevice(response: MobileDevicesResponse): AtlasMobileDevice | null {
   if (response.current_device?.id) return response.current_device
