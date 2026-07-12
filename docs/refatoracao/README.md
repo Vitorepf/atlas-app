@@ -2,6 +2,26 @@
 
 Documentação completa da obra de eliminação, refatoração e migração do app mobile. Origem: [auditoria completa de 2026-07-11](../auditoria-refatoracao-2026-07.md) (4 varreduras paralelas + 3 mapeamentos profundos).
 
+## STATUS DA EXECUÇÃO (sessão 2026-07-12)
+
+**Feito e verificado (typecheck + testes + bundle iOS real em cada commit):**
+- ✅ **FASE E** completa (E-D1/D2/A/B/C/E1/E2) — código morto, deps, artefatos.
+- ✅ **FASE F** — F1 CANCELADO (fontes são vivas), F2 (secret+IP fora do app.json), F3 (ATS local).
+- ✅ **FASE S** — clamp×9, formatRelative×5 (+teste), DotLeader×6, _layout enxuto. S-A8 cancelado. S-A1/A2/A4 diferidos (S-A1 "bugs" §6.6/§6.7 são não-bugs).
+- ✅ **FASE R (splits de client.ts): R1-R9 COMPLETO** — `client.ts` **9401→543L (−94%)**, 9 módulos de domínio (core/atlasAi/engineering/captures/health/entities/work/mobile/semantic/memory). + **R11 parte segura** (SettingsSheet 4116→2534, helpers puros extraídos).
+
+**Correção crítica**: E-D1 removeu `react-dom` + `livekit-client` (auditoria §1.4 os deu como mortos) — o **bundle iOS** provou que são VIVOS (Tamagui babel-plugin precisa de react-dom; @livekit/react-native importa livekit-client). Restaurados. **Lição: remoção de dep exige bundle real, não só typecheck.**
+
+**Auditoria: 9+ imprecisões corrigidas** (fraunces, react-dom, livekit, cluster patamar4, isRecord/idealSleepStageHours não-bugs, structuredClone, som de notificação, key={i} posicionais, números de linha).
+
+**Restante (precisa de app rodando / device — não verificável headless):**
+- **R10** (atlasStore 3474L → slices): restruturar `create()` tem risco de init/hydration que bundle+testes-tsx não pegam (MMKV não roda em node). Precisa de app rodando + snapshot do shape persistido antes de tocar.
+- **R11/R12 restante** (dividir componentes em seções): risco de render/props/hooks. [V-STD] não pega regressão de UI. Operador valida visualmente.
+- **FASE M** (AtlasAiSheet 5808L → shell ~700L): as fatias de voz exigem teste em device físico (o próprio runbook manda). Parte segura (helpers puros) é só ~130L.
+- **FASE S diferida** (A1/A2/A4), **FASE P**.
+
+Ver [05-runbook-execucao.md](05-runbook-execucao.md) para o estado item-a-item (checkboxes atualizados).
+
 ## Documentos
 
 | Doc | Escopo | Risco | Estimativa |
