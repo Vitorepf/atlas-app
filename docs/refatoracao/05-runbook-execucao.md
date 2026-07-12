@@ -248,6 +248,14 @@ Contratos das APIs dos hooks: [03 §7](03-migracao-atlas-ai.md). Teste manual po
 - **Requer app rodando + device. Não executável headless com segurança.**
 - [ ] M1 [ ] M2 [ ] M3 [ ] M4(backend) [ ] M5(device) [ ] M6 [ ] M7 [ ] M8
 
+#### 🔬 M1 · Análise de partição (feita headless — PROVA que M1 não é extração verbatim)
+Tentativa de extrair `useAtlasThread`/`useAtlasTraceStream` verbatim ABORTADA: o cluster thread NÃO particiona limpo. 4 cruzamentos de fronteira (cada um fatal a um move verbatim):
+1. **`loadThreadData`** (≈2075-2158) escreve 5 setters de OUTROS clusters: `setRouting`, `setProviderStatus`, `setObservability`, `setQualityActions`, `setContextSnapshots`. É um bootstrap "refresh-tudo", não thread-only. Lidos no render (≈5363-5667) e mutados por ≥8 callbacks que ficam (switchProvider, confirmRouting, runQualityAction, startNewThread, …).
+2. **`startTraceStream`** (≈2781-2911) lê refs do voice controller: `voiceTraceRuntimeTurnsRef`, `voiceFirstAssistantDeltaRecordedRef`.
+3. **Effect de reset/open** (≈2305-2347) reseta thread + submit ATOMICAMENTE juntos (`setPending(null)`, `setPendingThreadOrigin(null)` no meio dos resets de thread).
+4. **Effect drop-pending** (≈2501-2505) lê `traces` (thread) p/ escrever `setPending(null)` (submit).
+**Pré-requisito real de M1** (logic change, precisa de app rodando): quebrar `loadThreadData` em loader thread-only vs bootstrap routing/providers/observability/quality/context; içar os 2 refs de voz de `startTraceStream` (passar runtime-turn como arg). SÓ depois desse decoupling é que `useAtlasThread` extrai limpo. Confirma: FASE M inteira precisa de decoupling com verificação runtime, não é relocação mecânica.
+
 ### M1 · `useAtlasThread` + `useAtlasTraceStream` (risco ALTO)
 - Criar `components/sheets/atlas-ai/hooks/useAtlasThread.ts` e `useAtlasTraceStream.ts` conforme contrato [03 §7]. Mover: state 416/794-798, refs 1726-1733, `loadThreadData` 2075, `refresh` 2160, `startTraceStream` 2781, effects 2305-2567.
 - Regra: nenhum outro código toca os refs de stream — só via hook.
