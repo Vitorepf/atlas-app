@@ -34,7 +34,6 @@
     "update:preview": "npx eas-cli update --branch preview --message",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web",
     "audit:cartografia": "tsx scripts/cartografia-coverage-audit.ts",
     "test:cartografia": "tsx scripts/cartografia-coverage-audit.ts && tsx scripts/cartografia-visual-drilldown.test.ts && tsx scripts/cartografia-real-graph-coverage.test.ts && tsx scripts/cartografia-modal-contract.test.ts && tsx scripts/cartografia-navigation-contract.test.ts && tsx scripts/cartografia-search-coverage.test.ts && tsx scripts/cartografia-live-data-contract.test.ts"
   },

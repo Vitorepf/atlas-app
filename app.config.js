@@ -49,7 +49,9 @@ const expo = {
     ...(appJson.expo.plugins ?? []),
     '@livekit/react-native-expo-plugin',
     'expo-background-task',
-    'expo-notifications',
+    // expo-notifications stays declared once in app.json (with its custom
+    // atlas-bronze.wav sound); the bare re-append here was a dup that dropped
+    // that config. See runbook E-D2.
   ],
 }
 

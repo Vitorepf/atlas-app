@@ -37,7 +37,8 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   ```
   Em `../CLAUDE.md`-filho (`atlas-app/CLAUDE.md`): remover a linha `- **Forms**: react-hook-form + Zod`.
 - **Verificação**: [V-STD] + `npx expo-doctor` sem erro novo.
-- [ ] feito
+- **⚠️ Correção de auditoria**: `@expo-google-fonts/fraunces` está na lista de removíveis da auditoria (§1.4), mas é **VIVO** — `design/fonts.ts` importa e `app/_layout.tsx:44` carrega (gate do primeiro render). Removidas só 5 deps; fraunces mantida.
+- [x] feito
 
 ### E-D2 · Remover script `web` morto + dedup plugin expo-notifications
 - **Passos**: em `package.json` remover a linha `"web": "expo start --web",`. Em `app.json`, remover `expo-notifications` do array `plugins` (mantém o re-append de `app.config.js:52`, que é quem executa por último).
@@ -116,11 +117,9 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
 
 ## FASE F — FALHAS CRÍTICAS (auditoria §6.1-6.4) — 1 dia
 
-### F1 · Fontes referenciadas nunca carregadas
-- **Decisão embutida**: adotar opção (b) da auditoria — o app **nunca** carregou Inter/JetBrains Mono; a aparência atual É a fonte de sistema. Remover as strings mantém o visual exatamente igual e elimina 2 deps.
-- **Passos**: `grep -rn "Inter_400Regular\|Inter_500Medium\|JetBrainsMono_400Regular" --include='*.tsx' app components` → em cada hit, remover a prop `fontFamily` (deixa o default de sistema). Depois `npm uninstall @expo-google-fonts/inter @expo-google-fonts/jetbrains-mono`.
-- **Verificação**: [V-STD] + screenshot antes/depois de `app/health.tsx` idênticos.
-- [ ] feito
+### F1 · ~~Fontes referenciadas nunca carregadas~~ — CANCELADO (premissa falsa)
+- **⚠️ Auditoria errada**: §6.1 afirma que não existe `useFonts()/loadAsync()`. FALSO — `design/fonts.ts::useAtlasFonts()` carrega Fraunces + Inter + JetBrains Mono, chamado em `app/_layout.tsx:44` com `if (!fontsLoaded) return null` (gate do render). As 3 famílias são VIVAS. Não remover strings nem pacotes. Item cancelado.
+- [x] cancelado (nada a fazer)
 
 ### F2 · Secret e IP commitados em app.json
 - **Passos**: em `app.json`, remover `extra.atlas.apiToken`, `extra.atlas.apiHost`, `extra.atlas.liveKitUrl` (valores movem para `.env` local que o `app.config.js` já lê). Em `app.config.js`: onde o fallback silencioso cai no placeholder (`:26,44`), lançar `console.warn` explícito quando `../atlas-server/.env` não existir.
