@@ -68,7 +68,7 @@ Estado dos itens: marcar checkbox aqui neste arquivo ao concluir (este arquivo �
   **NÃO deletar** `ComposerPillsRowModel.ts` nem `scripts/composer-pills-row.test.ts` (vivos: `AtlasAiComposerFooter.tsx:9` importa `labelForMode`; o teste cobre o model).
   Em `AtlasAiDecideStatus.tsx:43-51`: remover o parâmetro `_executor` (documentava consumo pelo ComposerPillsRow morto) e atualizar os call sites (grep `AtlasAiDecideStatus`).
 - **Verificação**: [V-STD] + `npm run test:composer-pills`.
-- [ ] feito
+- [x] feito
 
 ### E-B · Deletar 3 rotas mortas (~526 linhas)
 - **Verificar antes**: `grep -rn "'/plan-visible'\|'/detail'\|'/decision'\|push('/detail\|push('/decision" --include='*.ts*' app components lib | grep -v "_layout\|FOCUSED_ROUTES"` → vazio.

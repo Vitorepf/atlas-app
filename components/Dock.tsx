@@ -33,7 +33,7 @@ import { RecordModeStrip } from './inbox/RecordModeStrip'
 // sem chrome de navegação. User volta pra outras rotas via "← Voltar" no
 // header do Atlas AI (que vai pra /edicao) e dali navega pelo dock normal.
 //
-// Outras rotas em FOCUSED_ROUTES (capture/detail/decision) seguem mesma
+// Outras rotas em FOCUSED_ROUTES (capture) seguem mesma
 // lógica · telas focused que ocupam atenção total, dock se retira.
 //
 // Implicação pro Modo Gravar: ele só está disponível quando o dock está
@@ -44,7 +44,7 @@ import { RecordModeStrip } from './inbox/RecordModeStrip'
 // `/cartografia` entra · canvas vivo de pan/zoom precisa de tela inteira
 // pra navegação dos dedos não competir com tap do dock. Sair via "←" do
 // header da própria Cartografia.
-const FOCUSED_ROUTES = new Set(['/', '/capture', '/detail', '/decision', '/cartografia'])
+const FOCUSED_ROUTES = new Set(['/', '/capture', '/cartografia'])
 const atlasLogoMarfim = require('../assets/brand/atlas-logo-marfim.png')
 
 // Animated Pressable · permite passar style array contendo animated styles
