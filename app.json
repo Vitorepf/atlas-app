@@ -26,7 +26,7 @@
         "NSCameraUsageDescription": "Atlas captura fotos com anotações para registro visual de momentos.",
         "NSPhotoLibraryUsageDescription": "Atlas acessa fotos quando você quiser anexar uma imagem a uma captura.",
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsLocalNetworking": true
         },
         "UIBackgroundModes": [
           "audio",
